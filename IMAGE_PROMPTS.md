@@ -97,10 +97,19 @@ The supplied Flow market image is integrated at `public/images/speaking/market-c
 
 The attached files have already been placed and integrated:
 
-- Listening cards use the seven supplied illustrations through `src/listening.ts`.
+- Listening cards use the seven supplied illustrations. Their paths are seeded from `api/seeds/catalog.json` into SQLite on first installation, then managed in Studio Admin.
 - The A2 market picture task uses `/learnenglish/images/speaking/market-conversation-scene-flow.jpg`.
 - IELTS-style Part 2 speaking units use `/learnenglish/images/speaking/speaking-cue-card-practice.jpg` as a supplementary visual.
 
-For future images, review/crop the Flow export, save a JPEG under the matching `public/images/...` source directory, add the production URL to the lesson/unit data, run `npm run build`, and verify the URL under `/learnenglish/images/...`. Never describe an illustration as an official IELTS test part.
+For future images, review/crop the Flow export, save a JPEG under the matching `public/images/...` source directory, then **edit the lesson/unit path in Studio Admin** for an existing installation. To update the defaults for new installations, edit the seed JSON as well. Run `npm run build`, verify the URL under `/learnenglish/images/...`, and deploy the new asset. Changing the seed alone never updates an existing SQLite database. Never describe an illustration as an official IELTS test part.
 
 Do not add fabricated video imagery or lesson activities. Illustrations support context only; Listening answers remain tied to the fixed audio script and deterministic answer key.
+
+## Additional UI artwork — SpeakUp adventure
+
+**Filename:** `speakup-adventure.png`
+**Save to:** `public/images/speakup-adventure.png`
+**Production URL:** `/learnenglish/images/speakup-adventure.png`
+**Usage:** login/register split-screen and dashboard banner (presented with gradient overlays for legible text). This new AI-generated decorative asset is separate from the supplied Google Flow lesson illustrations above.
+
+**Creative brief:** Wide, clean editorial vector-like illustration of two friendly adult learners celebrating a small language-learning milestone together at a desk, simple book, headphones, subtle stars and paper details. Cheerful purple/lavender, peach and coral palette on a soft neutral background, broad whitespace and crop-safe composition, no readable text, branding, watermarks, flags or official exam symbols. Visuals convey encouragement, **not** a certified test result.

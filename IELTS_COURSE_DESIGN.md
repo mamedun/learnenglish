@@ -19,6 +19,12 @@ IELTS Speaking resmi berlangsung 11–14 menit dan terdiri dari tiga bagian: Par
 
 Tabel jenjang CEFR dan IELTS **bukan ekuivalensi satu-banding-satu**. IELTS sendiri menjelaskan pemetaan CEFR bersifat kompleks. Panduan umum yang dipublikasikan IELTS menempatkan B1 sekitar 4.0–5.0, B2 5.5–6.5, C1 7.0–8.0, C2 8.5–9.0; A1/A2 tidak diberi padanan band pada tabel tersebut. Untuk itu UI menggunakan label “rough guide”, bukan syarat masuk atau jaminan skor. Sumber: https://ielts.org/organisations/ielts-for-organisations/compare-ielts/ielts-and-the-cefr dan https://ielts.org/news-and-insights/finding-the-right-english-proficiency-test-for-you.
 
+## Implementasi katalog yang dapat diedit
+
+Kurikulum di atas disimpan di SQLite (`course_levels`, `speaking_units`, `listening_lessons`, dan `listening_questions`); `api/seeds/catalog.json` adalah bahan inisialisasi satu kali untuk database kosong. Admin dapat menambah, menyunting, memublikasikan, dan mengarsipkan materi serta kunci soal dari Studio tanpa mengubah bundel React. ID materi yang diarsipkan tidak dihapus agar referensi progres lama tetap tersedia. Jawaban listening hanya tersedia untuk admin dan endpoint pemeriksaan server; katalog peserta tidak memuat kunci. Skrip listening tetap berada di katalog peserta untuk speech synthesis browser. Perubahan soal yang sedang dikerjakan peserta sebaiknya diterbitkan di luar sesi aktif karena ID pertanyaan diperbarui pada saat penyimpanan. Lihat README untuk pro/kontra, backup dan deployment SQLite.
+
+XP, streak, dan badge adalah penghargaan motivasional, **bukan nilai IELTS** dan bukan bukti anti-cheat. Progres client yang tersimpan di server tidak digunakan sebagai catatan sertifikasi.
+
 ## Rubrik latihan dan transparansi AI
 
 Setiap respons dapat menerima bintang 1–5 sebagai feedback/momentum produk, **terpisah dari band IELTS**. Empat kriteria IELTS-style ditampilkan dalam skala 0–9 dengan interval 0.5 hanya bila ada cukup bukti. Transcript teks bisa membantu memberi feedback kosakata dan grammar, tetapi tidak cukup untuk menilai jeda, kecepatan, intelligibility, stress/intonasi atau pronunciation dengan andal. Dalam implementasi saat ini, pronunciation ditandai `not_scored`, dan Fluency & Coherence ditandai `provisional`/kosong bila tidak ada bukti audio. Overall speaking band dibiarkan kosong jika empat kriteria tidak bisa dinilai. Jangan tampilkan skor sebagai “resmi”.

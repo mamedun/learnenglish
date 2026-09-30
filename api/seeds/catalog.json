@@ -1,0 +1,1311 @@
+{
+  "levels": [
+    {
+      "id": "A1",
+      "name": "Beginner",
+      "label": "Fondasi speaking",
+      "color": "#DAF5E9",
+      "bandGuide": "Fondasi prates IELTS — IELTS tidak menetapkan padanan band resmi untuk A1.",
+      "units": [
+        {
+          "id": "A1-U1",
+          "title": "Introductions",
+          "subtitle": "Memperkenalkan diri dengan kalimat sederhana",
+          "prompt": "What is your name? Where are you from?",
+          "emoji": "👋",
+          "duration": "3–4 menit",
+          "level": "A1",
+          "objective": "Memperkenalkan diri dengan kalimat sederhana",
+          "part": "IELTS-style Part 1 · familiar topics",
+          "questionType": "Short personal questions",
+          "bandTarget": "Foundation before IELTS band interpretation",
+          "prepSeconds": 0,
+          "responseSeconds": 30
+        },
+        {
+          "id": "A1-U2",
+          "title": "Home & neighbourhood",
+          "subtitle": "Mendeskripsikan rumah dan lingkungan",
+          "prompt": "Do you live in a house or an apartment? Tell me about your neighbourhood.",
+          "emoji": "☕",
+          "duration": "3–4 menit",
+          "level": "A1",
+          "objective": "Mendeskripsikan rumah dan lingkungan",
+          "part": "IELTS-style Part 1 · familiar topics",
+          "questionType": "Short personal questions",
+          "bandTarget": "Foundation before IELTS band interpretation",
+          "prepSeconds": 0,
+          "responseSeconds": 30
+        },
+        {
+          "id": "A1-U3",
+          "title": "Family & friends",
+          "subtitle": "Mendeskripsikan orang terdekat",
+          "prompt": "Tell me about someone in your family.",
+          "emoji": "🧭",
+          "duration": "3–4 menit",
+          "level": "A1",
+          "objective": "Mendeskripsikan orang terdekat",
+          "part": "IELTS-style Part 1 · familiar topics",
+          "questionType": "Short personal questions",
+          "bandTarget": "Foundation before IELTS band interpretation",
+          "prepSeconds": 0,
+          "responseSeconds": 30
+        },
+        {
+          "id": "A1-U4",
+          "title": "Daily routine",
+          "subtitle": "Bercerita singkat tentang rutinitas",
+          "prompt": "What do you usually do in the morning?",
+          "emoji": "💬",
+          "duration": "3–4 menit",
+          "level": "A1",
+          "objective": "Bercerita singkat tentang rutinitas",
+          "part": "IELTS-style Part 1 · familiar topics",
+          "questionType": "Short personal questions",
+          "bandTarget": "Foundation before IELTS band interpretation",
+          "prepSeconds": 0,
+          "responseSeconds": 30
+        },
+        {
+          "id": "A1-U5",
+          "title": "Likes & hobbies",
+          "subtitle": "Menjawab pertanyaan familiar dan memberi alasan sederhana",
+          "prompt": "What do you like doing in your free time?",
+          "emoji": "✈️",
+          "duration": "3–4 menit",
+          "level": "A1",
+          "objective": "Menjawab pertanyaan familiar dan memberi alasan sederhana",
+          "part": "IELTS-style Part 1 · familiar topics",
+          "questionType": "Short personal questions",
+          "bandTarget": "Foundation before IELTS band interpretation",
+          "prepSeconds": 0,
+          "responseSeconds": 30
+        },
+        {
+          "id": "A1-U6",
+          "title": "Food & drink",
+          "subtitle": "Memesan dan menyebutkan preferensi",
+          "prompt": "What kind of food do you like?",
+          "emoji": "🗣️",
+          "duration": "3–4 menit",
+          "level": "A1",
+          "objective": "Memesan dan menyebutkan preferensi",
+          "part": "IELTS-style Part 1 · familiar topics",
+          "questionType": "Short personal questions",
+          "bandTarget": "Foundation before IELTS band interpretation",
+          "prepSeconds": 0,
+          "responseSeconds": 30
+        },
+        {
+          "id": "A1-U7",
+          "title": "Study & work",
+          "subtitle": "Berbicara tentang sekolah atau pekerjaan",
+          "prompt": "Do you work or are you a student?",
+          "emoji": "🧩",
+          "duration": "3–4 menit",
+          "level": "A1",
+          "objective": "Berbicara tentang sekolah atau pekerjaan",
+          "part": "IELTS-style Part 1 · familiar topics",
+          "questionType": "Short personal questions",
+          "bandTarget": "Foundation before IELTS band interpretation",
+          "prepSeconds": 0,
+          "responseSeconds": 30
+        },
+        {
+          "id": "A1-U8",
+          "title": "A1 speaking checkpoint",
+          "subtitle": "Menjawab pertanyaan pendek tentang topik familiar",
+          "prompt": "Let’s talk about your home, daily routine and hobbies.",
+          "emoji": "✨",
+          "duration": "3–4 menit",
+          "level": "A1",
+          "objective": "Menjawab pertanyaan pendek tentang topik familiar",
+          "part": "IELTS-style Part 1 · familiar topics",
+          "questionType": "Short personal questions",
+          "bandTarget": "Foundation before IELTS band interpretation",
+          "prepSeconds": 0,
+          "responseSeconds": 30
+        }
+      ]
+    },
+    {
+      "id": "A2",
+      "name": "Elementary",
+      "label": "Jawaban berkembang",
+      "color": "#FFF0CC",
+      "bandGuide": "Jembatan ke IELTS-style Speaking Part 1 — bukan konversi skor resmi.",
+      "units": [
+        {
+          "id": "A2-U1",
+          "title": "Describe a market scene",
+          "subtitle": "Amati gambar, sebutkan orang, kegiatan, tempat dan detail yang terlihat",
+          "prompt": "Describe what is happening in the picture. What might the people be doing?",
+          "emoji": "👋",
+          "duration": "3–4 menit",
+          "level": "A2",
+          "objective": "Amati gambar, sebutkan orang, kegiatan, tempat dan detail yang terlihat",
+          "part": "Visual conversation enrichment · not an official IELTS Speaking task",
+          "questionType": "Picture description · observe, describe, infer",
+          "bandTarget": "A2 vocabulary and speaking practice",
+          "prepSeconds": 0,
+          "responseSeconds": 30,
+          "image": "/learnenglish/images/speaking/market-conversation-scene-flow.jpg",
+          "imageContext": "In the visible illustration, a market vendor hands a paper bag of oranges to a customer; another shopper compares tomatoes; a parent stands with a child; stalls display vegetables and flowers. Only treat these as visible details; any motives or background story are learner inferences, not facts."
+        },
+        {
+          "id": "A2-U2",
+          "title": "Travel & transport",
+          "subtitle": "Menceritakan perjalanan dan memberi detail",
+          "prompt": "How do you usually travel around your city?",
+          "emoji": "☕",
+          "duration": "3–4 menit",
+          "level": "A2",
+          "objective": "Menceritakan perjalanan dan memberi detail",
+          "part": "IELTS-style Part 1 · familiar topics",
+          "questionType": "Short personal questions",
+          "bandTarget": "Foundation before IELTS band interpretation",
+          "prepSeconds": 0,
+          "responseSeconds": 30
+        },
+        {
+          "id": "A2-U3",
+          "title": "Shopping & services",
+          "subtitle": "Mengajukan pertanyaan dan menyelesaikan transaksi",
+          "prompt": "Tell me about something useful you bought recently.",
+          "emoji": "🧭",
+          "duration": "3–4 menit",
+          "level": "A2",
+          "objective": "Mengajukan pertanyaan dan menyelesaikan transaksi",
+          "part": "IELTS-style Part 1 · familiar topics",
+          "questionType": "Short personal questions",
+          "bandTarget": "Foundation before IELTS band interpretation",
+          "prepSeconds": 0,
+          "responseSeconds": 30
+        },
+        {
+          "id": "A2-U4",
+          "title": "A memorable day",
+          "subtitle": "Menceritakan pengalaman lampau secara runtut",
+          "prompt": "Describe a day you really enjoyed.",
+          "emoji": "💬",
+          "duration": "3–4 menit",
+          "level": "A2",
+          "objective": "Menceritakan pengalaman lampau secara runtut",
+          "part": "IELTS-style Part 1 · familiar topics",
+          "questionType": "Short personal questions",
+          "bandTarget": "Foundation before IELTS band interpretation",
+          "prepSeconds": 0,
+          "responseSeconds": 30
+        },
+        {
+          "id": "A2-U5",
+          "title": "Plans & invitations",
+          "subtitle": "Membicarakan rencana dan alasan",
+          "prompt": "What would you like to do next weekend?",
+          "emoji": "✈️",
+          "duration": "3–4 menit",
+          "level": "A2",
+          "objective": "Membicarakan rencana dan alasan",
+          "part": "IELTS-style Part 1 · familiar topics",
+          "questionType": "Short personal questions",
+          "bandTarget": "Foundation before IELTS band interpretation",
+          "prepSeconds": 0,
+          "responseSeconds": 30
+        },
+        {
+          "id": "A2-U6",
+          "title": "Food traditions",
+          "subtitle": "Membandingkan kebiasaan makan",
+          "prompt": "What food is popular in your hometown?",
+          "emoji": "🗣️",
+          "duration": "3–4 menit",
+          "level": "A2",
+          "objective": "Membandingkan kebiasaan makan",
+          "part": "IELTS-style Part 1 · familiar topics",
+          "questionType": "Short personal questions",
+          "bandTarget": "Foundation before IELTS band interpretation",
+          "prepSeconds": 0,
+          "responseSeconds": 30
+        },
+        {
+          "id": "A2-U7",
+          "title": "Weather & seasons",
+          "subtitle": "Menjawab pertanyaan topik familiar dengan detail",
+          "prompt": "What kind of weather do you enjoy? Why?",
+          "emoji": "🧩",
+          "duration": "3–4 menit",
+          "level": "A2",
+          "objective": "Menjawab pertanyaan topik familiar dengan detail",
+          "part": "IELTS-style Part 1 · familiar topics",
+          "questionType": "Short personal questions",
+          "bandTarget": "Foundation before IELTS band interpretation",
+          "prepSeconds": 0,
+          "responseSeconds": 30
+        },
+        {
+          "id": "A2-U8",
+          "title": "A2 Part 1 checkpoint",
+          "subtitle": "Memberi jawaban lebih lengkap dengan contoh sederhana",
+          "prompt": "Let’s talk about where you live, food and free time.",
+          "emoji": "✨",
+          "duration": "3–4 menit",
+          "level": "A2",
+          "objective": "Memberi jawaban lebih lengkap dengan contoh sederhana",
+          "part": "IELTS-style Part 1 · familiar topics",
+          "questionType": "Short personal questions",
+          "bandTarget": "Foundation before IELTS band interpretation",
+          "prepSeconds": 0,
+          "responseSeconds": 30
+        }
+      ]
+    },
+    {
+      "id": "B1",
+      "name": "Intermediate",
+      "label": "Mandiri & terstruktur",
+      "color": "#EAE7FF",
+      "bandGuide": "Pengembangan menuju B1; IELTS sekitar band 4–5 hanya sebagai gambaran kasar.",
+      "units": [
+        {
+          "id": "B1-U1",
+          "title": "Free time & interests",
+          "subtitle": "Memperluas jawaban Part 1 dengan alasan dan contoh",
+          "prompt": "How has the way people spend their free time changed?",
+          "emoji": "👋",
+          "duration": "3–4 menit",
+          "level": "B1",
+          "objective": "Memperluas jawaban Part 1 dengan alasan dan contoh",
+          "part": "IELTS-style Part 1 · familiar topics",
+          "questionType": "Short personal questions",
+          "bandTarget": "Developing · roughly IELTS 4–5 guide",
+          "prepSeconds": 0,
+          "responseSeconds": 30
+        },
+        {
+          "id": "B1-U2",
+          "title": "Your hometown",
+          "subtitle": "Mendeskripsikan perubahan dan pengalaman",
+          "prompt": "What do you like most about the place where you grew up?",
+          "emoji": "☕",
+          "duration": "3–4 menit",
+          "level": "B1",
+          "objective": "Mendeskripsikan perubahan dan pengalaman",
+          "part": "IELTS-style Part 1 · familiar topics",
+          "questionType": "Short personal questions",
+          "bandTarget": "Developing · roughly IELTS 4–5 guide",
+          "prepSeconds": 0,
+          "responseSeconds": 30
+        },
+        {
+          "id": "B1-U3",
+          "title": "Study, work & goals",
+          "subtitle": "Menjelaskan pengalaman dan tujuan",
+          "prompt": "What skill would you like to develop for your future career?",
+          "emoji": "🧭",
+          "duration": "3–4 menit",
+          "level": "B1",
+          "objective": "Menjelaskan pengalaman dan tujuan",
+          "part": "IELTS-style Part 1 · familiar topics",
+          "questionType": "Short personal questions",
+          "bandTarget": "Developing · roughly IELTS 4–5 guide",
+          "prepSeconds": 0,
+          "responseSeconds": 30
+        },
+        {
+          "id": "B1-U4",
+          "title": "Technology in daily life",
+          "subtitle": "Membandingkan kebiasaan dan memberi opini",
+          "prompt": "How has technology changed the way people communicate?",
+          "emoji": "💬",
+          "duration": "3–4 menit",
+          "level": "B1",
+          "objective": "Membandingkan kebiasaan dan memberi opini",
+          "part": "IELTS-style Part 1 · familiar topics",
+          "questionType": "Short personal questions",
+          "bandTarget": "Developing · roughly IELTS 4–5 guide",
+          "prepSeconds": 0,
+          "responseSeconds": 30
+        },
+        {
+          "id": "B1-U5",
+          "title": "Cue card: a person",
+          "subtitle": "Berbicara 1–2 menit dengan struktur awal-tengah-akhir",
+          "prompt": "Describe a person who has influenced you\nYou should say:\n• who this person is\n• how you know them\n• what qualities you admire\nAnd explain why it was important to you.\n\nFollow-up: How has this person influenced your choices?",
+          "emoji": "✈️",
+          "duration": "3–5 menit",
+          "level": "B1",
+          "objective": "Berbicara 1–2 menit dengan struktur awal-tengah-akhir",
+          "part": "IELTS-style Part 2 · individual long turn",
+          "questionType": "Cue card · prepare 1 minute, speak 1–2 minutes",
+          "bandTarget": "Developing · roughly IELTS 4–5 guide",
+          "prepSeconds": 60,
+          "responseSeconds": 120
+        },
+        {
+          "id": "B1-U6",
+          "title": "Cue card: a place",
+          "subtitle": "Mengembangkan deskripsi tempat dengan detail sensorik",
+          "prompt": "Describe a place you enjoy visiting\nYou should say:\n• where it is\n• when you first went there\n• what you do there\nAnd explain why it was important to you.\n\nFollow-up: Why do people need places to relax?",
+          "emoji": "🗣️",
+          "duration": "3–5 menit",
+          "level": "B1",
+          "objective": "Mengembangkan deskripsi tempat dengan detail sensorik",
+          "part": "IELTS-style Part 2 · individual long turn",
+          "questionType": "Cue card · prepare 1 minute, speak 1–2 minutes",
+          "bandTarget": "Developing · roughly IELTS 4–5 guide",
+          "prepSeconds": 60,
+          "responseSeconds": 120
+        },
+        {
+          "id": "B1-U7",
+          "title": "Cue card: an experience",
+          "subtitle": "Menceritakan pengalaman, perasaan dan hasil",
+          "prompt": "Describe an experience that taught you something\nYou should say:\n• what happened\n• who was with you\n• what you learned\nAnd explain why it was important to you.\n\nFollow-up: Why do people learn from experience?",
+          "emoji": "🧩",
+          "duration": "3–5 menit",
+          "level": "B1",
+          "objective": "Menceritakan pengalaman, perasaan dan hasil",
+          "part": "IELTS-style Part 2 · individual long turn",
+          "questionType": "Cue card · prepare 1 minute, speak 1–2 minutes",
+          "bandTarget": "Developing · roughly IELTS 4–5 guide",
+          "prepSeconds": 60,
+          "responseSeconds": 120
+        },
+        {
+          "id": "B1-U8",
+          "title": "B1 speaking checkpoint",
+          "subtitle": "Menggabungkan Part 1 dan long turn Part 2",
+          "prompt": "B1 speaking checkpoint\nYou should say:\n• Menggabungkan Part 1 dan long turn Part 2\n• what happened and who was involved\n• what you learned or how you felt\nAnd explain why it was important to you.\n\nFollow-up: Tell me about your interests, then describe a meaningful experience.",
+          "emoji": "✨",
+          "duration": "3–5 menit",
+          "level": "B1",
+          "objective": "Menggabungkan Part 1 dan long turn Part 2",
+          "part": "IELTS-style Part 2 · individual long turn",
+          "questionType": "Cue card · prepare 1 minute, speak 1–2 minutes",
+          "bandTarget": "Developing · roughly IELTS 4–5 guide",
+          "prepSeconds": 60,
+          "responseSeconds": 120
+        }
+      ]
+    },
+    {
+      "id": "B2",
+      "name": "Upper intermediate",
+      "label": "Spontan & analitis",
+      "color": "#FFE0DB",
+      "bandGuide": "B2 sering beririsan dengan IELTS 5.5–6.5; hubungan level dan band tidak satu-banding-satu.",
+      "units": [
+        {
+          "id": "B2-U1",
+          "title": "Work-life balance",
+          "subtitle": "Menjawab topik familiar secara spontan",
+          "prompt": "How important is work-life balance in modern society?",
+          "emoji": "👋",
+          "duration": "3–4 menit",
+          "level": "B2",
+          "objective": "Menjawab topik familiar secara spontan",
+          "part": "IELTS-style Part 1 · familiar topics",
+          "questionType": "Short personal questions",
+          "bandTarget": "Independent · roughly IELTS 5.5–6.5 guide",
+          "prepSeconds": 0,
+          "responseSeconds": 30
+        },
+        {
+          "id": "B2-U2",
+          "title": "Travel & culture",
+          "subtitle": "Membandingkan pengalaman dan perspektif",
+          "prompt": "How can travel change a person’s understanding of other cultures?",
+          "emoji": "☕",
+          "duration": "3–4 menit",
+          "level": "B2",
+          "objective": "Membandingkan pengalaman dan perspektif",
+          "part": "IELTS-style Part 1 · familiar topics",
+          "questionType": "Short personal questions",
+          "bandTarget": "Independent · roughly IELTS 5.5–6.5 guide",
+          "prepSeconds": 0,
+          "responseSeconds": 30
+        },
+        {
+          "id": "B2-U3",
+          "title": "Describe a useful skill",
+          "subtitle": "Menyampaikan long turn koheren dengan contoh",
+          "prompt": "Describe a practical skill you learned\nYou should say:\n• what the skill is\n• how you learned it\n• how long it took\nAnd explain why it was important to you.\n\nFollow-up: Should practical skills be taught at school?",
+          "emoji": "🧭",
+          "duration": "3–4 menit",
+          "level": "B2",
+          "objective": "Menyampaikan long turn koheren dengan contoh",
+          "part": "IELTS-style Part 1 · familiar topics",
+          "questionType": "Short personal questions",
+          "bandTarget": "Independent · roughly IELTS 5.5–6.5 guide",
+          "prepSeconds": 0,
+          "responseSeconds": 30
+        },
+        {
+          "id": "B2-U4",
+          "title": "Education & opportunity",
+          "subtitle": "Menghubungkan topik Part 2 ke isu yang lebih umum",
+          "prompt": "Education & opportunity\nYou should say:\n• Menghubungkan topik Part 2 ke isu yang lebih umum\n• what happened and who was involved\n• what you learned or how you felt\nAnd explain why it was important to you.\n\nFollow-up: Let’s discuss this in a more general way. How has access to education changed in recent decades?",
+          "emoji": "💬",
+          "duration": "3–5 menit",
+          "level": "B2",
+          "objective": "Menghubungkan topik Part 2 ke isu yang lebih umum",
+          "part": "IELTS-style Part 2 · long turn",
+          "questionType": "Cue card · prepare 1 minute, speak 1–2 minutes",
+          "bandTarget": "Independent · roughly IELTS 5.5–6.5 guide",
+          "prepSeconds": 60,
+          "responseSeconds": 120
+        },
+        {
+          "id": "B2-U5",
+          "title": "Technology & society",
+          "subtitle": "Membandingkan manfaat, risiko dan dampak",
+          "prompt": "Let’s discuss this in a more general way. Do the benefits of social media outweigh its disadvantages?",
+          "emoji": "✈️",
+          "duration": "3–4 menit",
+          "level": "B2",
+          "objective": "Membandingkan manfaat, risiko dan dampak",
+          "part": "IELTS-style Part 3 · discussion",
+          "questionType": "Abstract discussion · explain, compare, speculate",
+          "bandTarget": "Independent · roughly IELTS 5.5–6.5 guide",
+          "prepSeconds": 0,
+          "responseSeconds": 60
+        },
+        {
+          "id": "B2-U6",
+          "title": "Cities & communities",
+          "subtitle": "Berspekulasi tentang perubahan sosial",
+          "prompt": "Let’s discuss this in a more general way. What makes a city a good place for young people to live?",
+          "emoji": "🗣️",
+          "duration": "3–4 menit",
+          "level": "B2",
+          "objective": "Berspekulasi tentang perubahan sosial",
+          "part": "IELTS-style Part 3 · discussion",
+          "questionType": "Abstract discussion · explain, compare, speculate",
+          "bandTarget": "Independent · roughly IELTS 5.5–6.5 guide",
+          "prepSeconds": 0,
+          "responseSeconds": 60
+        },
+        {
+          "id": "B2-U7",
+          "title": "Environment & choices",
+          "subtitle": "Mengembangkan argumen dengan sebab-akibat",
+          "prompt": "Let’s discuss this in a more general way. How much responsibility should individuals take for protecting the environment?",
+          "emoji": "🧩",
+          "duration": "3–4 menit",
+          "level": "B2",
+          "objective": "Mengembangkan argumen dengan sebab-akibat",
+          "part": "IELTS-style Part 3 · discussion",
+          "questionType": "Abstract discussion · explain, compare, speculate",
+          "bandTarget": "Independent · roughly IELTS 5.5–6.5 guide",
+          "prepSeconds": 0,
+          "responseSeconds": 60
+        },
+        {
+          "id": "B2-U8",
+          "title": "B2 speaking checkpoint",
+          "subtitle": "Simulasi Part 1, Part 2 dan diskusi Part 3",
+          "prompt": "Let’s discuss this in a more general way. Let’s discuss a skill you learned and the role of education in society.",
+          "emoji": "✨",
+          "duration": "3–4 menit",
+          "level": "B2",
+          "objective": "Simulasi Part 1, Part 2 dan diskusi Part 3",
+          "part": "IELTS-style Part 3 · discussion",
+          "questionType": "Abstract discussion · explain, compare, speculate",
+          "bandTarget": "Independent · roughly IELTS 5.5–6.5 guide",
+          "prepSeconds": 0,
+          "responseSeconds": 60
+        }
+      ]
+    },
+    {
+      "id": "C1",
+      "name": "Advanced",
+      "label": "Mahir profesional",
+      "color": "#DDF4FA",
+      "bandGuide": "C1 umumnya beririsan sekitar IELTS 7–8; band AI adalah estimasi latihan, bukan hasil resmi.",
+      "units": [
+        {
+          "id": "C1-U1",
+          "title": "Nuanced opinions",
+          "subtitle": "Mengutarakan opini dengan kualifikasi dan contoh",
+          "prompt": "To what extent should governments influence people’s lifestyle choices?",
+          "emoji": "👋",
+          "duration": "3–4 menit",
+          "level": "C1",
+          "objective": "Mengutarakan opini dengan kualifikasi dan contoh",
+          "part": "IELTS-style Part 1 · familiar topics",
+          "questionType": "Short personal questions",
+          "bandTarget": "Advanced · roughly IELTS 7–8 guide",
+          "prepSeconds": 0,
+          "responseSeconds": 30
+        },
+        {
+          "id": "C1-U2",
+          "title": "Describe a turning point",
+          "subtitle": "Mengelola long turn secara natural dan detail",
+          "prompt": "Describe a decision that had a significant impact on your life\nYou should say:\n• what the decision was\n• what options you considered\n• what happened as a result\nAnd explain why it was important to you.\n\nFollow-up: Why do people sometimes find important decisions difficult?",
+          "emoji": "☕",
+          "duration": "3–4 menit",
+          "level": "C1",
+          "objective": "Mengelola long turn secara natural dan detail",
+          "part": "IELTS-style Part 1 · familiar topics",
+          "questionType": "Short personal questions",
+          "bandTarget": "Advanced · roughly IELTS 7–8 guide",
+          "prepSeconds": 0,
+          "responseSeconds": 30
+        },
+        {
+          "id": "C1-U3",
+          "title": "Innovation & responsibility",
+          "subtitle": "Menimbang trade-off dalam diskusi abstrak",
+          "prompt": "Let’s discuss this in a more general way. Let’s discuss this in a more general way. Who should be responsible when new technology causes social harm?",
+          "emoji": "🧭",
+          "duration": "3–4 menit",
+          "level": "C1",
+          "objective": "Menimbang trade-off dalam diskusi abstrak",
+          "part": "IELTS-style Part 3 · discussion",
+          "questionType": "Extended discussion · develop and justify ideas",
+          "bandTarget": "Advanced · roughly IELTS 7–8 guide",
+          "prepSeconds": 0,
+          "responseSeconds": 75
+        },
+        {
+          "id": "C1-U4",
+          "title": "Culture & identity",
+          "subtitle": "Menyampaikan nuansa dan perspektif berbeda",
+          "prompt": "Let’s discuss this in a more general way. How does globalisation affect local culture?",
+          "emoji": "💬",
+          "duration": "3–4 menit",
+          "level": "C1",
+          "objective": "Menyampaikan nuansa dan perspektif berbeda",
+          "part": "IELTS-style Part 3 · discussion",
+          "questionType": "Extended discussion · develop and justify ideas",
+          "bandTarget": "Advanced · roughly IELTS 7–8 guide",
+          "prepSeconds": 0,
+          "responseSeconds": 75
+        },
+        {
+          "id": "C1-U5",
+          "title": "Workplace communication",
+          "subtitle": "Memberi feedback diplomatis dan presisi",
+          "prompt": "Let’s discuss this in a more general way. How can organisations encourage people to share different opinions?",
+          "emoji": "✈️",
+          "duration": "3–4 menit",
+          "level": "C1",
+          "objective": "Memberi feedback diplomatis dan presisi",
+          "part": "IELTS-style Part 3 · discussion",
+          "questionType": "Extended discussion · develop and justify ideas",
+          "bandTarget": "Advanced · roughly IELTS 7–8 guide",
+          "prepSeconds": 0,
+          "responseSeconds": 75
+        },
+        {
+          "id": "C1-U6",
+          "title": "Public policy",
+          "subtitle": "Membangun argumen yang seimbang",
+          "prompt": "Let’s discuss this in a more general way. Should cities prioritise public transport over private cars?",
+          "emoji": "🗣️",
+          "duration": "3–4 menit",
+          "level": "C1",
+          "objective": "Membangun argumen yang seimbang",
+          "part": "IELTS-style Part 3 · discussion",
+          "questionType": "Extended discussion · develop and justify ideas",
+          "bandTarget": "Advanced · roughly IELTS 7–8 guide",
+          "prepSeconds": 0,
+          "responseSeconds": 75
+        },
+        {
+          "id": "C1-U7",
+          "title": "Uncertainty & evidence",
+          "subtitle": "Menyatakan batas bukti dan tingkat kepastian",
+          "prompt": "Let’s discuss this in a more general way. How should people make decisions when reliable information is limited?",
+          "emoji": "🧩",
+          "duration": "3–4 menit",
+          "level": "C1",
+          "objective": "Menyatakan batas bukti dan tingkat kepastian",
+          "part": "IELTS-style Part 3 · discussion",
+          "questionType": "Extended discussion · develop and justify ideas",
+          "bandTarget": "Advanced · roughly IELTS 7–8 guide",
+          "prepSeconds": 0,
+          "responseSeconds": 75
+        },
+        {
+          "id": "C1-U8",
+          "title": "C1 full speaking mock",
+          "subtitle": "Simulasi Speaking IELTS-style 11–14 menit, tiga bagian",
+          "prompt": "Begin with familiar questions, continue with a cue card, then explore broader issues.",
+          "emoji": "✨",
+          "duration": "11–14 menit",
+          "level": "C1",
+          "objective": "Simulasi Speaking IELTS-style 11–14 menit, tiga bagian",
+          "part": "Speaking mock · Parts 1–3",
+          "questionType": "Timed mock interview · 11–14 minutes",
+          "bandTarget": "Advanced · roughly IELTS 7–8 guide",
+          "prepSeconds": 60,
+          "responseSeconds": 840
+        }
+      ]
+    },
+    {
+      "id": "C2",
+      "name": "Proficient",
+      "label": "Presisi & fleksibel",
+      "color": "#FCE4F2",
+      "bandGuide": "C2 dapat beririsan sekitar IELTS 8.5–9; bukan ekuivalensi otomatis atau sertifikasi.",
+      "units": [
+        {
+          "id": "C2-U1",
+          "title": "Spontaneous Part 1",
+          "subtitle": "Menjawab topik familier secara ringkas namun bernuansa",
+          "prompt": "How have your interests changed over the years?",
+          "emoji": "👋",
+          "duration": "3–4 menit",
+          "level": "C2",
+          "objective": "Menjawab topik familier secara ringkas namun bernuansa",
+          "part": "IELTS-style Part 1 · familiar topics",
+          "questionType": "Short personal questions",
+          "bandTarget": "Highly proficient · roughly IELTS 8.5–9 guide",
+          "prepSeconds": 0,
+          "responseSeconds": 30
+        },
+        {
+          "id": "C2-U2",
+          "title": "Long turn with nuance",
+          "subtitle": "Mengembangkan ide abstrak dengan koherensi dan detail",
+          "prompt": "Describe an idea that changed the way you see the world\nYou should say:\n• what the idea was\n• where you encountered it\n• how it challenged your assumptions\nAnd explain why it was important to you.\n\nFollow-up: Why are people sometimes reluctant to reconsider their beliefs?",
+          "emoji": "☕",
+          "duration": "3–4 menit",
+          "level": "C2",
+          "objective": "Mengembangkan ide abstrak dengan koherensi dan detail",
+          "part": "IELTS-style Part 1 · familiar topics",
+          "questionType": "Short personal questions",
+          "bandTarget": "Highly proficient · roughly IELTS 8.5–9 guide",
+          "prepSeconds": 0,
+          "responseSeconds": 30
+        },
+        {
+          "id": "C2-U3",
+          "title": "Ethics & technology",
+          "subtitle": "Menganalisis implikasi dan keberatan yang masuk akal",
+          "prompt": "Let’s discuss this in a more general way. Let’s discuss this in a more general way. Can innovation be considered progress if it increases inequality?",
+          "emoji": "🧭",
+          "duration": "3–4 menit",
+          "level": "C2",
+          "objective": "Menganalisis implikasi dan keberatan yang masuk akal",
+          "part": "IELTS-style Part 3 · discussion",
+          "questionType": "Extended discussion · develop and justify ideas",
+          "bandTarget": "Highly proficient · roughly IELTS 8.5–9 guide",
+          "prepSeconds": 0,
+          "responseSeconds": 75
+        },
+        {
+          "id": "C2-U4",
+          "title": "Education & society",
+          "subtitle": "Menyintesis perspektif berbeda",
+          "prompt": "Let’s discuss this in a more general way. What should education prepare people for in a rapidly changing world?",
+          "emoji": "💬",
+          "duration": "3–4 menit",
+          "level": "C2",
+          "objective": "Menyintesis perspektif berbeda",
+          "part": "IELTS-style Part 3 · discussion",
+          "questionType": "Extended discussion · develop and justify ideas",
+          "bandTarget": "Highly proficient · roughly IELTS 8.5–9 guide",
+          "prepSeconds": 0,
+          "responseSeconds": 75
+        },
+        {
+          "id": "C2-U5",
+          "title": "Language & identity",
+          "subtitle": "Membahas makna, konteks dan implikatur",
+          "prompt": "Let’s discuss this in a more general way. Can a language influence the way people think?",
+          "emoji": "✈️",
+          "duration": "3–4 menit",
+          "level": "C2",
+          "objective": "Membahas makna, konteks dan implikatur",
+          "part": "IELTS-style Part 3 · discussion",
+          "questionType": "Extended discussion · develop and justify ideas",
+          "bandTarget": "Highly proficient · roughly IELTS 8.5–9 guide",
+          "prepSeconds": 0,
+          "responseSeconds": 75
+        },
+        {
+          "id": "C2-U6",
+          "title": "Leadership & disagreement",
+          "subtitle": "Merespons tantangan tanpa kehilangan arah",
+          "prompt": "Let’s discuss this in a more general way. How should leaders respond when experts strongly disagree?",
+          "emoji": "🗣️",
+          "duration": "3–4 menit",
+          "level": "C2",
+          "objective": "Merespons tantangan tanpa kehilangan arah",
+          "part": "IELTS-style Part 3 · discussion",
+          "questionType": "Extended discussion · develop and justify ideas",
+          "bandTarget": "Highly proficient · roughly IELTS 8.5–9 guide",
+          "prepSeconds": 0,
+          "responseSeconds": 75
+        },
+        {
+          "id": "C2-U7",
+          "title": "Abstract discussion",
+          "subtitle": "Membangun jawaban spontan dengan ketepatan leksikal",
+          "prompt": "Let’s discuss this in a more general way. Is certainty always desirable when making important decisions?",
+          "emoji": "🧩",
+          "duration": "3–4 menit",
+          "level": "C2",
+          "objective": "Membangun jawaban spontan dengan ketepatan leksikal",
+          "part": "IELTS-style Part 3 · discussion",
+          "questionType": "Extended discussion · develop and justify ideas",
+          "bandTarget": "Highly proficient · roughly IELTS 8.5–9 guide",
+          "prepSeconds": 0,
+          "responseSeconds": 75
+        },
+        {
+          "id": "C2-U8",
+          "title": "C2 full speaking mock",
+          "subtitle": "Simulasi tiga bagian dan refleksi mandiri",
+          "prompt": "Complete an IELTS-style interview with sustained, flexible responses.",
+          "emoji": "✨",
+          "duration": "11–14 menit",
+          "level": "C2",
+          "objective": "Simulasi tiga bagian dan refleksi mandiri",
+          "part": "Speaking mock · Parts 1–3",
+          "questionType": "Timed mock interview · 11–14 minutes",
+          "bandTarget": "Highly proficient · roughly IELTS 8.5–9 guide",
+          "prepSeconds": 60,
+          "responseSeconds": 840
+        }
+      ]
+    }
+  ],
+  "listening": [
+    {
+      "id": "L-A1-01",
+      "level": "A1",
+      "title": "A new neighbour",
+      "objective": "Identify names, places, and simple details.",
+      "script": "Hello, I’m Maya. I moved into apartment 4B on Monday. The building is next to the small green park. I work at a bakery, so I leave home at six in the morning.",
+      "questions": [
+        {
+          "prompt": "Which apartment does Maya live in?",
+          "options": [
+            "Apartment 4B",
+            "Apartment 6A",
+            "Apartment 14"
+          ],
+          "answer": 0,
+          "explain": "She says, “I moved into apartment 4B.”"
+        },
+        {
+          "prompt": "Where is the building?",
+          "options": [
+            "Behind a station",
+            "Next to a small park",
+            "Across from a bakery"
+          ],
+          "answer": 1,
+          "explain": "The building is next to the green park."
+        }
+      ]
+    },
+    {
+      "id": "L-A1-02",
+      "level": "A1",
+      "title": "At the café",
+      "objective": "Understand a short order and its price.",
+      "script": "Good morning. Can I have one cheese sandwich and a cup of tea, please? Certainly. The sandwich is four pounds and the tea is two pounds. Here is your order. You can sit by the window.",
+      "questions": [
+        {
+          "prompt": "What drink does the customer order?",
+          "options": [
+            "Coffee",
+            "Orange juice",
+            "Tea"
+          ],
+          "answer": 2,
+          "explain": "The customer asks for a cup of tea."
+        },
+        {
+          "prompt": "How much is the whole order?",
+          "options": [
+            "Four pounds",
+            "Six pounds",
+            "Eight pounds"
+          ],
+          "answer": 1,
+          "explain": "Four pounds plus two pounds equals six pounds."
+        }
+      ],
+      "image": "/learnenglish/images/listening/a1-cafe-order.jpg"
+    },
+    {
+      "id": "L-A1-03",
+      "level": "A1",
+      "title": "The morning bus",
+      "objective": "Follow a simple timetable.",
+      "script": "The number twelve bus leaves the library at eight fifteen. It stops at the hospital at eight thirty and reaches the sports centre at eight forty-five. On Saturdays, the first bus leaves thirty minutes later.",
+      "questions": [
+        {
+          "prompt": "What time does the bus reach the hospital on a normal day?",
+          "options": [
+            "8:15",
+            "8:30",
+            "8:45"
+          ],
+          "answer": 1,
+          "explain": "The hospital stop is at eight thirty."
+        },
+        {
+          "prompt": "What time does the first Saturday bus leave?",
+          "options": [
+            "8:15",
+            "8:30",
+            "8:45"
+          ],
+          "answer": 2,
+          "explain": "It leaves 30 minutes later than 8:15, so it leaves at 8:45."
+        }
+      ],
+      "image": "/learnenglish/images/listening/a1-morning-bus-stop.jpg"
+    },
+    {
+      "id": "L-A2-01",
+      "level": "A2",
+      "title": "A weekend plan",
+      "objective": "Identify a change of plan and the reason.",
+      "script": "Hi, Lina. Are we still going to the beach on Sunday? I checked the weather, and it will rain all afternoon. Let’s visit the science museum instead. It opens at ten, and students can get a discounted ticket if they bring their ID.",
+      "questions": [
+        {
+          "prompt": "Why do they change the plan?",
+          "options": [
+            "The beach is closed",
+            "Rain is expected",
+            "The museum is free"
+          ],
+          "answer": 1,
+          "explain": "The forecast says it will rain all afternoon."
+        },
+        {
+          "prompt": "What should students bring?",
+          "options": [
+            "A library card",
+            "A student ID",
+            "A raincoat"
+          ],
+          "answer": 1,
+          "explain": "They need their ID to get the discounted ticket."
+        }
+      ],
+      "image": "/learnenglish/images/listening/a2-weekend-museum-plan.jpg"
+    },
+    {
+      "id": "L-A2-02",
+      "level": "A2",
+      "title": "A message from the hotel",
+      "objective": "Understand directions and check-in details.",
+      "script": "Welcome to Greenway Hotel. Your room is ready after two o’clock. Breakfast is served from seven until half past nine in the garden room. To reach the old town, walk to the end of this street and turn left at the pharmacy.",
+      "questions": [
+        {
+          "prompt": "When can the guest enter the room?",
+          "options": [
+            "After 1:30",
+            "After 2:00",
+            "After 2:30"
+          ],
+          "answer": 1,
+          "explain": "Check-in is after two o’clock."
+        },
+        {
+          "prompt": "Where is breakfast served?",
+          "options": [
+            "In the garden room",
+            "In the lobby",
+            "At the pharmacy"
+          ],
+          "answer": 0,
+          "explain": "Breakfast is in the garden room."
+        }
+      ]
+    },
+    {
+      "id": "L-A2-03",
+      "level": "A2",
+      "title": "Returning a jacket",
+      "objective": "Track a shop conversation.",
+      "script": "I bought this jacket yesterday, but the zip is broken. Do you still have the receipt? Yes, here it is. Would you like a replacement or a refund? A replacement, please, but in a larger size. I can order one for Friday.",
+      "questions": [
+        {
+          "prompt": "What is wrong with the jacket?",
+          "options": [
+            "The zip is broken",
+            "The sleeves are too short",
+            "The colour is different"
+          ],
+          "answer": 0,
+          "explain": "The customer says the zip is broken."
+        },
+        {
+          "prompt": "When will the replacement arrive?",
+          "options": [
+            "Thursday",
+            "Friday",
+            "Saturday"
+          ],
+          "answer": 1,
+          "explain": "The shop assistant says it can be ordered for Friday."
+        }
+      ]
+    },
+    {
+      "id": "L-B1-01",
+      "level": "B1",
+      "title": "A community garden",
+      "objective": "Recognise main ideas and supporting details.",
+      "script": "Our community garden began three years ago on an empty piece of land behind the library. At first, only six families took part. Now more than forty people grow vegetables there. The most popular activity is the Saturday workshop, where experienced gardeners teach beginners. We used to sell all the produce, but this year we donate one third to a local food bank.",
+      "questions": [
+        {
+          "prompt": "How many families joined at the beginning?",
+          "options": [
+            "Six",
+            "Fourteen",
+            "Forty"
+          ],
+          "answer": 0,
+          "explain": "The speaker says only six families took part at first."
+        },
+        {
+          "prompt": "What happens to one third of this year’s produce?",
+          "options": [
+            "It is sold at the library",
+            "It is donated to a food bank",
+            "It is used in workshops"
+          ],
+          "answer": 1,
+          "explain": "One third is donated to a local food bank."
+        }
+      ],
+      "image": "/learnenglish/images/listening/b1-community-garden.jpg"
+    },
+    {
+      "id": "L-B1-02",
+      "level": "B1",
+      "title": "A delayed train",
+      "objective": "Follow a sequence and practical instructions.",
+      "script": "Attention, please. The 16:20 service to Northbridge is delayed by approximately twenty minutes because of a signal problem. Passengers travelling to Westport should take the 16:35 train from platform six and change at Central. Your tickets will be accepted on that service.",
+      "questions": [
+        {
+          "prompt": "What caused the delay?",
+          "options": [
+            "A signal problem",
+            "Heavy rain",
+            "A staff shortage"
+          ],
+          "answer": 0,
+          "explain": "The announcement mentions a signal problem."
+        },
+        {
+          "prompt": "What should Westport passengers do?",
+          "options": [
+            "Wait for platform six to reopen",
+            "Take the 16:35 train and change at Central",
+            "Buy a new ticket"
+          ],
+          "answer": 1,
+          "explain": "They should take the 16:35 service and change at Central."
+        }
+      ]
+    },
+    {
+      "id": "L-B1-03",
+      "level": "B1",
+      "title": "Choosing a short course",
+      "objective": "Compare options and identify a recommendation.",
+      "script": "I looked at two evening courses. The photography class meets twice a week and costs more, but it includes equipment. The design course is cheaper and meets on Wednesdays only. Since I already have a camera and work late on Tuesdays, I think the design course suits me better, even though it runs for an extra month.",
+      "questions": [
+        {
+          "prompt": "Why is the photography course less suitable?",
+          "options": [
+            "It has no equipment",
+            "It meets on a Tuesday when the speaker works late",
+            "It lasts an extra month"
+          ],
+          "answer": 1,
+          "explain": "The speaker works late on Tuesdays."
+        },
+        {
+          "prompt": "Which course does the speaker prefer?",
+          "options": [
+            "Photography",
+            "Design",
+            "Neither course"
+          ],
+          "answer": 1,
+          "explain": "They conclude the design course suits them better."
+        }
+      ]
+    },
+    {
+      "id": "L-B2-01",
+      "level": "B2",
+      "title": "A university project",
+      "objective": "Distinguish the initial plan from the final decision.",
+      "script": "We originally planned to survey local residents about cycling. After the first week, we realised that response rates were low, particularly among older residents. Rather than extend the deadline, we partnered with two community centres and offered paper copies alongside the online form. This improved participation, although it meant our results arrived later than expected. The final report will therefore focus on access to cycling facilities, not on travel habits in general.",
+      "questions": [
+        {
+          "prompt": "What change helped improve participation?",
+          "options": [
+            "Extending the deadline",
+            "Offering paper surveys through community centres",
+            "Removing older residents from the sample"
+          ],
+          "answer": 1,
+          "explain": "Paper copies at two community centres improved participation."
+        },
+        {
+          "prompt": "What will the final report focus on?",
+          "options": [
+            "Access to cycling facilities",
+            "Travel habits in general",
+            "The cost of public transport"
+          ],
+          "answer": 0,
+          "explain": "The report narrows its focus to access to cycling facilities."
+        }
+      ],
+      "image": "/learnenglish/images/listening/b2-university-fieldwork.jpg"
+    },
+    {
+      "id": "L-B2-02",
+      "level": "B2",
+      "title": "A museum audio guide",
+      "objective": "Infer the speaker’s view and follow contrast.",
+      "script": "The audio guide was designed to make the exhibition accessible without overwhelming visitors with dates. We tested two versions: one with detailed historical narration and another built around short personal stories. Visitors spent longer at the exhibits when listening to the second version, but some specialists felt it omitted useful context. We are keeping the story-based approach while adding optional layers for those who want more detail.",
+      "questions": [
+        {
+          "prompt": "What did the test suggest about the story-based version?",
+          "options": [
+            "Visitors spent longer with exhibits",
+            "It was difficult for visitors to hear",
+            "Specialists preferred it unanimously"
+          ],
+          "answer": 0,
+          "explain": "Visitors spent longer at exhibits with the short personal stories."
+        },
+        {
+          "prompt": "What is the planned improvement?",
+          "options": [
+            "Remove all narration",
+            "Add optional detailed information",
+            "Replace stories with dates"
+          ],
+          "answer": 1,
+          "explain": "Optional layers will provide more context."
+        }
+      ]
+    },
+    {
+      "id": "L-B2-03",
+      "level": "B2",
+      "title": "A workplace briefing",
+      "objective": "Identify a qualification and a deadline.",
+      "script": "Before we launch the new booking system, please check your team’s rota by Thursday afternoon. The system itself goes live on Monday, not Friday as stated in the first email. Managers should report any staffing gaps to Priya, while technical problems should go directly to the help desk. We are not changing the current holiday approval process during this launch.",
+      "questions": [
+        {
+          "prompt": "When does the system go live?",
+          "options": [
+            "Thursday",
+            "Friday",
+            "Monday"
+          ],
+          "answer": 2,
+          "explain": "The corrected date is Monday."
+        },
+        {
+          "prompt": "Who should receive reports about staffing gaps?",
+          "options": [
+            "Priya",
+            "The help desk",
+            "The system vendor"
+          ],
+          "answer": 0,
+          "explain": "Managers should report staffing gaps to Priya."
+        }
+      ]
+    },
+    {
+      "id": "L-C1-01",
+      "level": "C1",
+      "title": "Public transport and city access",
+      "objective": "Track an argument, concession, and conclusion.",
+      "script": "When cities debate transport policy, investment is often framed as a choice between expanding roads and improving public transit. That contrast is too simple. Even well-funded transit networks cannot serve every trip, particularly in low-density districts. Yet adding road capacity tends to attract additional car journeys, so congestion frequently returns. A more durable strategy combines reliable buses, safe walking routes, and targeted road improvements. The critical measure is not the speed of any single mode, but whether residents can reach essential services without excessive cost or delay.",
+      "questions": [
+        {
+          "prompt": "Why does the speaker call the usual debate too simple?",
+          "options": [
+            "Transit cannot serve every trip, while road expansion can attract more traffic",
+            "Roads are never used by residents",
+            "Cities have already removed all buses"
+          ],
+          "answer": 0,
+          "explain": "The speaker presents limits on both transit and road expansion."
+        },
+        {
+          "prompt": "What should be the critical measure?",
+          "options": [
+            "The speed of cars alone",
+            "Access to essential services at reasonable cost and time",
+            "The number of new roads"
+          ],
+          "answer": 1,
+          "explain": "The conclusion prioritises practical access to essential services."
+        }
+      ],
+      "image": "/learnenglish/images/listening/c1-city-transport-options.jpg"
+    },
+    {
+      "id": "L-C1-02",
+      "level": "C1",
+      "title": "How museums use digital media",
+      "objective": "Separate evidence from a cautious claim.",
+      "script": "Digital interpretation is sometimes promoted as a way to make museums universally accessible. The evidence is more qualified. In a recent visitor study, audio descriptions helped people with low vision navigate one gallery, but the benefit depended on clear wayfinding and staff support. Interactive screens also increased dwell time, though longer visits did not necessarily indicate deeper learning. We should therefore treat technology as one component of inclusive design, rather than as a substitute for thoughtful exhibition planning.",
+      "questions": [
+        {
+          "prompt": "What qualification is made about interactive screens?",
+          "options": [
+            "They always improve learning",
+            "Longer visits do not automatically prove deeper learning",
+            "They are only useful in outdoor galleries"
+          ],
+          "answer": 1,
+          "explain": "The speaker cautions that dwell time is not the same as learning."
+        },
+        {
+          "prompt": "What role should technology play?",
+          "options": [
+            "Replace exhibition planning",
+            "Be one part of inclusive design",
+            "Be removed from museums"
+          ],
+          "answer": 1,
+          "explain": "Technology is framed as one component, not a substitute."
+        }
+      ]
+    },
+    {
+      "id": "L-C1-03",
+      "level": "C1",
+      "title": "A research seminar",
+      "objective": "Follow methodological nuance.",
+      "script": "The study’s headline finding suggests that flexible working improves retention. I would be careful about treating that relationship as causal. Employees who were already more satisfied may have been more likely to select flexible roles, and the sample excluded several small firms. The authors partially address this by comparing workers before and after a policy change, but the observation period is only six months. The result is promising, therefore, but it should guide a larger longitudinal study rather than immediate universal adoption.",
+      "questions": [
+        {
+          "prompt": "Why is a causal interpretation uncertain?",
+          "options": [
+            "The study had no participants",
+            "Selection effects and a limited sample may influence the relationship",
+            "The policy lasted ten years"
+          ],
+          "answer": 1,
+          "explain": "Satisfied employees may self-select; small firms were excluded."
+        },
+        {
+          "prompt": "What does the speaker recommend?",
+          "options": [
+            "Adopt the policy everywhere immediately",
+            "Ignore the study",
+            "Conduct a larger longitudinal study"
+          ],
+          "answer": 2,
+          "explain": "The finding should inform a larger longitudinal study."
+        }
+      ]
+    },
+    {
+      "id": "L-C2-01",
+      "level": "C2",
+      "title": "The language of risk",
+      "objective": "Interpret a sophisticated distinction.",
+      "script": "Risk communication is often treated as a problem of translating statistics into simpler language. Clarity matters, but comprehension is not merely a property of the message. It also depends on the audience’s prior knowledge, institutional trust, and the consequences people attach to uncertainty. A perfectly accurate probability can still mislead if listeners assume it applies to an individual case. Effective communication therefore makes the reference class explicit, explains what is unknown, and gives people a usable basis for action without pretending uncertainty has disappeared.",
+      "questions": [
+        {
+          "prompt": "What does the speaker argue about comprehension?",
+          "options": [
+            "It depends only on simpler wording",
+            "It also depends on audience knowledge, trust, and context",
+            "Statistics should never be used"
+          ],
+          "answer": 1,
+          "explain": "Comprehension depends on more than wording."
+        },
+        {
+          "prompt": "Why should a reference class be explicit?",
+          "options": [
+            "So listeners do not mistake a general probability for an individual prediction",
+            "To make the statistic appear more certain",
+            "To avoid explaining unknowns"
+          ],
+          "answer": 0,
+          "explain": "The speaker warns against assuming a population probability applies to one person."
+        }
+      ]
+    },
+    {
+      "id": "L-C2-02",
+      "level": "C2",
+      "title": "Rethinking a historical archive",
+      "objective": "Follow a counterargument and synthesis.",
+      "script": "Digitising an archive can appear to democratise access, yet the phrase conceals two separate questions: who can retrieve the material, and whose histories were preserved in the first place. Search tools may broaden discovery while reproducing cataloguing categories inherited from earlier institutions. This does not make digitisation futile. It does mean that access initiatives should be paired with transparent metadata, community-led description, and a willingness to record disagreement. An archive becomes more open not simply when more files are online, but when the conditions shaping their interpretation can also be examined.",
+      "questions": [
+        {
+          "prompt": "What two questions are distinguished?",
+          "options": [
+            "Who can retrieve material and whose histories were preserved",
+            "Which files are oldest and which are largest",
+            "How much digitisation costs and who pays"
+          ],
+          "answer": 0,
+          "explain": "Access and historical selection are separate issues."
+        },
+        {
+          "prompt": "What makes an archive more open, according to the speaker?",
+          "options": [
+            "Putting every file online without context",
+            "Making interpretive conditions examinable as well as providing access",
+            "Using only one official description"
+          ],
+          "answer": 1,
+          "explain": "The conclusion emphasises examining how material is interpreted."
+        }
+      ],
+      "image": "/learnenglish/images/listening/c2-community-archive.jpg"
+    },
+    {
+      "id": "L-C2-03",
+      "level": "C2",
+      "title": "A lecture on scientific models",
+      "objective": "Recognise a refined distinction between prediction and explanation.",
+      "script": "A model can predict accurately without explaining the mechanism that produces the outcome. That distinction is not a defect in every context: a forecasting tool may be valuable when decisions are time-sensitive and its errors are well characterised. The difficulty arises when predictive success is taken as evidence that the model captures causal structure. In this project, we use prediction to identify patterns, then test a smaller set of mechanistic hypotheses against independent observations. The two approaches are complementary, but their evidential claims should not be conflated.",
+      "questions": [
+        {
+          "prompt": "When may a predictive model be useful without explaining a mechanism?",
+          "options": [
+            "When a decision is time-sensitive and errors are understood",
+            "Only when it proves causation",
+            "Never"
+          ],
+          "answer": 0,
+          "explain": "The speaker accepts forecasting use when errors are well characterised."
+        },
+        {
+          "prompt": "What warning closes the lecture?",
+          "options": [
+            "Prediction and explanation should not be treated as the same claim",
+            "All models should be replaced",
+            "Independent observations are unnecessary"
+          ],
+          "answer": 0,
+          "explain": "The speaker says the evidential claims should not be conflated."
+        }
+      ]
+    }
+  ]
+}

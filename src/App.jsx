@@ -1,0 +1,3339 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import Swal from "sweetalert2";
+import { toast } from "sonner";
+import {
+  ArrowDownToLine,
+  ArrowLeft,
+  ArrowRight,
+  AudioLines,
+  BarChart3,
+  BookOpen,
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  CircleHelp,
+  Compass,
+  Clock3,
+  Cloud,
+  Download,
+  FileAudio2,
+  Flame,
+  Gem,
+  Hand,
+  Headphones,
+  Home,
+  Languages,
+  Mic,
+  MessageCircle,
+  MoreHorizontal,
+  Pause,
+  Play,
+  RotateCcw,
+  Rocket,
+  Settings,
+  ShieldCheck,
+  Sparkles,
+  Star,
+  Sprout,
+  Target,
+  Trash2,
+  Upload,
+  Volume2,
+  WandSparkles,
+  Zap,
+} from "lucide-react";
+import { initialData } from "./data";
+import { awardXP, achievements } from "./gamification";
+import ContentStudio from "./ContentStudio";
+import PasswordForm from "./PasswordForm";
+import { deleteAllRecordings, exportBackup, importBackup } from "./storage";
+import { apiFetch, apiJson } from "./api";
+import ListeningPage from "./ListeningPage";
+const LEVEL_ICONS = [Hand, Compass, MessageCircle, Rocket, Sparkles, Gem];
+const BADGE_ICONS = {
+  sprout: Sprout,
+  headphones: Headphones,
+  flame: Flame,
+  star: Star,
+};
+async function convertRecordingToWav(blob) {
+  const AudioCtx = window.AudioContext;
+  const ctx = new AudioCtx();
+  try {
+    const decoded = await ctx.decodeAudioData(await blob.arrayBuffer());
+    const rate = 16e3;
+    const length = Math.ceil(decoded.duration * rate);
+    const mono = new Float32Array(length);
+    const channels = decoded.numberOfChannels;
+    for (let ch = 0; ch < channels; ch++) {
+      const source = decoded.getChannelData(ch);
+      for (let i = 0; i < length; i++) {
+        const pos = (i * decoded.sampleRate) / rate;
+        const left = Math.floor(pos);
+        const frac = pos - left;
+        const a = source[Math.min(left, source.length - 1)] || 0;
+        const b = source[Math.min(left + 1, source.length - 1)] || a;
+        mono[i] += (a + (b - a) * frac) / channels;
+      }
+    }
+    const buffer = new ArrayBuffer(44 + length * 2);
+    const view = new DataView(buffer);
+    const write = (offset, text) => {
+      for (let i = 0; i < text.length; i++)
+        view.setUint8(offset + i, text.charCodeAt(i));
+    };
+    write(0, "RIFF");
+    view.setUint32(4, 36 + length * 2, true);
+    write(8, "WAVE");
+    write(12, "fmt ");
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, rate, true);
+    view.setUint32(28, rate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    write(36, "data");
+    view.setUint32(40, length * 2, true);
+    for (let i = 0; i < length; i++) {
+      const x = Math.max(-1, Math.min(1, mono[i]));
+      view.setInt16(44 + i * 2, x < 0 ? x * 32768 : x * 32767, true);
+    }
+    return new Blob([buffer], { type: "audio/wav" });
+  } finally {
+    await ctx.close().catch(() => {});
+  }
+}
+const greet = () => {
+  const h = new Date().getHours();
+  return h < 11
+    ? "Selamat pagi"
+    : h < 15
+      ? "Selamat siang"
+      : h < 18
+        ? "Selamat sore"
+        : "Selamat malam";
+};
+function App() {
+  const [page, setPage] = useState("home");
+  const [user, setUser] = useState(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [dataReady, setDataReady] = useState(false);
+  const [catalog, setCatalog] = useState({ levels: [], listening: [] });
+  const [loadError, setLoadError] = useState("");
+  const [syncError, setSyncError] = useState("");
+  const saveChain = useRef(Promise.resolve());
+  const accountIdRef = useRef(null);
+  const [data, setData] = useState(structuredClone(initialData));
+  const [activeUnitId, setActiveUnitId] = useState(null);
+  const [selectedListeningId, setSelectedListeningId] = useState(null);
+  const [transcript, setTranscript] = useState("");
+  const [turns, setTurns] = useState([]);
+  const [recording, setRecording] = useState(false);
+  const [processing, setProcessing] = useState(false);
+  const [permission, setPermission] = useState("idle");
+  const [devices, setDevices] = useState([]);
+  const [deviceId, setDeviceId] = useState("");
+  const [audioBlob, setAudioBlob] = useState(null);
+  const [sessionSaveAudio, setSessionSaveAudio] = useState(null);
+  const [elapsed, setElapsed] = useState(0);
+  const [showLessonList, setShowLessonList] = useState(false);
+  const [liveOn, setLiveOn] = useState(false);
+  const [liveSeconds, setLiveSeconds] = useState(0);
+  const [liveLines, setLiveLines] = useState([]);
+  const [liveStatus, setLiveStatus] = useState("Ready");
+  const [liveAssessment, setLiveAssessment] = useState(null);
+  const liveWsRef = useRef(null);
+  const liveContextRef = useRef(null);
+  const liveStreamRef = useRef(null);
+  const liveSourceRef = useRef(null);
+  const liveProcessorRef = useRef(null);
+  const liveTranscriptRef = useRef("");
+  const livePlayheadRef = useRef(0);
+  const recorder = useRef(null);
+  const streamRef = useRef(null);
+  const chunks = useRef([]);
+  const fileInput = useRef(null);
+  const audioUrlRef = useRef(null);
+  const curriculum = catalog.levels;
+  const listeningLessons = catalog.listening;
+  const allUnits = useMemo(
+    () => curriculum.flatMap((l) => l.units),
+    [curriculum],
+  );
+  const activeUnit = allUnits.find((u) => u.id === activeUnitId) || allUnits[0];
+
+  async function loadAccount(account, current = () => true) {
+    if (!current()) return;
+    setUser(account);
+    accountIdRef.current = account.id;
+    setLoadError("");
+    if (account.must_change_password) {
+      setDataReady(false);
+      return;
+    }
+    setDataReady(false);
+    const [course, progress] = await Promise.all([
+      apiJson("catalog"),
+      apiJson("progress"),
+    ]);
+    if (!current()) return;
+    setCatalog(course);
+    setData({
+      ...initialData,
+      ...(progress.progress || {}),
+      settings: {
+        ...initialData.settings,
+        ...((progress.progress || {}).settings || {}),
+      },
+    });
+    setPage("home");
+    setDataReady(true);
+  }
+  async function reloadCatalog() {
+    const course = await apiJson("catalog");
+    setCatalog(course);
+  }
+  function enqueueSave(snapshot, id) {
+    const task = saveChain.current
+      .catch(() => {})
+      .then(async () => {
+        if (id !== accountIdRef.current) return;
+        await apiJson("progress", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ progress: snapshot }),
+        });
+        setSyncError("");
+      });
+    saveChain.current = task;
+    return task;
+  }
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const response = await apiJson("me");
+        if (response.user) await loadAccount(response.user, () => active);
+      } catch (e) {
+        if (active && accountIdRef.current)
+          setLoadError(e.message || "Gagal memuat akun.");
+      } finally {
+        if (active) setAuthReady(true);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+  useEffect(() => {
+    const onLocked = () => {
+      accountIdRef.current = null;
+      setUser(null);
+      setDataReady(false);
+      setCatalog({ levels: [], listening: [] });
+      setData(structuredClone(initialData));
+      setTurns([]);
+      setPage("home");
+      toast.error("Aplikasi dikunci admin. Akses akun dibatasi.");
+    };
+    window.addEventListener("speakup:locked", onLocked);
+    return () => window.removeEventListener("speakup:locked", onLocked);
+  }, []);
+  useEffect(() => {
+    if (!user || !dataReady) return;
+    const id = user.id;
+    const timer = window.setTimeout(
+      () => enqueueSave(data, id).catch((e) => setSyncError(e.message)),
+      550,
+    );
+    return () => clearTimeout(timer);
+  }, [data, user, dataReady]);
+  const [, setVoiceVersion] = useState(0);
+  useEffect(() => {
+    if (!("speechSynthesis" in window)) return;
+    const s = window.speechSynthesis;
+    const refresh = () => setVoiceVersion((v) => v + 1);
+    s.addEventListener("voiceschanged", refresh);
+    refresh();
+    return () => s.removeEventListener("voiceschanged", refresh);
+  }, []);
+  useEffect(() => {
+    let t;
+    if (recording) t = window.setInterval(() => setElapsed((s) => s + 1), 1e3);
+    return () => clearInterval(t);
+  }, [recording]);
+  useEffect(() => {
+    let t;
+    if (liveOn)
+      t = window.setInterval(
+        () => setLiveSeconds((s) => Math.min(1200, s + 1)),
+        1e3,
+      );
+    return () => clearInterval(t);
+  }, [liveOn]);
+  useEffect(() => {
+    if (liveOn && liveSeconds >= 1200) {
+      toast.info("Sesi Live mencapai batas 20 menit.");
+      void endLive();
+    }
+  }, [liveOn, liveSeconds]);
+  useEffect(() => {
+    if (
+      recording &&
+      activeUnit?.prepSeconds &&
+      elapsed >= Number(activeUnit.responseSeconds || 120)
+    )
+      stopRecording();
+  }, [recording, elapsed, activeUnit]);
+  useEffect(
+    () => () => {
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      liveStreamRef.current?.getTracks().forEach((t) => t.stop());
+      liveWsRef.current?.close();
+      void liveContextRef.current?.close();
+      if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+    },
+    [],
+  );
+  const completed = new Set(data.completed || []);
+  const totalDone = allUnits.filter((u) => completed.has(u.id)).length;
+  const levelProgress = curriculum.map((l) => ({
+    ...l,
+    done: l.units.filter((u) => completed.has(u.id)).length,
+  }));
+  const currentLevel =
+    levelProgress.find((l) => l.units.some((u) => !completed.has(u.id))) ||
+    levelProgress.at(-1);
+  const allTurns = useMemo(
+    () => (data.sessions || []).flatMap((s) => s.turns || []),
+    [data.sessions],
+  );
+  const pct = allUnits.length
+    ? Math.round((totalDone / allUnits.length) * 100)
+    : 0;
+  const hasPremiumAccess = user?.role === "admin" || user?.plan === "premium";
+  const nav = (p) => {
+    if (!hasPremiumAccess && ["practice", "live"].includes(p)) {
+      toast.info(
+        "AI Lesson dan Live Lesson tersedia untuk Premium. Listening tetap gratis.",
+      );
+      p = "listening";
+    }
+    if (p === "practice" && !allUnits.length)
+      return toast.info("Belum ada unit speaking yang diterbitkan.");
+    setPage(p);
+  };
+  const startListening = (id) => {
+    setSelectedListeningId(id || null);
+    setPage("listening");
+  };
+  const startUnit = (unit) => {
+    if (!hasPremiumAccess) return nav("practice");
+    if (!unit) return toast.info("Belum ada unit di level ini.");
+    const index = allUnits.findIndex((x) => x.id === unit.id);
+    const nextIndex = allUnits.findIndex((x) => !completed.has(x.id));
+    if (nextIndex >= 0 && index > nextIndex) {
+      toast.info("Selesaikan lesson sebelumnya untuk membuka materi ini.");
+      return;
+    }
+    setActiveUnitId(unit.id);
+    setTurns([]);
+    setTranscript("");
+    setAudioBlob(null);
+    setSessionSaveAudio(null);
+    setPage("practice");
+    setShowLessonList(false);
+  };
+  async function requestMic() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: deviceId
+          ? {
+              deviceId: { exact: deviceId },
+              echoCancellation: true,
+              noiseSuppression: true,
+            }
+          : true,
+      });
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = stream;
+      setPermission("granted");
+      const ds = await navigator.mediaDevices.enumerateDevices();
+      setDevices(ds.filter((d) => d.kind === "audioinput"));
+      const track = stream.getAudioTracks()[0];
+      if (!recorder.current || recorder.current.state === "inactive")
+        setDeviceId(track.getSettings().deviceId || "");
+      return stream;
+    } catch {
+      setPermission("denied");
+      toast.error("Izin mikrofon belum diberikan. Cek pengaturan browser.");
+      return null;
+    }
+  }
+  async function startRecording() {
+    let stream = streamRef.current;
+    if (!stream || stream.getAudioTracks()[0]?.readyState !== "live")
+      stream = await requestMic();
+    if (!stream) return;
+    try {
+      const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : MediaRecorder.isTypeSupported("audio/mp4")
+          ? "audio/mp4"
+          : "";
+      const mr = new MediaRecorder(stream, mime ? { mimeType: mime } : void 0);
+      recorder.current = mr;
+      chunks.current = [];
+      mr.ondataavailable = (e) => {
+        if (e.data.size) chunks.current.push(e.data);
+      };
+      mr.onstop = () => {
+        const blob = new Blob(chunks.current, {
+          type: mr.mimeType || "audio/webm",
+        });
+        setAudioBlob(blob);
+      };
+      mr.start(250);
+      setElapsed(0);
+      setTranscript("");
+      setRecording(true);
+    } catch {
+      toast.error("Browser tidak dapat merekam audio. Coba Chrome atau Edge.");
+    }
+  }
+  function stopRecording() {
+    if (recorder.current && recorder.current.state !== "inactive")
+      recorder.current.stop();
+    setRecording(false);
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+  }
+  async function submitTurn() {
+    if (!transcript.trim() && !audioBlob) {
+      toast.error("Rekam audio atau ketik jawabanmu terlebih dahulu.");
+      return;
+    }
+    setProcessing(true);
+    let replyObj = null;
+    let audioResult = null;
+    let saveThisAudio = Boolean(sessionSaveAudio);
+    let evaluateAudio = false;
+    if (audioBlob) {
+      const choice = await Swal.fire({
+        title: "Kirim rekaman untuk evaluasi AI?",
+        text: "Jika disetujui, rekaman jawaban ini dikonversi ke WAV dan dikirim satu kali ke Google Gemini untuk feedback audio. SpeakUp tidak mengarsipkannya lewat endpoint evaluasi. Persetujuan simpan arsip ditanyakan terpisah.",
+        input: "radio",
+        inputOptions: transcript.trim()
+          ? {
+              evaluate: "Ya, kirim audio satu kali untuk dievaluasi",
+              text_only: "Tidak, gunakan teks/transkrip saja",
+            }
+          : { evaluate: "Ya, kirim audio satu kali untuk dievaluasi" },
+        inputValue: transcript.trim() ? "text_only" : "evaluate",
+        showCancelButton: true,
+        confirmButtonText: "Lanjutkan",
+        cancelButtonText: "Batal",
+        confirmButtonColor: "#315c45",
+        inputValidator: (value) => (!value ? "Pilih salah satu opsi." : void 0),
+      });
+      if (!choice.isConfirmed) {
+        setProcessing(false);
+        return;
+      }
+      evaluateAudio = choice.value === "evaluate";
+    }
+    if (audioBlob && sessionSaveAudio === null) {
+      const choice = await Swal.fire({
+        title: "Simpan rekaman ke akun?",
+        text: "Ini terpisah dari evaluasi satu kali. Jika disimpan, audio masuk arsip server dan tidak akan dikirim ulang otomatis pada sesi berikutnya.",
+        input: "radio",
+        inputOptions: {
+          save: "Simpan audio ke akun server",
+          discard: "Jangan simpan audio",
+        },
+        inputValue: data.settings.saveAudio ? "save" : "discard",
+        showCancelButton: true,
+        confirmButtonText: "Lanjutkan",
+        cancelButtonText: "Batal",
+        confirmButtonColor: "#315c45",
+        inputValidator: (value) => (!value ? "Pilih salah satu opsi." : void 0),
+      });
+      if (!choice.isConfirmed) {
+        setProcessing(false);
+        return;
+      }
+      saveThisAudio = choice.value === "save";
+      setSessionSaveAudio(saveThisAudio);
+    }
+    if (evaluateAudio && audioBlob) {
+      try {
+        const wav = await convertRecordingToWav(audioBlob);
+        if (wav.size > 12 * 1024 * 1024)
+          throw new Error("Audio melebihi batas 12 MB setelah konversi.");
+        const form = new FormData();
+        form.append("consent", "1");
+        form.append("level", activeUnit.level);
+        form.append("task", activeUnit.prompt);
+        form.append("audio", wav, `${crypto.randomUUID()}.wav`);
+        const r = await apiFetch("assess-audio", {
+          method: "POST",
+          body: form,
+        });
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error || "Evaluasi audio gagal.");
+        audioResult = j.result;
+        replyObj = audioResult;
+      } catch (e) {
+        toast.error(e.message || "Audio tidak dapat dievaluasi.");
+        if (!transcript.trim()) {
+          setProcessing(false);
+          return;
+        }
+      }
+    }
+    if (!transcript.trim() && !audioResult?.transcript) {
+      setProcessing(false);
+      toast.error(
+        "Tidak ada transkrip. Pilih evaluasi audio atau masukkan jawaban teks.",
+      );
+      return;
+    }
+    const spokenText =
+      transcript.trim() || String(audioResult?.transcript || "").trim();
+    if (transcript.trim())
+      try {
+        const response = await apiFetch("chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            transcript: transcript.trim(),
+            task: activeUnit.prompt,
+            lesson: {
+              id: activeUnit.id,
+              title: activeUnit.title,
+              objective: activeUnit.objective,
+              part: activeUnit.part,
+              visual_context: activeUnit.imageContext || null,
+            },
+            level: activeUnit.level,
+            memory_summary:
+              data.sessions
+                .filter((s) => s.unitId === activeUnit.id)
+                .map((s) => s.summary)
+                .filter(Boolean)
+                .slice(-1)[0] || "",
+            recent_turns: data.sessions
+              .filter((s) => s.unitId === activeUnit.id)
+              .flatMap((s) => s.turns || [])
+              .slice(-6)
+              .map((t) => ({ user: t.userText, assistant: t.reply })),
+          }),
+        });
+        const payload = await response.json();
+        if (!response.ok)
+          throw new Error(payload.error || "API belum tersedia");
+        replyObj = payload.result || payload;
+        if (audioResult?.assessment)
+          replyObj.assessment = audioResult.assessment;
+      } catch (err) {
+        if (!audioResult) {
+          toast.error(
+            err.message ||
+              "Tutor AI belum tersedia. Admin perlu mengatur provider di panel admin.",
+          );
+          setProcessing(false);
+          return;
+        }
+      }
+    if (!replyObj) {
+      toast.error(
+        "Evaluasi belum tersedia; jawaban tidak disimpan sebagai feedback AI.",
+      );
+      setProcessing(false);
+      return;
+    }
+    let audioId = null;
+    if (saveThisAudio && audioBlob) {
+      try {
+        const form = new FormData();
+        form.append(
+          "audio",
+          audioBlob,
+          `${crypto.randomUUID()}.${audioBlob.type.includes("mp4") ? "m4a" : "webm"}`,
+        );
+        const upload = await apiFetch("audio", { method: "POST", body: form });
+        const result = await upload.json();
+        if (upload.ok) audioId = result.audio.id;
+        else toast.error(result.error || "Audio gagal disimpan.");
+      } catch {
+        toast.error("Audio tidak dapat diunggah.");
+      }
+    }
+    const assessment = replyObj.assessment || {};
+    const criteria = assessment.criteria || {};
+    const rawStars = Number(assessment.practice_stars ?? 4);
+    const item = {
+      id: crypto.randomUUID(),
+      prompt: activeUnit.prompt,
+      userText: spokenText,
+      reply: replyObj.tutor_reply?.text || "Good job! Tell me more.",
+      stars: Math.max(1, Math.min(5, rawStars)),
+      feedback:
+        assessment.one_focus ||
+        "Jawabanmu sudah menyampaikan maksud dengan baik.",
+      createdAt: new Date().toISOString(),
+      audioSaved: !!audioId,
+      audioId,
+      estimatedBand: assessment.practice_band_estimate ?? null,
+      confidence: assessment.confidence || "low",
+      criteria,
+      grammar: criteria.grammatical_range_accuracy?.band ?? null,
+      context: criteria.fluency_coherence?.band ?? null,
+      pronunciation: criteria.pronunciation?.band ?? null,
+    };
+    setTurns((prev) => [...prev, item]);
+    setData((prev) => {
+      const sessions = [...prev.sessions];
+      const lastIndex = sessions.length - 1;
+      if (sessions[lastIndex]?.unitId === activeUnit.id) {
+        sessions[lastIndex] = {
+          ...sessions[lastIndex],
+          turns: [...(sessions[lastIndex].turns || []), item],
+        };
+      } else {
+        sessions.push({
+          id: crypto.randomUUID(),
+          unitId: activeUnit.id,
+          turns: [item],
+        });
+      }
+      return { ...awardXP(prev, 5), sessions };
+    });
+    setAudioBlob(null);
+    setTranscript("");
+    if (replyObj.tutor_reply?.speech_text)
+      speak(replyObj.tutor_reply.speech_text);
+    setProcessing(false);
+  }
+  function finishUnit() {
+    const avg = turns.length
+      ? turns.reduce((a, t) => a + t.stars, 0) / turns.length
+      : 0;
+    if (avg < 3.5) {
+      Swal.fire({
+        title: "Sedikit latihan lagi!",
+        text: "Coba satu jawaban lagi sebelum menyelesaikan pelajaran. Fokus pada masukan tutor.",
+        icon: "info",
+        confirmButtonText: "Lanjut latihan",
+        confirmButtonColor: "#315c45",
+      });
+      return;
+    }
+    if (!completed.has(activeUnit.id)) {
+      setData((prev) => ({
+        ...awardXP(prev, 25),
+        completed: [...prev.completed, activeUnit.id],
+      }));
+      toast.success("Pelajaran selesai! +25 XP");
+    }
+    nav("home");
+  }
+  async function speak(text) {
+    if (!text) return;
+    try {
+      const synth = window.speechSynthesis;
+      if (!synth) {
+        toast.error("Text-to-speech tidak didukung browser ini.");
+        return;
+      }
+      synth.cancel();
+      let voice =
+        synth.getVoices().find((v) => v.name === data.settings.voice) ||
+        synth.getVoices().find((v) => v.lang.startsWith("en"));
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = "en-US";
+      u.rate = 0.88;
+      if (voice) u.voice = voice;
+      synth.speak(u);
+    } catch {
+      toast.error("Gagal memutar suara.");
+    }
+  }
+  async function playRecording(id) {
+    try {
+      const response = await apiFetch(`audio/${encodeURIComponent(id)}`);
+      if (!response.ok)
+        throw new Error("Audio tidak ditemukan atau akses ditolak.");
+      const blob = await response.blob();
+      if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+      audioUrlRef.current = URL.createObjectURL(blob);
+      await new Audio(audioUrlRef.current).play();
+    } catch (e) {
+      toast.error(e.message || "Audio gagal diputar.");
+    }
+  }
+  async function handleImport(file) {
+    if (!file) return;
+    try {
+      const res = await Swal.fire({
+        title: "Impor backup?",
+        text: "Pilih OK untuk mengganti progres lokal dengan file ini.",
+        icon: "question",
+        showCancelButton: true,
+        confirmButtonText: "Impor & ganti",
+        cancelButtonText: "Batal",
+        confirmButtonColor: "#315c45",
+      });
+      if (res.isConfirmed) {
+        await saveChain.current.catch(() => {});
+        const imported = await importBackup(file);
+        setData(imported);
+        toast.success("Backup berhasil diimpor ke akun server.");
+      }
+    } catch (e) {
+      toast.error(e.message || "File backup tidak valid.");
+    } finally {
+      if (fileInput.current) fileInput.current.value = "";
+    }
+  }
+  async function resetData() {
+    const res = await Swal.fire({
+      title: "Hapus semua progres?",
+      text: "Riwayat, progres, dan rekaman server pada akun ini akan dihapus.",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonText: "Hapus semuanya",
+      cancelButtonText: "Batal",
+      confirmButtonColor: "#d33",
+    });
+    if (res.isConfirmed) {
+      try {
+        await saveChain.current.catch(() => {});
+        await deleteAllRecordings();
+      } catch (error) {
+        toast.error(error.message || "Gagal menghapus progres.");
+        return;
+      }
+      const fresh = structuredClone(initialData);
+      setData(fresh);
+      setTurns([]);
+      toast.success("Data akun di server sudah dihapus.");
+    }
+  }
+  const voices =
+    typeof speechSynthesis !== "undefined"
+      ? speechSynthesis
+          .getVoices()
+          .filter((v) => v.lang.toLowerCase().startsWith("en"))
+      : [];
+  const liveInstruction =
+    "You are Maya, a supportive English speaking coach. Conduct an IELTS-inspired practice conversation at the learner\u2019s level. Ask one concise follow-up at a time, encourage elaboration, and keep the conversation natural. This is practice, not an official IELTS test. Do not claim official scores. The session is limited to 20 minutes.";
+  function pcmBase64(input, fromRate) {
+    const ratio = fromRate / 16e3;
+    const length = Math.floor(input.length / ratio);
+    const bytes = new Uint8Array(length * 2);
+    const view = new DataView(bytes.buffer);
+    for (let i = 0; i < length; i++) {
+      const sample = Math.max(-1, Math.min(1, input[Math.floor(i * ratio)]));
+      view.setInt16(i * 2, sample < 0 ? sample * 32768 : sample * 32767, true);
+    }
+    let binary = "";
+    for (let i = 0; i < bytes.length; i += 32768)
+      binary += String.fromCharCode(
+        ...bytes.subarray(i, Math.min(i + 32768, bytes.length)),
+      );
+    return btoa(binary);
+  }
+  function playLiveAudio(base64) {
+    try {
+      const raw = atob(base64);
+      const pcm = new Int16Array(raw.length / 2);
+      for (let i = 0; i < pcm.length; i++) {
+        const value = raw.charCodeAt(i * 2) | (raw.charCodeAt(i * 2 + 1) << 8);
+        pcm[i] = value >= 32768 ? value - 65536 : value;
+      }
+      const ctx = liveContextRef.current;
+      if (!ctx || !pcm.length) return;
+      const audio = ctx.createBuffer(1, pcm.length, 24e3);
+      const channel = audio.getChannelData(0);
+      for (let i = 0; i < pcm.length; i++) channel[i] = pcm[i] / 32768;
+      const source = ctx.createBufferSource();
+      source.buffer = audio;
+      source.connect(ctx.destination);
+      const now = ctx.currentTime;
+      livePlayheadRef.current = Math.max(livePlayheadRef.current, now);
+      source.start(livePlayheadRef.current);
+      livePlayheadRef.current += audio.duration;
+    } catch {}
+  }
+  async function beginLive() {
+    try {
+      if (!hasPremiumAccess) {
+        toast.error("Live Lesson tersedia untuk akun Premium.");
+        return;
+      }
+      const consent = await Swal.fire({
+        title: "Izinkan Live Lesson?",
+        text: "Audio mikrofon dikirim langsung dari browser ke Gemini selama sesi. Audio tidak diarsipkan oleh SpeakUp. Setelah sesi, transkrip akan dikirim ke AI untuk feedback jika tersedia.",
+        icon: "info",
+        showCancelButton: true,
+        confirmButtonText: "Setuju & lanjutkan",
+        cancelButtonText: "Batal",
+        confirmButtonColor: "#315c45",
+      });
+      if (!consent.isConfirmed) return;
+      setLiveAssessment(null);
+      setLiveLines([]);
+      liveTranscriptRef.current = "";
+      setLiveSeconds(0);
+      setLiveStatus("Meminta akses mikrofon\u2026");
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+      liveStreamRef.current = stream;
+      setLiveStatus("Meminta token sementara\u2026");
+      const tokenResp = await apiFetch("live-token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      const tokenData = await tokenResp.json();
+      if (!tokenResp.ok)
+        throw new Error(tokenData.error || "Token Gemini Live tidak tersedia.");
+      const ctx = new AudioContext();
+      liveContextRef.current = ctx;
+      await ctx.resume();
+      const model = String(tokenData.model || "gemini-3.8-live").replace(
+        /^models\//,
+        "",
+      );
+      const ws = new WebSocket(
+        `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContentConstrained?access_token=${encodeURIComponent(tokenData.token)}`,
+      );
+      liveWsRef.current = ws;
+      setLiveStatus("Connecting to Gemini Live\u2026");
+      ws.onopen = () => {
+        ws.send(
+          JSON.stringify({
+            setup: {
+              model: `models/${model}`,
+              responseModalities: ["AUDIO"],
+              inputAudioTranscription: {},
+              outputAudioTranscription: {},
+              sessionResumption: {},
+              systemInstruction: { parts: [{ text: liveInstruction }] },
+            },
+          }),
+        );
+      };
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.setupComplete) {
+            setLiveStatus("Connected \xB7 speaking");
+            setLiveOn(true);
+            const src = ctx.createMediaStreamSource(stream);
+            const proc = ctx.createScriptProcessor(4096, 1, 1);
+            const mute = ctx.createGain();
+            mute.gain.value = 0;
+            src.connect(proc);
+            proc.connect(mute);
+            mute.connect(ctx.destination);
+            proc.onaudioprocess = (e) => {
+              if (ws.readyState !== WebSocket.OPEN) return;
+              const data2 = pcmBase64(
+                e.inputBuffer.getChannelData(0),
+                ctx.sampleRate,
+              );
+              ws.send(
+                JSON.stringify({
+                  realtimeInput: {
+                    audio: { data: data2, mimeType: "audio/pcm;rate=16000" },
+                  },
+                }),
+              );
+            };
+            liveSourceRef.current = src;
+            liveProcessorRef.current = proc;
+          }
+          const c = msg.serverContent;
+          if (c) {
+            if (c.inputTranscription?.text) {
+              const text = String(c.inputTranscription.text);
+              liveTranscriptRef.current += `Learner: ${text}
+`;
+              setLiveLines((v) => [...v, { who: "learner", text }]);
+            }
+            if (c.outputTranscription?.text) {
+              const text = String(c.outputTranscription.text);
+              liveTranscriptRef.current += "\n";
+              liveTranscriptRef.current += `Maya: ${text}`;
+              setLiveLines((v) => [...v, { who: "coach", text }]);
+            }
+            for (const part of c.modelTurn?.parts || [])
+              if (part.inlineData?.data) playLiveAudio(part.inlineData.data);
+          }
+        } catch {}
+      };
+      ws.onerror = () => {
+        setLiveStatus("Connection error");
+        toast.error(
+          "Koneksi Gemini Live gagal. Periksa model dan konfigurasi admin.",
+        );
+        void endLive();
+      };
+      ws.onclose = () => {
+        if (liveWsRef.current === ws) {
+          setLiveStatus("Disconnected");
+          void endLive();
+        }
+      };
+    } catch (e) {
+      setLiveStatus("Unavailable");
+      liveStreamRef.current?.getTracks().forEach((t) => t.stop());
+      liveStreamRef.current = null;
+      liveProcessorRef.current?.disconnect();
+      liveProcessorRef.current = null;
+      liveSourceRef.current?.disconnect();
+      liveSourceRef.current = null;
+      const failedWs = liveWsRef.current;
+      liveWsRef.current = null;
+      failedWs?.close();
+      const failedCtx = liveContextRef.current;
+      liveContextRef.current = null;
+      if (failedCtx) void failedCtx.close().catch(() => {});
+      toast.error(e.message || "Gemini Live gagal dimulai.");
+    }
+  }
+  async function endLive() {
+    liveProcessorRef.current?.disconnect();
+    liveProcessorRef.current = null;
+    liveSourceRef.current?.disconnect();
+    liveSourceRef.current = null;
+    liveStreamRef.current?.getTracks().forEach((t) => t.stop());
+    liveStreamRef.current = null;
+    const ws = liveWsRef.current;
+    liveWsRef.current = null;
+    if (ws && ws.readyState !== WebSocket.CLOSED) {
+      try {
+        if (ws.readyState === WebSocket.OPEN)
+          ws.send(JSON.stringify({ realtimeInput: { audioStreamEnd: true } }));
+        ws.close();
+      } catch {}
+    }
+    const ctx = liveContextRef.current;
+    liveContextRef.current = null;
+    if (ctx) await ctx.close().catch(() => {});
+    setLiveOn(false);
+    setLiveStatus("Session ended");
+    const transcript2 = liveTranscriptRef.current.trim().slice(0, 12e3);
+    if (!transcript2) {
+      toast.info("Sesi ditutup. Belum ada transkrip untuk dinilai.");
+      return;
+    }
+    setLiveStatus("Preparing session feedback\u2026");
+    try {
+      const r = await apiFetch("live-assessment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          transcript: transcript2,
+          level: activeUnit.level,
+        }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "Feedback gagal dibuat.");
+      setLiveAssessment(j.assessment);
+      setLiveStatus("Feedback ready");
+      toast.success("Feedback sesi Live siap.");
+    } catch (e) {
+      setLiveStatus("Session ended \xB7 feedback unavailable");
+      toast.error(e.message || "Transkrip sesi tidak dapat dinilai.");
+    }
+  }
+  async function authenticate(mode, payload) {
+    const result = await apiJson(mode, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    await loadAccount(result.user);
+    toast.success(
+      result.user.must_change_password
+        ? "Akun siap. Ganti password awal sebelum melanjutkan."
+        : mode === "register"
+          ? "Akun berhasil dibuat. Selamat belajar!"
+          : "Berhasil masuk. Welcome back!",
+    );
+  }
+  async function logout() {
+    if (user && dataReady) await enqueueSave(data, user.id).catch(() => {});
+    await apiFetch("logout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    }).catch(() => {});
+    accountIdRef.current = null;
+    setUser(null);
+    setDataReady(false);
+    setPage("home");
+    setCatalog({ levels: [], listening: [] });
+    setData(structuredClone(initialData));
+    setTurns([]);
+    setLoadError("");
+    toast.success("Kamu sudah logout.");
+  }
+  if (!authReady)
+    return (
+      <div className="auth-loading">
+        <div className="brand-mark">
+          <AudioLines size={22} />
+        </div>
+        <b>SpeakUp</b>
+        <span>Memeriksa sesi...</span>
+      </div>
+    );
+  if (!user) return <AuthScreen onAuth={authenticate} />;
+  if (user.must_change_password)
+    return <PasswordForm required onLogout={logout} onChanged={loadAccount} />;
+  if (!dataReady)
+    return (
+      <div className="auth-loading">
+        <div className="brand-mark">
+          <AudioLines size={22} />
+        </div>
+        <b>SpeakUp</b>
+        {loadError ? (
+          <>
+            <p role="alert">{loadError}</p>
+            <button
+              className="btn-primary"
+              onClick={() =>
+                loadAccount(user).catch((e) => setLoadError(e.message))
+              }
+            >
+              Coba lagi <RotateCcw size={16} />
+            </button>
+            <button className="text-button" onClick={logout}>
+              Keluar
+            </button>
+          </>
+        ) : (
+          <span>Memuat perjalanan belajarmu...</span>
+        )}
+      </div>
+    );
+  const menu = [
+    { id: "home", label: "Beranda", icon: Home },
+    { id: "listening", label: "Listening Lab", icon: Headphones },
+    ...(hasPremiumAccess
+      ? [
+          { id: "practice", label: "AI Lesson", icon: Mic },
+          { id: "live", label: "Live Lesson", icon: AudioLines },
+        ]
+      : []),
+    { id: "progress", label: "Pencapaian", icon: BarChart3 },
+    { id: "settings", label: "Pengaturan", icon: Settings },
+    ...(user.role === "admin"
+      ? [{ id: "admin", label: "Studio Admin", icon: ShieldCheck }]
+      : []),
+  ];
+  const pageTitle = menu.find((item) => item.id === page)?.label || "SpeakUp";
+  return (
+    <div className="app-shell">
+      <aside className="sidebar">
+        <button
+          className="brand"
+          onClick={() => nav("home")}
+          aria-label="SpeakUp Beranda"
+        >
+          <span className="brand-mark">
+            <AudioLines size={25} />
+          </span>
+          <span>
+            <b>
+              speak<span>up</span>
+            </b>
+            <small>ENGLISH ADVENTURE</small>
+          </span>
+        </button>
+        <div className="sidebar-divider" />
+        <div className="side-label">MENU UTAMA</div>
+        <nav className="side-nav" aria-label="Menu utama">
+          {menu.map((item) => (
+            <button
+              key={item.id}
+              className={page === item.id ? "active" : ""}
+              onClick={() => nav(item.id)}
+              title={item.label}
+            >
+              <item.icon size={20} />
+              <span>{item.label}</span>
+              {item.id === "live" && <span className="live-tag">BETA</span>}
+            </button>
+          ))}
+        </nav>
+        {hasPremiumAccess && (
+          <div className="sidebar-course">
+            <div className="side-label">JALUR SPEAKING</div>
+            <div className="level-list">
+              {curriculum.map((l, i) => (
+                <button
+                  key={l.id}
+                  className="level-item"
+                  onClick={() =>
+                    startUnit(
+                      l.units.find((u) => !completed.has(u.id)) || l.units[0],
+                    )
+                  }
+                  disabled={!l.units.length}
+                >
+                  <span className="level-dot" style={{ background: l.color }}>
+                    {(() => {
+                      const Icon = LEVEL_ICONS[i] || Sparkles;
+                      return <Icon size={19} />;
+                    })()}
+                  </span>
+                  <span>
+                    <b>
+                      {l.id} · {l.label}
+                    </b>
+                    <small>
+                      {l.units.filter((u) => completed.has(u.id)).length}/
+                      {l.units.length} lesson
+                    </small>
+                  </span>
+                  <ChevronRight size={15} />
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        {!hasPremiumAccess && (
+          <div className="sidebar-premium">
+            <span>
+              <Sparkles size={25} />
+            </span>
+            <b>Your adventure starts here!</b>
+            <p>
+              Listening selalu gratis. AI & Live Lesson terbuka untuk akun
+              Premium.
+            </p>
+          </div>
+        )}
+        <div className="sidebar-bottom">
+          <button className="profile-row" onClick={() => nav("settings")}>
+            <span className="avatar">
+              {user.name?.charAt(0)?.toUpperCase() || "S"}
+            </span>
+            <span>
+              <b>{user.name}</b>
+              <small>
+                {user.role === "admin"
+                  ? "Administrator"
+                  : user.plan === "premium"
+                    ? "Premium learner"
+                    : "Regular learner"}
+              </small>
+            </span>
+            <MoreHorizontal size={18} />
+          </button>
+        </div>
+      </aside>
+      <main className="main-area">
+        <header className="topbar">
+          <button className="mobile-brand" onClick={() => nav("home")}>
+            <span className="brand-mark">
+              <AudioLines size={20} />
+            </span>
+            <b>
+              speak<span>up</span>
+            </b>
+          </button>
+          <div className="breadcrumb">
+            Ruang belajar <ChevronRight size={16} />
+            <b>{pageTitle}</b>
+          </div>
+          <div className="top-actions">
+            <span className="xp-pill">
+              <Zap size={16} /> {data.xp} XP
+            </span>
+            <span className="streak-pill">
+              <Flame size={17} fill="currentColor" /> {data.streak || 0} hari
+            </span>
+            <button
+              className="icon-btn"
+              onClick={() => nav("settings")}
+              aria-label="Pengaturan"
+            >
+              <Settings size={21} />
+            </button>
+          </div>
+        </header>
+        {syncError && (
+          <div className="sync-banner" role="alert">
+            Progres belum tersimpan: {syncError}. Periksa koneksi dan tetap di
+            halaman ini hingga sinkron.
+          </div>
+        )}
+        <div className="page-content">
+          {page === "home" && (
+            <HomePage
+              greet={greet()}
+              userName={user.name}
+              data={data}
+              pct={pct}
+              totalDone={totalDone}
+              currentLevel={currentLevel}
+              completed={completed}
+              startUnit={startUnit}
+              nav={nav}
+              allUnits={allUnits}
+              curriculum={curriculum}
+              listeningLessons={listeningLessons}
+              hasPremiumAccess={hasPremiumAccess}
+              startListening={startListening}
+            />
+          )}
+          {page === "listening" && (
+            <ListeningPage
+              levels={curriculum}
+              lessons={listeningLessons}
+              initialLessonId={selectedListeningId}
+              data={data}
+              setData={setData}
+            />
+          )}
+          {page === "practice" && activeUnit && (
+            <PracticePage
+              onBack={() => nav("home")}
+              unit={activeUnit}
+              allUnits={allUnits}
+              turns={turns}
+              transcript={transcript}
+              setTranscript={setTranscript}
+              recording={recording}
+              processing={processing}
+              permission={permission}
+              devices={devices}
+              deviceId={deviceId}
+              changeDevice={(id) => {
+                setDeviceId(id);
+                streamRef.current?.getTracks().forEach((track) => track.stop());
+                streamRef.current = null;
+                setPermission("idle");
+              }}
+              elapsed={elapsed}
+              audioBlob={audioBlob}
+              showLessonList={showLessonList}
+              setShowLessonList={setShowLessonList}
+              startUnit={startUnit}
+              startRecording={startRecording}
+              stopRecording={stopRecording}
+              requestMic={requestMic}
+              submitTurn={submitTurn}
+              finishUnit={finishUnit}
+              speak={speak}
+              playRecording={playRecording}
+              completed={completed}
+              sessionSaveAudio={sessionSaveAudio}
+            />
+          )}
+          {page === "live" && (
+            <LivePage
+              liveOn={liveOn}
+              liveSeconds={liveSeconds}
+              liveLines={liveLines}
+              liveStatus={liveStatus}
+              liveAssessment={liveAssessment}
+              beginLive={beginLive}
+              endLive={endLive}
+            />
+          )}
+          {page === "progress" && (
+            <ProgressPage
+              data={data}
+              pct={pct}
+              totalDone={totalDone}
+              allTurns={allTurns}
+              startUnit={startUnit}
+              allUnits={allUnits}
+              curriculum={curriculum}
+              nav={nav}
+              hasPremiumAccess={hasPremiumAccess}
+              listeningLessons={listeningLessons}
+            />
+          )}
+          {page === "settings" && (
+            <SettingsPage
+              data={data}
+              setData={setData}
+              voices={voices}
+              fileInput={fileInput}
+              resetData={resetData}
+              exportBackup={exportBackup}
+              speak={speak}
+              user={user}
+              onLogout={logout}
+              onAdmin={() => nav("admin")}
+              onPasswordChanged={setUser}
+            />
+          )}
+          {page === "admin" && user.role === "admin" && (
+            <AdminPage user={user} onCatalogChange={reloadCatalog} />
+          )}
+        </div>
+      </main>
+      <nav className="mobile-nav" aria-label="Menu seluler">
+        {menu
+          .filter((item) =>
+            ["home", "listening", "practice", "progress", "settings"].includes(
+              item.id,
+            ),
+          )
+          .map((item) => (
+            <button
+              key={item.id}
+              className={page === item.id ? "active" : ""}
+              onClick={() => nav(item.id)}
+            >
+              <item.icon size={21} />
+              {item.label === "Listening Lab"
+                ? "Listening"
+                : item.label === "Pencapaian"
+                  ? "Progres"
+                  : item.label}
+            </button>
+          ))}
+      </nav>
+      <input
+        ref={fileInput}
+        type="file"
+        accept=".zip"
+        hidden
+        onChange={(e) => handleImport(e.target.files?.[0])}
+      />
+    </div>
+  );
+}
+
+function AuthScreen({ onAuth }) {
+  const [mode, setMode] = useState("login");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [server, setServer] = useState("checking");
+  const [registrationClosed, setRegistrationClosed] = useState(false);
+  const [locked, setLocked] = useState(false);
+  useEffect(() => {
+    apiFetch("health")
+      .then(async (r) => {
+        if (!r.ok) {
+          setServer("offline");
+          return;
+        }
+        const j = await r.json();
+        setRegistrationClosed(!!j.registration_closed || !!j.lockdown);
+        setLocked(!!j.lockdown);
+        setServer("ready");
+      })
+      .catch(() => setServer("offline"));
+  }, []);
+  async function submit(e) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await onAuth(mode, { name, email, password });
+    } catch (err) {
+      toast.error(err.message || "Tidak dapat memproses akun.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="auth-screen">
+      <div className="auth-decoration deco-a" />
+      <div className="auth-decoration deco-b" />
+      <div className="auth-brand">
+        <div className="brand-mark">
+          <AudioLines size={22} />
+        </div>
+        <div>
+          <b>
+            speak<span>up</span>
+          </b>
+          <small>YOUR ENGLISH ADVENTURE</small>
+        </div>
+      </div>
+      <div className="auth-layout">
+        <div className="auth-story">
+          <img
+            className="auth-art"
+            src="/learnenglish/images/speakup-adventure.png"
+            alt=""
+            aria-hidden="true"
+          />
+          <div className="eyebrow">
+            <Sparkles size={14} /> YOUR NEXT CHAPTER STARTS HERE
+          </div>
+          <h1>
+            English you can
+            <br />
+            <em>actually speak.</em>
+          </h1>
+          <p>
+            Belajar bahasa Inggris lewat misi kecil yang seru. Dengarkan, berani
+            bicara, dan tumbuh dari A1 hingga C2.
+          </p>
+          <div className="auth-benefits">
+            <div>
+              <CheckCircle2 size={17} />
+              <span>18 listening lesson gratis, selalu bisa diulang</span>
+            </div>
+            <div>
+              <CheckCircle2 size={17} />
+              <span>48 unit speaking & feedback AI untuk Premium</span>
+            </div>
+            <div>
+              <ShieldCheck size={17} />
+              <span>XP, badge & progres tersimpan di akunmu</span>
+            </div>
+          </div>
+          <div className="auth-illustration">
+            <span>✦ little steps, big progress</span>
+          </div>
+        </div>
+        <div className="auth-card">
+          <div className="auth-card-kicker">MULAI PERJALANANMU</div>
+          <h2>
+            {mode === "login" ? "Selamat datang kembali" : "Buat akun SpeakUp"}
+          </h2>
+          <p>
+            {mode === "login"
+              ? "Masuk untuk melanjutkan progres belajarmu."
+              : "Daftar gratis dan progres akan tersimpan di server."}
+          </p>
+          <form onSubmit={submit}>
+            {locked && (
+              <div className="auth-lock-banner">
+                Aplikasi sedang dikunci. Hanya akun admin yang dapat masuk untuk
+                mengelola pengaturan.
+              </div>
+            )}
+            {mode === "register" && (
+              <label>
+                Nama lengkap
+                <input
+                  required
+                  minLength={2}
+                  maxLength={100}
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Nama kamu"
+                  autoComplete="name"
+                />
+              </label>
+            )}
+            <label>
+              Email
+              <input
+                required
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="nama@email.com"
+                autoComplete="email"
+              />
+            </label>
+            <label>
+              Password
+              <input
+                required
+                type="password"
+                minLength={mode === "register" ? 10 : 1}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder={
+                  mode === "register" ? "Minimal 10 karakter" : "Password akun"
+                }
+                autoComplete={
+                  mode === "login" ? "current-password" : "new-password"
+                }
+              />
+            </label>
+            <button
+              className="auth-submit"
+              disabled={
+                busy ||
+                server === "offline" ||
+                (mode === "register" && registrationClosed)
+              }
+            >
+              {busy ? (
+                <>
+                  <span className="spinner" /> Memproses...
+                </>
+              ) : (
+                <>
+                  {mode === "login" ? "Masuk ke akun" : "Buat akun"}{" "}
+                  <ArrowRight size={16} />
+                </>
+              )}
+            </button>
+          </form>
+          <div className="auth-switch">
+            {mode === "login" ? "Belum punya akun?" : "Sudah punya akun?"}{" "}
+            <button
+              onClick={() => setMode(mode === "login" ? "register" : "login")}
+            >
+              {mode === "login"
+                ? registrationClosed
+                  ? "Pendaftaran ditutup"
+                  : "Daftar sekarang"
+                : "Masuk"}
+            </button>
+          </div>
+          <div className={`api-status ${server}`}>
+            <span />
+            {server === "checking"
+              ? "Memeriksa server..."
+              : server === "ready"
+                ? "Server SpeakUp siap"
+                : "Backend belum tersedia \u2014 aktifkan PHP API"}
+          </div>
+          {mode === "register" && registrationClosed && (
+            <div className="auth-lock-banner">
+              Pendaftaran akun baru sedang ditutup oleh admin.
+            </div>
+          )}
+          <small className="auth-terms">
+            Dengan melanjutkan, progres dan rekaman pilihanmu akan disimpan pada
+            server ini.
+          </small>
+          {server === "offline" && (
+            <div className="auth-lock-banner" role="alert">
+              Backend belum tersambung. Jalankan PHP API dan periksa
+              /learnenglish/api/health; progres tidak bisa disimpan tanpa
+              server.
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="auth-footer">
+        SpeakUp · IELTS-inspired practice · Bukan layanan resmi IELTS
+      </div>
+    </div>
+  );
+}
+function AdminPage({ user, onCatalogChange }) {
+  const [adminTab, setAdminTab] = useState("content");
+  const [settings, setSettings] = useState({
+    clario_base_url: "https://clariohub.id/v1",
+    clario_fallback_url: "https://api-direct.clariohub.id/v1",
+    clario_model: "clario/gemini-3.7-flash",
+    gemini_live_model: "",
+  });
+  const [models, setModels] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [ready, setReady] = useState(false);
+  const [apiKey, setApiKey] = useState("");
+  const [geminiKey, setGeminiKey] = useState("");
+  const [showKey, setShowKey] = useState(false);
+  const [users, setUsers] = useState([]);
+  useEffect(() => {
+    apiFetch("admin/users")
+      .then((r) => r.json())
+      .then((j) => setUsers(j.users || []))
+      .catch(() => {});
+  }, []);
+  async function setPlan(id, plan) {
+    try {
+      const r = await apiFetch("admin/users", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, plan }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "Paket gagal diubah");
+      setUsers((xs) => xs.map((u) => (u.id === id ? { ...u, plan } : u)));
+      toast.success("Paket akun diperbarui.");
+    } catch (e) {
+      toast.error(e.message);
+    }
+  }
+  useEffect(() => {
+    Promise.all([
+      apiFetch("admin/settings").then((r) => r.json()),
+      apiFetch("models")
+        .then((r) => r.json())
+        .catch(() => ({})),
+    ])
+      .then(([s, m]) => {
+        if (s.settings) setSettings(s.settings);
+        const list = (m.data || m.models || [])
+          .map((x) => (typeof x === "string" ? x : x.id))
+          .filter((x) => String(x).startsWith("clario/"));
+        setModels(list);
+        setReady(true);
+      })
+      .catch(() => {
+        setReady(true);
+        toast.error("Gagal membaca konfigurasi admin.");
+      });
+  }, []);
+  function change(k, v) {
+    setSettings((p) => ({ ...p, [k]: v }));
+  }
+  async function save() {
+    setBusy(true);
+    try {
+      const r = await apiFetch("admin/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...settings,
+          clario_api_key: apiKey,
+          gemini_api_key: geminiKey,
+        }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "Gagal menyimpan");
+      setApiKey("");
+      setGeminiKey("");
+      toast.success("Konfigurasi provider tersimpan terenkripsi di SQLite.");
+    } catch (e) {
+      toast.error(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="admin-page">
+      <div className="eyebrow">
+        <ShieldCheck size={14} /> ADMINISTRATION
+      </div>
+      <h1>
+        Panel admin{" "}
+        <span>
+          <ShieldCheck size={27} />
+        </span>
+      </h1>
+      <p className="page-intro">
+        Konfigurasi berlaku global untuk akun belajar. API key terenkripsi
+        sebelum disimpan.
+      </p>
+      <div
+        className="admin-tabs"
+        role="tablist"
+        aria-label="Panel administrasi"
+      >
+        <button
+          role="tab"
+          aria-selected={adminTab === "content"}
+          className={adminTab === "content" ? "active" : ""}
+          onClick={() => setAdminTab("content")}
+        >
+          <BookOpen size={17} /> Studio konten
+        </button>
+        <button
+          role="tab"
+          aria-selected={adminTab === "access"}
+          className={adminTab === "access" ? "active" : ""}
+          onClick={() => setAdminTab("access")}
+        >
+          <Settings size={17} /> Akses & provider
+        </button>
+      </div>
+      {adminTab === "content" ? (
+        <ContentStudio onCatalogChange={onCatalogChange} />
+      ) : (
+        <>
+          <div className="admin-summary">
+            <div>
+              <span className="admin-avatar">
+                <ShieldCheck size={19} />
+              </span>
+              <div>
+                <b>{user.name}</b>
+                <small>{user.email} · Administrator</small>
+              </div>
+            </div>
+            <span className="secure-chip">
+              <ShieldCheck size={13} /> ADMIN ONLY
+            </span>
+          </div>
+          <section className="settings-card admin-control-card">
+            <div className="setting-title">
+              <div className="setting-icon red">
+                <ShieldCheck size={18} />
+              </div>
+              <div>
+                <b>Kontrol akses aplikasi</b>
+                <small>
+                  Perubahan berlaku setelah tombol Simpan konfigurasi.
+                </small>
+              </div>
+            </div>
+            <label className="toggle-row">
+              <span>
+                <b>Kunci aplikasi untuk non-admin</b>
+                <small>
+                  Memutus akses API pengguna reguler/premium, termasuk sesi yang
+                  sudah login. Admin tetap bisa mengelola.
+                </small>
+              </span>
+              <button
+                className={`switch ${settings.lockdown ? "on" : ""}`}
+                onClick={() => change("lockdown", !settings.lockdown)}
+              >
+                <i />
+              </button>
+            </label>
+            <label className="toggle-row">
+              <span>
+                <b>Tutup pendaftaran baru</b>
+                <small>
+                  Pengguna lama tetap dapat login selama aplikasi tidak dikunci.
+                </small>
+              </span>
+              <button
+                className={`switch ${settings.stop_registration ? "on" : ""}`}
+                onClick={() =>
+                  change("stop_registration", !settings.stop_registration)
+                }
+              >
+                <i />
+              </button>
+            </label>
+          </section>
+          <div className="admin-grid">
+            <section className="settings-card">
+              <div className="setting-title">
+                <div className="setting-icon green">
+                  <Cloud size={18} />
+                </div>
+                <div>
+                  <b>Clario · OpenAI-compatible API</b>
+                  <small>Key disimpan dengan AES-256-GCM di server</small>
+                </div>
+              </div>
+              <label className="field-label">PRIMARY BASE URL</label>
+              <input
+                className="text-field"
+                value={settings.clario_base_url || ""}
+                onChange={(e) => change("clario_base_url", e.target.value)}
+              />
+              <label className="field-label">
+                FALLBACK BASE URL (403 / WAF)
+              </label>
+              <input
+                className="text-field"
+                value={settings.clario_fallback_url || ""}
+                onChange={(e) => change("clario_fallback_url", e.target.value)}
+              />
+              <label className="field-label">
+                API KEY{" "}
+                {settings.clario_key_masked && (
+                  <span className="key-current">
+                    · Tersimpan {settings.clario_key_masked}
+                  </span>
+                )}
+              </label>
+              <div className="secret-field">
+                <input
+                  className="text-field"
+                  type={showKey ? "text" : "password"}
+                  autoComplete="new-password"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  placeholder={
+                    settings.clario_key_configured
+                      ? "Kosongkan untuk mempertahankan key saat ini"
+                      : "Tempel API key baru"
+                  }
+                />
+                <button onClick={() => setShowKey(!showKey)}>
+                  {showKey ? "Sembunyikan" : "Lihat"}
+                </button>
+              </div>
+              <label className="field-label">MODEL TUTOR</label>
+              <div className="select-wrap">
+                <select
+                  className="text-field"
+                  value={settings.clario_model || ""}
+                  onChange={(e) => change("clario_model", e.target.value)}
+                >
+                  {[
+                    ...new Set(
+                      [settings.clario_model, ...models].filter(Boolean),
+                    ),
+                  ].map((m) => (
+                    <option key={m}>{m}</option>
+                  ))}
+                </select>
+                <ChevronDown size={16} />
+              </div>
+              <button
+                className="outline-btn model-refresh"
+                onClick={() =>
+                  apiFetch("models")
+                    .then((r) => r.json())
+                    .then((j) =>
+                      setModels(
+                        (j.data || [])
+                          .map((m) => m.id)
+                          .filter((x) => x?.startsWith("clario/")),
+                      ),
+                    )
+                    .catch(() => toast.error("Katalog gagal diambil."))
+                }
+              >
+                <RotateCcw size={14} /> Refresh katalog model
+              </button>
+              <div className="admin-divider" />
+              <div className="setting-title">
+                <div className="setting-icon lilac">
+                  <AudioLines size={18} />
+                </div>
+                <div>
+                  <b>Gemini Live</b>
+                  <small>
+                    Long-lived key terenkripsi; browser menerima token Live
+                    sementara
+                  </small>
+                </div>
+              </div>
+              <label className="field-label">
+                GEMINI API KEY{" "}
+                {settings.gemini_key_masked && (
+                  <span className="key-current">
+                    · Tersimpan {settings.gemini_key_masked}
+                  </span>
+                )}
+              </label>
+              <input
+                className="text-field"
+                type="password"
+                autoComplete="new-password"
+                value={geminiKey}
+                onChange={(e) => setGeminiKey(e.target.value)}
+                placeholder={
+                  settings.gemini_key_configured
+                    ? "Kosongkan untuk mempertahankan key"
+                    : "Opsional \xB7 key Gemini baru"
+                }
+              />
+              <label className="field-label">LIVE MODEL ID</label>
+              <input
+                className="text-field"
+                value={settings.gemini_live_model || ""}
+                onChange={(e) => change("gemini_live_model", e.target.value)}
+                placeholder="Masukkan ID model Live yang tersedia"
+              />
+              <div className="info-box">
+                <CircleHelp size={15} />
+                <span>
+                  Browser Live menggunakan token sementara yang ditandatangani
+                  backend; long-lived API key tetap tersimpan terenkripsi dan
+                  tidak dikirim ke browser.
+                </span>
+              </div>
+              <button
+                className="btn-primary admin-save"
+                onClick={save}
+                disabled={busy || !ready}
+              >
+                {busy ? (
+                  <>
+                    <span className="spinner" /> Menyimpan...
+                  </>
+                ) : (
+                  <>
+                    Simpan konfigurasi <Check size={15} />
+                  </>
+                )}
+              </button>
+              <div className="admin-divider" />
+              <div className="setting-title">
+                <div className="setting-icon blue">
+                  <Settings size={17} />
+                </div>
+                <div>
+                  <b>Akun & paket akses</b>
+                  <small>
+                    Premium ditetapkan manual, tanpa pembayaran di versi ini
+                  </small>
+                </div>
+              </div>
+              <div className="admin-users-list">
+                {users.map((account) => (
+                  <div className="admin-user-row" key={account.id}>
+                    <span>
+                      <b>{account.name}</b>
+                      <small>
+                        {account.email} ·{" "}
+                        {account.role === "admin" ? "Admin" : "Regular"}
+                      </small>
+                    </span>
+                    {account.role === "admin" ? (
+                      <span className="secure-chip">ADMIN</span>
+                    ) : (
+                      <select
+                        className="text-field plan-select"
+                        value={account.plan || "regular"}
+                        onChange={(e) => setPlan(account.id, e.target.value)}
+                      >
+                        <option value="regular">Regular</option>
+                        <option value="premium">Premium</option>
+                      </select>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </section>
+            <aside className="admin-side">
+              <div className="settings-card">
+                <div className="setting-title">
+                  <div className="setting-icon blue">
+                    <BarChart3 size={17} />
+                  </div>
+                  <div>
+                    <b>Status penyimpanan</b>
+                    <small>Database server</small>
+                  </div>
+                </div>
+                <div className="admin-fact">
+                  <span>Database</span>
+                  <b>
+                    {settings.database ||
+                      "SQLite \xB7 /learnenglish/api/db/data.db"}
+                  </b>
+                </div>
+                <div className="admin-fact">
+                  <span>Akun aktif</span>
+                  <b>Role: admin</b>
+                </div>
+                <div className="admin-fact">
+                  <span>Audio</span>
+                  <b>/learnenglish/api/uploads/{user.id}/</b>
+                </div>
+                <div className="admin-fact">
+                  <span>Video lessons</span>
+                  <b>Belum ada soal terverifikasi</b>
+                </div>
+              </div>
+              <div className="settings-card video-curation">
+                <div className="setting-title">
+                  <div className="setting-icon orange">
+                    <Play size={16} />
+                  </div>
+                  <div>
+                    <b>Video YouTube</b>
+                    <small>Soal hanya untuk sumber yang diverifikasi</small>
+                  </div>
+                </div>
+                <p>
+                  Belum ada video pendek spesifik yang lolos kurasi sumber,
+                  durasi, subtitle, dan kecocokan level. Modul video sengaja
+                  dilewati—tidak ada video atau pertanyaan yang dikarang.
+                </p>
+                <a
+                  href="https://www.youtube.com/@IELTSbyIDP"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Jelajahi IELTS by IDP <ArrowRight size={13} />
+                </a>
+              </div>
+              <div className="privacy-note">
+                <ShieldCheck size={16} />
+                <p>
+                  Gunakan APP_ENCRYPTION_KEY kuat dan backup data.db. API key
+                  tidak pernah ditampilkan kembali.
+                </p>
+              </div>
+            </aside>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+function HomePage({
+  greet,
+  userName,
+  data,
+  pct,
+  totalDone,
+  currentLevel,
+  completed,
+  startUnit,
+  nav,
+  allUnits,
+  curriculum,
+  listeningLessons,
+  hasPremiumAccess,
+  startListening,
+}) {
+  const nextSpeaking =
+    currentLevel?.units.find((u) => !completed.has(u.id)) || allUnits[0];
+  const nextListening =
+    listeningLessons.find((l) => !data.listeningCompleted?.includes(l.id)) ||
+    listeningLessons[0];
+  const next = hasPremiumAccess ? nextSpeaking : nextListening;
+  const listenDone = listeningLessons.filter((l) =>
+    data.listeningCompleted?.includes(l.id),
+  ).length;
+  const badges = achievements(data);
+  return (
+    <div className="home-page">
+      <section className="welcome-row">
+        <div>
+          <div className="eyebrow">
+            <Sparkles size={16} /> YOUR LEARNING SPACE
+          </div>
+          <h1>
+            {greet}, {userName?.split(" ")[0]} <span>✳</span>
+          </h1>
+          <p>Siap untuk satu langkah kecil hari ini? You’ve got this!</p>
+        </div>
+        <div className="welcome-date">
+          <span>✦</span> KEEP GOING, KEEP GROWING
+        </div>
+      </section>
+      <section className="hero-card">
+        <div className="hero-copy">
+          <div className="hero-kicker">
+            <span className="status-dot" /> YOUR NEXT QUEST ·{" "}
+            {hasPremiumAccess ? "SPEAKING" : "LISTENING"}
+          </div>
+          <h2>{next ? next.title : "More adventures coming soon"}</h2>
+          <p>
+            {next
+              ? next.subtitle || next.objective
+              : "Katalog baru sedang disiapkan. Coba materi yang sudah ada sambil menunggu."}
+          </p>
+          <button
+            className="btn-white"
+            onClick={() =>
+              hasPremiumAccess ? startUnit(next) : startListening(next?.id)
+            }
+            disabled={!next}
+          >
+            {hasPremiumAccess ? "Lanjut speaking" : "Mulai mendengar"}{" "}
+            <ArrowRight size={18} />
+          </button>
+          <small>
+            {hasPremiumAccess
+              ? `${next?.level || "A1"} · IELTS-inspired practice`
+              : `${next?.level || "A1"} · original audio script`}
+          </small>
+        </div>
+        <img
+          className="hero-art"
+          src="/learnenglish/images/speakup-adventure.png"
+          alt=""
+          aria-hidden="true"
+        />
+      </section>
+      <div className="stats-grid">
+        <div className="stat-card">
+          <span className="stat-icon lilac">
+            <Zap size={23} />
+          </span>
+          <div>
+            <small>XP TERKUMPUL</small>
+            <strong>{data.xp || 0}</strong>
+            <span>Poin latihanmu</span>
+          </div>
+          <div className="stat-decoration">✦</div>
+        </div>
+        <div className="stat-card">
+          <span className="stat-icon orange">
+            <Flame size={23} />
+          </span>
+          <div>
+            <small>STREAK SAAT INI</small>
+            <strong>
+              {data.streak || 0} <em>hari</em>
+            </strong>
+            <span>Latihan rutin, hasil terasa</span>
+          </div>
+          <div className="stat-decoration">
+            <Flame size={28} />
+          </div>
+        </div>
+        <div className="stat-card">
+          <span className="stat-icon mint">
+            <Headphones size={23} />
+          </span>
+          <div>
+            <small>LISTENING SELESAI</small>
+            <strong>
+              {listenDone}
+              <em> / {listeningLessons.length}</em>
+            </strong>
+            <span>Satu cerita, satu kemajuan</span>
+          </div>
+          <div className="mini-progress">
+            <i
+              style={{
+                width: listeningLessons.length
+                  ? `${(listenDone / listeningLessons.length) * 100}%`
+                  : "0%",
+              }}
+            />
+          </div>
+        </div>
+      </div>
+      <section className="section-head">
+        <div>
+          <div className="eyebrow">PILIH PETUALANGANMU</div>
+          <h2>
+            Jelajahi level <span>A1 — C2</span>
+          </h2>
+        </div>
+        <button className="text-button" onClick={() => nav("progress")}>
+          Lihat progres <ArrowRight size={17} />
+        </button>
+      </section>
+      <div className="level-cards">
+        {curriculum.map((l, i) => {
+          const units = hasPremiumAccess
+            ? l.units
+            : listeningLessons.filter((item) => item.level === l.id);
+          const count = units.filter((u) =>
+            hasPremiumAccess
+              ? completed.has(u.id)
+              : data.listeningCompleted?.includes(u.id),
+          ).length;
+          return (
+            <button
+              key={l.id}
+              className={`curriculum-card card-${i}`}
+              onClick={() =>
+                hasPremiumAccess
+                  ? startUnit(
+                      l.units.find((u) => !completed.has(u.id)) || l.units[0],
+                    )
+                  : startListening(
+                      units.find(
+                        (u) => !data.listeningCompleted?.includes(u.id),
+                      )?.id || units[0]?.id,
+                    )
+              }
+            >
+              <span className="curr-top">
+                <span className="curr-icon" style={{ background: l.color }}>
+                  {(() => {
+                    const Icon = LEVEL_ICONS[i] || Sparkles;
+                    return <Icon size={24} />;
+                  })()}
+                </span>
+                <span className="level-badge">{l.id}</span>
+              </span>
+              <h3>{l.label}</h3>
+              <p>
+                {hasPremiumAccess ? "Speaking" : "Listening"} · {l.name}
+              </p>
+              <span className="curr-foot">
+                <span className="tiny-progress">
+                  <i
+                    style={{
+                      width: units.length
+                        ? `${(count / units.length) * 100}%`
+                        : "0%",
+                    }}
+                  />
+                </span>
+                <small>
+                  {count}/{units.length}
+                </small>
+              </span>
+              <span className="curr-arrow">
+                <ArrowRight size={18} />
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <section className="home-bottom">
+        <div className="daily-card">
+          <span className="daily-quote-icon">✳</span>
+          <div>
+            <small>SMALL STEPS. BIG PROGRESS.</small>
+            <p>
+              "Berani mencoba hari ini lebih penting daripada menunggu
+              sempurna."
+            </p>
+            <span>Praktik 5 menit juga berarti.</span>
+          </div>
+        </div>
+        <button
+          className="mode-card"
+          onClick={() => (hasPremiumAccess ? nav("live") : nav("listening"))}
+        >
+          <span className="mode-icon">
+            {hasPremiumAccess ? (
+              <AudioLines size={24} />
+            ) : (
+              <Headphones size={24} />
+            )}
+          </span>
+          <span>
+            <b>
+              {hasPremiumAccess
+                ? "Let’s talk live"
+                : "One more listening quest?"}
+            </b>
+            <small>
+              {hasPremiumAccess
+                ? "Ngobrol spontan bersama Maya"
+                : "Dengarkan, jawab, dapatkan XP"}
+            </small>
+          </span>
+          <ArrowRight size={18} />
+        </button>
+      </section>
+      <section className="achievement-preview">
+        <div className="section-head">
+          <div>
+            <div className="eyebrow">COLLECT THE MOMENTS</div>
+            <h2>Badges perjalananmu</h2>
+          </div>
+          <button className="text-button" onClick={() => nav("progress")}>
+            Semua pencapaian <ArrowRight size={17} />
+          </button>
+        </div>
+        <div className="badge-row">
+          {badges.map((b) => (
+            <div
+              key={b.title}
+              className={`achievement-badge ${b.unlocked ? "unlocked" : ""}`}
+            >
+              <span>
+                {(() => {
+                  const Icon = BADGE_ICONS[b.icon] || Star;
+                  return <Icon size={23} />;
+                })()}
+              </span>
+              <div>
+                <b>{b.title}</b>
+                <small>{b.unlocked ? "Unlocked!" : b.detail}</small>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+      <p className="home-caveat">
+        SpeakUp adalah latihan independen terinspirasi IELTS, bukan layanan,
+        tes, atau sertifikasi resmi IELTS. XP bukan band IELTS.
+      </p>
+    </div>
+  );
+}
+function PrepTimer({ unit }) {
+  const [seconds, setSeconds] = useState(Number(unit.prepSeconds) || 60);
+  const [running, setRunning] = useState(false);
+  useEffect(() => {
+    setSeconds(Number(unit.prepSeconds) || 60);
+    setRunning(false);
+  }, [unit.id]);
+  useEffect(() => {
+    if (!running) return;
+    const id = window.setInterval(
+      () =>
+        setSeconds((s) => {
+          if (s <= 1) {
+            setRunning(false);
+            toast.success("Waktu persiapan selesai. Mulai long turn-mu!");
+            return 0;
+          }
+          return s - 1;
+        }),
+      1e3,
+    );
+    return () => clearInterval(id);
+  }, [running]);
+  return (
+    <div className="prep-timer">
+      <div>
+        <small>IELTS PART 2 · PREPARATION</small>
+        <b>
+          {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, "0")}
+        </b>
+        <span>Siapkan catatan singkat; waktu bicara maksimal 2 menit.</span>
+      </div>
+      <button
+        className="outline-btn"
+        onClick={() => {
+          if (seconds === 0) setSeconds(Number(unit.prepSeconds) || 60);
+          setRunning(!running);
+        }}
+      >
+        {running ? <Pause size={14} /> : <Play size={14} />}{" "}
+        {running ? "Pause" : "Mulai 1 menit"}
+      </button>
+    </div>
+  );
+}
+function PracticePage(p) {
+  const {
+    unit,
+    allUnits,
+    turns,
+    transcript,
+    setTranscript,
+    recording,
+    processing,
+    permission,
+    devices,
+    deviceId,
+    elapsed,
+    audioBlob,
+    showLessonList,
+    setShowLessonList,
+    startUnit,
+    startRecording,
+    stopRecording,
+    requestMic,
+    submitTurn,
+    finishUnit,
+    speak,
+    playRecording,
+    completed,
+  } = p;
+  const visual =
+    unit.image ||
+    (unit.part?.includes("Part 2")
+      ? "/learnenglish/images/speaking/speaking-cue-card-practice.jpg"
+      : null);
+  return (
+    <div className="practice-layout">
+      <div className="practice-main">
+        <div className="practice-head">
+          <button className="back-link" onClick={p.onBack}>
+            <ArrowLeft size={16} /> Kembali
+          </button>
+          <div className="practice-title-row">
+            <div>
+              <div className="eyebrow">
+                <span className="lesson-pill">{unit.level} · LESSON</span>
+                <span>{unit.id}</span>
+              </div>
+              <h1>{unit.title}</h1>
+              <p>{unit.subtitle}</p>
+            </div>
+            <button
+              className="outline-btn"
+              onClick={() => setShowLessonList(!showLessonList)}
+            >
+              <BookOpen size={16} /> Daftar pelajaran <ChevronDown size={15} />
+            </button>
+          </div>
+          {showLessonList && (
+            <div className="lesson-dropdown">
+              {allUnits
+                .filter((u) => u.level === unit.level)
+                .map((u) => (
+                  <button key={u.id} onClick={() => startUnit(u)}>
+                    <span>{u.emoji}</span>
+                    <span>
+                      <b>{u.title}</b>
+                      <small>
+                        {completed.has(u.id) ? "Selesai" : "Belum selesai"}
+                      </small>
+                    </span>
+                    {completed.has(u.id) ? (
+                      <CheckCircle2 size={16} />
+                    ) : (
+                      <ChevronRight size={15} />
+                    )}
+                  </button>
+                ))}
+            </div>
+          )}
+        </div>
+        <div className="roleplay-card">
+          <div className="roleplay-top">
+            <span className="roleplay-tag">
+              <WandSparkles size={13} /> {unit.part}
+            </span>
+            <span className="level-pill">
+              {unit.level} · {unit.duration}
+            </span>
+          </div>
+          {unit.prepSeconds > 0 && <PrepTimer unit={unit} />}
+          {visual && (
+            <figure className="visual-prompt">
+              <img
+                src={visual}
+                alt={
+                  unit.image
+                    ? "Pasar lokal untuk supplementary speaking practice"
+                    : "Ilustrasi supplementary cue-card speaking practice"
+                }
+              />
+              <figcaption>
+                {unit.image
+                  ? "Visual conversation enrichment \xB7 bukan format resmi IELTS Speaking"
+                  : "Supplementary speaking illustration \xB7 bukan format resmi IELTS Speaking"}
+              </figcaption>
+            </figure>
+          )}
+          <div className="character-row">
+            <div className="character-avatar">
+              <Mic size={24} />
+            </div>
+            <div>
+              <b>
+                Maya <span>· English coach</span>
+              </b>
+              <p>“{unit.prompt}”</p>
+            </div>
+            <button
+              className="round-play"
+              onClick={() => speak(unit.prompt)}
+              aria-label="Dengarkan contoh"
+            >
+              <Volume2 size={17} />
+            </button>
+          </div>
+          <div className="ielts-task-meta">
+            <div>
+              <small>FORMAT LATIHAN</small>
+              <b>{unit.questionType}</b>
+            </div>
+            <div>
+              <small>TARGET</small>
+              <b>{unit.bandTarget}</b>
+            </div>
+          </div>
+          <div className="roleplay-hint">
+            <Sparkles size={15} />
+            <span>
+              Balas dalam Bahasa Inggris. Tidak harus sempurna—yang penting
+              mulai bicara!
+            </span>
+          </div>
+        </div>
+        <div className="answer-card">
+          <div className="answer-head">
+            <div>
+              <div className="eyebrow">GILIRANMU</div>
+              <h3>Jawab dengan suaramu</h3>
+            </div>
+            <span className="privacy-mini">
+              <ShieldCheck size={14} /> Audio dikirim hanya dengan persetujuan
+            </span>
+          </div>
+          <div className="mic-stage">
+            <div className={`mic-halo ${recording ? "is-recording" : ""}`}>
+              <button
+                className="mic-main"
+                onClick={recording ? stopRecording : startRecording}
+                disabled={processing}
+              >
+                <Mic size={26} />
+              </button>
+            </div>
+            {recording ? (
+              <>
+                <b className="recording-label">Sedang merekam...</b>
+                <span className="record-time">
+                  {formatTime(elapsed)} <i className="live-dot" />
+                </span>
+                <div className="waveform">
+                  {Array.from({ length: 32 }, (_, i) => (
+                    <i
+                      key={i}
+                      style={{
+                        height: `${recording ? 12 + Math.random() * 27 : 8}px`,
+                        animationDelay: `${i * 0.03}s`,
+                      }}
+                    />
+                  ))}
+                </div>
+                <button className="stop-button" onClick={stopRecording}>
+                  <Pause size={14} fill="currentColor" /> Selesai merekam
+                </button>
+              </>
+            ) : (
+              <>
+                <b className="recording-label">Ketuk untuk mulai bicara</b>
+                <span className="record-hint">
+                  atau ketik jawabanmu di bawah
+                </span>
+              </>
+            )}
+            <div className="mic-controls">
+              <button
+                onClick={requestMic}
+                className={
+                  permission === "granted"
+                    ? "mic-control granted"
+                    : "mic-control"
+                }
+              >
+                <Mic size={14} />
+                {permission === "granted"
+                  ? "Mikrofon siap"
+                  : permission === "denied"
+                    ? "Izin ditolak"
+                    : "Pilih mikrofon"}
+              </button>
+              {devices.length > 0 && (
+                <select
+                  aria-label="Pilih mikrofon"
+                  value={deviceId}
+                  onChange={(e) => p.changeDevice(e.target.value)}
+                >
+                  {devices.map((d, i) => (
+                    <option key={d.deviceId} value={d.deviceId}>
+                      {d.label || `Mikrofon ${i + 1}`}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+          </div>
+          <div className="transcript-area">
+            <div className="transcript-label">
+              <span>TRANSKRIP JAWABANMU</span>
+              <span>{transcript.length}/500</span>
+            </div>
+            <textarea
+              maxLength={500}
+              value={transcript}
+              onChange={(e) => setTranscript(e.target.value)}
+              placeholder="Speech recognition otomatis tidak aktif. Ketik jawaban, atau kirim rekaman setelah menyetujui evaluasi audio..."
+            />
+            <div className="transcript-foot">
+              <span>
+                {audioBlob ? (
+                  <>
+                    <FileAudio2 size={13} /> Audio{" "}
+                    {Math.max(1, Math.round(audioBlob.size / 1024))} KB siap
+                  </>
+                ) : (
+                  "Transkrip dapat diedit sebelum dikirim"
+                )}
+              </span>
+              <span>
+                <Languages size={13} /> English
+              </span>
+            </div>
+          </div>
+          <div className="answer-actions">
+            <span>
+              <ShieldCheck size={15} /> Rekaman{" "}
+              {p.sessionSaveAudio === null
+                ? "akan ditanyakan per sesi"
+                : p.sessionSaveAudio
+                  ? "akan disimpan di akun server"
+                  : "tidak akan disimpan"}
+            </span>
+            <button
+              className="btn-primary"
+              onClick={submitTurn}
+              disabled={processing || (!transcript.trim() && !audioBlob)}
+            >
+              {processing ? (
+                <>
+                  <span className="spinner" /> Menganalisis...
+                </>
+              ) : (
+                <>
+                  Kirim jawaban <ArrowRight size={16} />
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+        {turns.length > 0 && (
+          <div className="feedback-section">
+            <div className="feedback-heading">
+              <div>
+                <div className="eyebrow">FEEDBACK TUTOR</div>
+                <h2>
+                  Bagus, kamu sudah mencoba! <span>✦</span>
+                </h2>
+              </div>
+              <span className="session-count">{turns.length} jawaban</span>
+            </div>
+            {turns.map((t, i) => (
+              <div className="feedback-card" key={t.id}>
+                <div className="feedback-top">
+                  <span>JAWABAN {i + 1}</span>
+                  <div className="stars">
+                    {Array.from({ length: 5 }, (_, j) => (
+                      <Star
+                        key={j}
+                        size={15}
+                        fill={j < t.stars ? "#f3b64c" : "transparent"}
+                        color={j < t.stars ? "#f3b64c" : "#ccd1cb"}
+                      />
+                    ))}
+                  </div>
+                </div>
+                <div className="feedback-dialog">
+                  <div className="bubble learner-bubble">
+                    <small>KAMU</small>
+                    {t.userText}
+                    {t.audioSaved && (
+                      <button
+                        className="audio-mini"
+                        onClick={() => playRecording(t.audioId)}
+                      >
+                        <Play size={12} /> Dengarkan
+                      </button>
+                    )}
+                  </div>
+                  <div className="bubble coach-bubble">
+                    <small>
+                      MAYA{" "}
+                      <button onClick={() => speak(t.reply)}>
+                        <Volume2 size={13} />
+                      </button>
+                    </small>
+                    {t.reply}
+                  </div>
+                </div>
+                <div className="feedback-note">
+                  <Sparkles size={15} />
+                  <div>
+                    <b>Catatan tutor</b>
+                    <p>{t.feedback}</p>
+                  </div>
+                </div>
+                <div className="band-estimate">
+                  <span>IELTS Speaking practice estimate</span>
+                  <b>
+                    {t.estimatedBand != null
+                      ? `Band ${Number(t.estimatedBand).toFixed(1)}`
+                      : "Belum dapat diestimasi"}
+                  </b>
+                  <small>Feedback latihan · bukan skor resmi</small>
+                </div>
+                <div className="score-row">
+                  {[
+                    ["Fluency & Coherence", "fluency_coherence"],
+                    ["Lexical Resource", "lexical_resource"],
+                    ["Grammar Range & Accuracy", "grammatical_range_accuracy"],
+                    ["Pronunciation", "pronunciation"],
+                  ].map(([label, key]) => {
+                    const c = t.criteria?.[key];
+                    return (
+                      <span key={key}>
+                        {label}
+                        <b>
+                          {c?.band != null
+                            ? `Band ${Number(c.band).toFixed(1)}`
+                            : "Belum dinilai"}
+                        </b>
+                        <small>
+                          {c?.status === "provisional"
+                            ? "Estimasi teks"
+                            : c?.status === "scored"
+                              ? "Dinilai"
+                              : "Audio diperlukan"}
+                        </small>
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+            <div className="finish-row">
+              <div>
+                <b>Siap menyelesaikan pelajaran?</b>
+                <small>
+                  Rata-rata rating latihan 3.5★ (bukan band IELTS) untuk membuka
+                  langkah berikutnya.
+                </small>
+              </div>
+              <button className="btn-primary" onClick={finishUnit}>
+                Selesaikan lesson <Check size={16} />
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+      <aside className="practice-aside">
+        <div className="aside-card progress-aside">
+          <div className="aside-top">
+            <span>PROGRES LESSON</span>
+            <MoreHorizontal size={18} />
+          </div>
+          <div className="lesson-progress-ring">
+            <div>
+              <b>{turns.length ? Math.min(100, turns.length * 25) : 0}%</b>
+              <small>selesai</small>
+            </div>
+            <svg viewBox="0 0 100 100">
+              <circle cx="50" cy="50" r="43" />
+              <circle
+                className="ring-value"
+                cx="50"
+                cy="50"
+                r="43"
+                style={{ strokeDashoffset: 270 - turns.length * 18 }}
+              />
+            </svg>
+          </div>
+          <div className="aside-progress-label">
+            <b>{unit.title}</b>
+            <span>{turns.length} dari 4 langkah</span>
+          </div>
+          <div className="aside-steps">
+            {[
+              "Dengarkan skenario",
+              "Rekam jawaban",
+              "Lihat feedback",
+              "Coba lagi / lanjut",
+            ].map((s, i) => (
+              <div className={i < turns.length + 1 ? "step-done" : ""} key={s}>
+                <span>{i < turns.length ? <Check size={12} /> : i + 1}</span>
+                {s}
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="aside-card tips-aside">
+          <div className="tips-title">
+            <div>
+              <Sparkles size={16} />
+            </div>
+            <b>Quick tip</b>
+          </div>
+          <p>
+            Gunakan kalimat sederhana dulu. Kamu bisa menambahkan detail setelah
+            menyampaikan ide utama.
+          </p>
+          <div className="tip-example">
+            <small>TRY THIS</small>
+            <span>“I’m from Bandung, and I...”</span>
+          </div>
+        </div>
+        <div className="privacy-card">
+          <ShieldCheck size={18} />
+          <div>
+            <b>Privasi & audio</b>
+            <p>
+              Rekaman hanya dikirim untuk evaluasi AI setelah persetujuan satu
+              kali. Arsip audio memerlukan persetujuan terpisah;
+              SpeechRecognition browser tidak digunakan.
+            </p>
+          </div>
+        </div>
+      </aside>
+    </div>
+  );
+}
+function formatTime(s) {
+  return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+}
+function LivePage({
+  liveOn,
+  liveSeconds,
+  liveLines,
+  liveStatus,
+  liveAssessment,
+  beginLive,
+  endLive,
+}) {
+  return (
+    <div className="live-page">
+      <div className="live-heading">
+        <div className="eyebrow">
+          <span className="live-pulse" /> REAL-TIME CONVERSATION
+        </div>
+        <h1>
+          Let’s talk <span>naturally.</span>
+        </h1>
+        <p>Latih percakapan spontan dalam suasana yang santai dan suportif.</p>
+      </div>
+      <div className="live-panel">
+        <div className="live-panel-top">
+          <span className="live-label">
+            <span className="live-pulse" /> GEMINI LIVE
+          </span>
+          <span className="timer-pill">
+            <Clock3 size={14} />
+            {formatTime(liveSeconds)} <small>/ 20:00</small>
+          </span>
+        </div>
+        <div className="live-orb-wrap">
+          <div className={`live-orb ${liveOn ? "speaking" : ""}`}>
+            <div className="orb-inner">
+              {liveOn ? <AudioLines size={36} /> : <Headphones size={36} />}
+            </div>
+          </div>
+          <div className="orb-rings">
+            <i />
+            <i />
+            <i />
+          </div>
+        </div>
+        <h2>
+          {liveOn
+            ? "You\u2019re in the conversation"
+            : "Your conversation starts here"}
+        </h2>
+        <p>
+          {liveOn
+            ? "Speak naturally; audio streams directly from your browser to Gemini."
+            : `Session status: ${liveStatus}. Sessions are limited to 20 minutes.`}
+        </p>
+        <div className="live-topic">
+          <span>TOPIK HARI INI</span>
+          <b>Meeting someone new</b>
+          <span className="live-status-mini">{liveStatus}</span>
+        </div>
+        <button
+          className={liveOn ? "btn-end" : "btn-live-start"}
+          onClick={liveOn ? endLive : beginLive}
+        >
+          {liveOn ? (
+            <>
+              <Pause size={17} /> Akhiri sesi
+            </>
+          ) : (
+            <>
+              <AudioLines size={18} /> Mulai percakapan Live
+            </>
+          )}
+        </button>
+        <div className="live-status">
+          <span>
+            <span className="status-dot" /> Browser → Gemini direct
+          </span>
+          <span>20 minute session limit</span>
+        </div>
+      </div>
+      <div className="live-disclaimer">
+        <ShieldCheck size={16} />
+        <span>
+          Audio dikirim langsung ke Google Gemini menggunakan ephemeral token
+          satu kali. Audio tidak disimpan oleh SpeakUp. Setelah sesi, transkrip
+          dapat dikirim untuk feedback AI.
+        </span>
+      </div>
+      {liveLines.length > 0 && (
+        <div className="live-transcript">
+          <div className="eyebrow">SESSION TRANSCRIPT</div>
+          {liveLines.map((l, i) => (
+            <p key={i}>
+              <b>{l.who === "coach" ? "Maya" : "You"}:</b> {l.text}
+            </p>
+          ))}
+        </div>
+      )}
+      {liveAssessment && (
+        <section className="settings-card live-assessment-card">
+          <div className="eyebrow">POST-SESSION FEEDBACK</div>
+          <h2>Session review</h2>
+          <p>{liveAssessment.overall_feedback}</p>
+          <div className="live-feedback-grid">
+            <div>
+              <b>Strengths</b>
+              <ul>
+                {(liveAssessment.strengths || []).map((x, i) => (
+                  <li key={i}>{x}</li>
+                ))}
+              </ul>
+            </div>
+            <div>
+              <b>Next steps</b>
+              <ul>
+                {(liveAssessment.improvements || []).map((x, i) => (
+                  <li key={i}>{x}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+          {(liveAssessment.corrected_examples || []).length > 0 && (
+            <div>
+              <b>Suggested revisions</b>
+              {liveAssessment.corrected_examples.map((x, i) => (
+                <p key={i}>
+                  <s>{x.original}</s> → <b>{x.improved}</b>
+                </p>
+              ))}
+            </div>
+          )}
+          <small>
+            Transcript-only feedback; no pronunciation score or official IELTS
+            band is assigned.
+          </small>
+        </section>
+      )}
+    </div>
+  );
+}
+function ProgressPage({
+  data,
+  pct,
+  totalDone,
+  allUnits,
+  curriculum,
+  nav,
+  hasPremiumAccess,
+  listeningLessons,
+  startUnit,
+}) {
+  const listenDone = listeningLessons.filter((l) =>
+    data.listeningCompleted?.includes(l.id),
+  ).length;
+  const recent = (data.sessions || []).slice(-5).reverse();
+  const badges = achievements(data);
+  return (
+    <div className="progress-page">
+      <div className="eyebrow">
+        <Sparkles size={16} /> YOUR ADVENTURE SO FAR
+      </div>
+      <h1>
+        Lihat sejauh apa{" "}
+        <span>
+          kamu melangkah <Sparkles size={24} />
+        </span>
+      </h1>
+      <p className="page-intro">
+        Setiap latihan berarti. Progres dan riwayatmu tersimpan di akun server.
+      </p>
+      <div className="progress-hero">
+        <div>
+          <small>TOTAL EXPERIENCE</small>
+          <strong>
+            {data.xp || 0} <em>XP</em>
+          </strong>
+          <p>
+            {hasPremiumAccess
+              ? `${totalDone}/${allUnits.length} speaking · `
+              : ""}
+            {listenDone}/${listeningLessons.length} listening lesson selesai
+          </p>
+          <div className="large-progress">
+            <i
+              style={{
+                width: `${hasPremiumAccess ? pct : listeningLessons.length ? (listenDone / listeningLessons.length) * 100 : 0}%`,
+              }}
+            />
+          </div>
+        </div>
+        <div className="progress-hero-side">
+          <span className="progress-emoji">
+            <Star size={42} />
+          </span>
+          <b>{data.streak || 0} hari</b>
+          <small>streak latihan saat ini</small>
+        </div>
+      </div>
+      <div className="section-head">
+        <div>
+          <div className="eyebrow">JOURNEY MAP</div>
+          <h2>Jelajahi tiap level</h2>
+        </div>
+      </div>
+      <div className="progress-levels">
+        {curriculum.map((l, i) => {
+          const units = hasPremiumAccess
+            ? l.units
+            : listeningLessons.filter((item) => item.level === l.id);
+          const done = units.filter((u) =>
+            hasPremiumAccess
+              ? data.completed?.includes(u.id)
+              : data.listeningCompleted?.includes(u.id),
+          ).length;
+          return (
+            <div className="progress-level" key={l.id}>
+              <div
+                className="progress-level-icon"
+                style={{ background: l.color }}
+              >
+                {(() => {
+                  const Icon = LEVEL_ICONS[i] || Sparkles;
+                  return <Icon size={21} />;
+                })()}
+              </div>
+              <div className="progress-level-copy">
+                <b>
+                  {l.id} · {l.label}
+                </b>
+                <small>
+                  {l.name} · {hasPremiumAccess ? "Speaking" : "Listening"}
+                </small>
+                <div className="tiny-progress">
+                  <i
+                    style={{
+                      width: units.length
+                        ? `${(done / units.length) * 100}%`
+                        : "0%",
+                    }}
+                  />
+                </div>
+              </div>
+              <span className="progress-fraction">
+                {done}/{units.length}
+              </span>
+              <button
+                aria-label={`Buka level ${l.id}`}
+                onClick={() =>
+                  hasPremiumAccess
+                    ? startUnit(
+                        l.units.find((u) => !data.completed?.includes(u.id)) ||
+                          l.units[0],
+                      )
+                    : nav("listening")
+                }
+              >
+                <ArrowRight size={17} />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+      <div className="section-head">
+        <div>
+          <div className="eyebrow">TROPHY CASE</div>
+          <h2>Badge yang menantimu</h2>
+        </div>
+      </div>
+      <div className="badge-row progress-badges">
+        {badges.map((b) => (
+          <div
+            className={`achievement-badge ${b.unlocked ? "unlocked" : ""}`}
+            key={b.title}
+          >
+            <span>
+              {(() => {
+                const Icon = BADGE_ICONS[b.icon] || Star;
+                return <Icon size={23} />;
+              })()}
+            </span>
+            <div>
+              <b>{b.title}</b>
+              <small>{b.unlocked ? "Terbuka!" : b.detail}</small>
+            </div>
+          </div>
+        ))}
+      </div>
+      {hasPremiumAccess && (
+        <>
+          <div className="section-head recent-head">
+            <div>
+              <div className="eyebrow">YOUR MOMENTS</div>
+              <h2>Latihan speaking terakhir</h2>
+            </div>
+          </div>
+          {recent.length ? (
+            recent.map((s) => (
+              <div className="recent-session" key={s.id}>
+                <span className="recent-icon">
+                  <Mic size={18} />
+                </span>
+                <div>
+                  <b>
+                    {allUnits.find((u) => u.id === s.unitId)?.title ||
+                      "Latihan percakapan (diarsipkan)"}
+                  </b>
+                  <small>
+                    {new Date(
+                      s.turns?.at(-1)?.createdAt || Date.now(),
+                    ).toLocaleDateString("id-ID", {
+                      day: "numeric",
+                      month: "long",
+                      year: "numeric",
+                    })}
+                  </small>
+                </div>
+                <span className="recent-stars">
+                  {s.turns?.at(-1)?.stars || 0} ★
+                </span>
+              </div>
+            ))
+          ) : (
+            <div className="empty-activity">
+              <span>🗣️</span>
+              <b>Belum ada aktivitas speaking</b>
+              <p>Mulai latihan pertamamu dan riwayat akan tampil di sini.</p>
+              <button
+                className="btn-primary"
+                onClick={() => startUnit(allUnits[0])}
+              >
+                Mulai latihan <ArrowRight size={16} />
+              </button>
+            </div>
+          )}
+        </>
+      )}
+      <p className="home-caveat">
+        XP dan badge adalah motivasi belajar, bukan band atau sertifikasi IELTS.
+      </p>
+    </div>
+  );
+}
+function SettingsPage({
+  data,
+  setData,
+  voices,
+  fileInput,
+  handleImport,
+  resetData,
+  exportBackup: exportBackup2,
+  speak,
+  user,
+  onLogout,
+  onAdmin,
+  onPasswordChanged,
+}) {
+  const update = (key, value) =>
+    setData((p) => ({ ...p, settings: { ...p.settings, [key]: value } }));
+  async function makeBackup() {
+    try {
+      const count = data.sessions
+        .flatMap((s) => s.turns || [])
+        .filter((t) => t.audioId).length;
+      let includeAudio = false;
+      if (count) {
+        const choice = await Swal.fire({
+          title: "Sertakan rekaman?",
+          text: `Ada ${count} rekaman yang tersimpan. Pilih apakah audio ikut masuk ke ZIP.`,
+          input: "radio",
+          inputOptions: {
+            no: "Tanpa audio (file lebih kecil)",
+            yes: "Sertakan audio",
+          },
+          inputValue: data.settings.saveAudio ? "yes" : "no",
+          showCancelButton: true,
+          confirmButtonText: "Ekspor ZIP",
+          cancelButtonText: "Batal",
+          confirmButtonColor: "#315c45",
+        });
+        if (!choice.isConfirmed) return;
+        includeAudio = choice.value === "yes";
+      }
+      await exportBackup2(data, includeAudio);
+      toast.success("Backup akun berhasil dibuat.");
+    } catch (e) {
+      toast.error(e.message || "Ekspor gagal.");
+    }
+  }
+  return (
+    <div className="settings-page">
+      <div className="eyebrow">PREFERENSI AKUN</div>
+      <h1>
+        Pengaturan{" "}
+        <span>
+          <Settings size={27} />
+        </span>
+      </h1>
+      <p className="page-intro">
+        Akun dan progres tersimpan di server SpeakUp.
+      </p>
+      <div className="settings-grid">
+        <div className="settings-main">
+          <section className="settings-card">
+            <div className="setting-title">
+              <div className="setting-icon green">
+                <Volume2 size={18} />
+              </div>
+              <div>
+                <b>Suara tutor</b>
+                <small>Balasan percakapan dibacakan lewat perangkatmu</small>
+              </div>
+            </div>
+            <label className="field-label">TEXT-TO-SPEECH ENGINE</label>
+            <div className="tts-options">
+              <div className="tts-option selected">
+                <span className="radio-dot" />
+                <span>
+                  <b>Browser Native</b>
+                  <small>Siap dipakai tanpa model tambahan</small>
+                </span>
+                <span className="ready-tag">READY</span>
+              </div>
+            </div>
+            <label className="field-label">VOICE</label>
+            <div className="voice-row">
+              <select
+                className="text-field"
+                value={data.settings.voice}
+                onChange={(e) => update("voice", e.target.value)}
+              >
+                <option value="">English voice (default)</option>
+                {voices.map((v) => (
+                  <option key={v.name} value={v.name}>
+                    {v.name} · {v.lang}
+                  </option>
+                ))}
+              </select>
+              <button
+                className="sample-btn"
+                onClick={() =>
+                  speak(
+                    "Hello! It is lovely to practice English with you today.",
+                  )
+                }
+              >
+                <Play size={14} fill="currentColor" /> Listen sample
+              </button>
+            </div>
+            <div className="info-box">
+              <CircleHelp size={15} />
+              <span>
+                Suara yang tersedia dan pemrosesan offline bergantung pada
+                browser dan sistem operasimu.
+              </span>
+            </div>
+          </section>
+          <section className="settings-card">
+            <div className="setting-title">
+              <div className="setting-icon orange">
+                <FileAudio2 size={18} />
+              </div>
+              <div>
+                <b>Privasi & rekaman</b>
+                <small>Atur penyimpanan untuk setiap sesi</small>
+              </div>
+            </div>
+            <label className="toggle-row">
+              <span>
+                <b>Default persetujuan simpan audio</b>
+                <small>
+                  Ditanyakan lagi tiap sesi. Jika disetujui, file disimpan di
+                  /learnenglish/api/uploads/{user.id}/ dan DB hanya menyimpan
+                  metadata/referensi.
+                </small>
+              </span>
+              <button
+                className={`switch ${data.settings.saveAudio ? "on" : ""}`}
+                onClick={() => update("saveAudio", !data.settings.saveAudio)}
+              >
+                <i />
+              </button>
+            </label>
+            <div className="info-box">
+              <CircleHelp size={15} />
+              <span>
+                Speech recognition lokal/offline belum disertakan. SpeakUp tidak
+                mengaktifkan SpeechRecognition browser/cloud. Jika memilih
+                evaluasi audio, rekaman hanya dikirim ke Gemini setelah
+                persetujuan satu kali.
+              </span>
+            </div>
+            <div className="privacy-note">
+              <ShieldCheck size={16} />
+              <p>
+                Audio arsip tidak pernah dikirim ulang otomatis. Evaluasi audio
+                AI adalah tindakan terpisah, satu kali, dan memerlukan
+                persetujuan sebelum dikirim ke Google Gemini.
+              </p>
+            </div>
+          </section>
+          <section className="settings-card">
+            <div className="setting-title">
+              <div className="setting-icon blue">
+                <Download size={18} />
+              </div>
+              <div>
+                <b>Backup & restore</b>
+                <small>Ekspor atau pindahkan akun ke perangkat lain</small>
+              </div>
+            </div>
+            <p className="backup-description">
+              Progres tersimpan di SQLite server. Backup ZIP dapat menyertakan
+              file audio pilihanmu. Impor akan mengganti progres akun ini.
+            </p>
+            <div className="backup-actions">
+              <button className="btn-primary" onClick={makeBackup}>
+                <ArrowDownToLine size={16} /> Ekspor backup ZIP
+              </button>
+              <button
+                className="outline-btn"
+                onClick={() => fileInput.current?.click()}
+              >
+                <Upload size={16} /> Impor backup
+              </button>
+            </div>
+          </section>
+          <PasswordForm onChanged={onPasswordChanged} />
+          <section className="settings-card account-card">
+            <div className="setting-title">
+              <div className="setting-icon lilac">
+                <ShieldCheck size={18} />
+              </div>
+              <div>
+                <b>Akun SpeakUp</b>
+                <small>Login tanpa membagikan kredensial ke AI</small>
+              </div>
+            </div>
+            <div className="account-data">
+              <div className="avatar">👩🏻‍🎓</div>
+              <div>
+                <b>{user.name}</b>
+                <small>
+                  {user.email} ·{" "}
+                  {user.role === "admin"
+                    ? "Administrator"
+                    : user.plan === "premium"
+                      ? "Premium"
+                      : "Regular \xB7 Listening"}
+                </small>
+              </div>
+            </div>
+            <div className="backup-actions account-buttons">
+              {user.role === "admin" && (
+                <button className="outline-btn" onClick={onAdmin}>
+                  <ShieldCheck size={15} /> Pengaturan admin
+                </button>
+              )}
+              <button className="outline-btn" onClick={onLogout}>
+                Logout <ArrowRight size={15} />
+              </button>
+            </div>
+          </section>
+        </div>
+        <aside className="settings-side">
+          <div className="settings-help">
+            <div className="help-spark">✦</div>
+            <h3>Belajar dengan nyaman</h3>
+            <p>
+              Progress disimpan ke akunmu di server, bukan hanya browser ini.
+            </p>
+            <div className="local-badge">
+              <ShieldCheck size={15} /> SERVER-SAVED
+            </div>
+          </div>
+          <div className="settings-card danger-card">
+            <div className="setting-title">
+              <div className="setting-icon red">
+                <Trash2 size={17} />
+              </div>
+              <div>
+                <b>Zona berbahaya</b>
+                <small>Hapus progres dan audio akun</small>
+              </div>
+            </div>
+            <button className="danger-button" onClick={resetData}>
+              Hapus semua progres <Trash2 size={14} />
+            </button>
+          </div>
+          <div className="version-info">
+            SpeakUp · Versi 1.1.0
+            <br />
+            IELTS-inspired speaking practice · bukan ujian resmi
+          </div>
+        </aside>
+      </div>
+    </div>
+  );
+}
+export { App as default };

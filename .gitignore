@@ -1,5 +1,6 @@
 node_modules/
 dist/
+.arena/
 .env
 .env.*
 !.env.example
