@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+data.db*
+/uploads/
+*.log
+.DS_Store
+
+!.env.development.example
+api/db/*.db*
+api/uploads/*
+!api/uploads/.htaccess

@@ -1,0 +1,4 @@
+Options -Indexes
+<FilesMatch "^(\.env(\..*)?|data\.db(-shm|-wal)?|.*\.sqlite3?)$">
+  Require all denied
+</FilesMatch>

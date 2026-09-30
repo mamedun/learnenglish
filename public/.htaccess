@@ -1,0 +1,10 @@
+<FilesMatch "^(\.env.*|.*\.(?:db|sqlite|sqlite3|log)(?:-wal|-shm)?)$">
+  Require all denied
+</FilesMatch>
+Options -MultiViews
+RewriteEngine On
+RewriteBase /learnenglish/
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+RewriteRule . index.html [L]
