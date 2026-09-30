@@ -22,6 +22,7 @@ export default function ListeningPage({
   setData,
   speak,
   speechInputMode = "live_transcribe",
+  aiProvider = "clario",
 }) {
   const [level, setLevel] = useState("All");
   const [activeId, setActiveId] = useState(null);
@@ -348,6 +349,7 @@ export default function ListeningPage({
             lesson={active}
             speak={speak}
             speechInputMode={speechInputMode}
+            aiProvider={aiProvider}
             passed={speechPassed}
             passedScore={speechScore}
             onPass={(percent) =>

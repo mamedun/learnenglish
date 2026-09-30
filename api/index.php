@@ -104,6 +104,46 @@ function put_setting(string $key,string $value):void{$q=db()->prepare('INSERT IN
 function crypto_key():string{$secret=cfg('APP_ENCRYPTION_KEY');if(strlen($secret)<32||!function_exists('openssl_encrypt'))return '';return hash('sha256',$secret,true);}
 function encrypt_secret(string $plain):string{if($plain==='')return ''; $key=crypto_key();if($key==='')respond(['error'=>'APP_ENCRYPTION_KEY wajib diatur sebelum menyimpan API key.'],503);$iv=random_bytes(12);$tag='';$cipher=openssl_encrypt($plain,'aes-256-gcm',$key,OPENSSL_RAW_DATA,$iv,$tag);if($cipher===false)respond(['error'=>'Gagal mengenkripsi konfigurasi.'],500);return base64_encode($iv.$tag.$cipher);}
 function decrypt_secret(string $encoded):string{if($encoded==='')return ''; $raw=base64_decode($encoded,true);$key=crypto_key();if($raw===false||strlen($raw)<29||$key==='')return '';return (string)(openssl_decrypt(substr($raw,28),'aes-256-gcm',$key,OPENSSL_RAW_DATA,substr($raw,0,12),substr($raw,12,16))?:'');}
+function default_ichan_pool():array{
+    return array_map(fn($n)=>'https://sg'.$n.'.ichsanlabs.com',range(1,10));
+}
+function valid_ichan_node(string $url):bool{
+    $parts=parse_url(trim($url));
+    if(!is_array($parts)||strtolower((string)($parts['scheme']??''))!=='https')return false;
+    if(!preg_match('/^sg(?:[1-9]|10)\.ichsanlabs\.com$/i',(string)($parts['host']??'')))return false;
+    foreach(['user','pass','port','query','fragment'] as $key)if(isset($parts[$key]))return false;
+    return rtrim((string)($parts['path']??''),'/')==='';
+}
+function normalize_ichan_pool($value):array{
+    if(is_string($value)){
+        $decoded=json_decode($value,true);
+        $items=is_array($decoded)?$decoded:(preg_split('/[\r\n,]+/',$value)?:[]);
+    }elseif(is_array($value))$items=$value;
+    else $items=[];
+    $pool=[];
+    foreach($items as $item){
+        if(!is_string($item))continue;
+        $url=rtrim(trim($item),'/');
+        if($url!==''&&valid_ichan_node($url))$pool[]='https://'.strtolower((string)parse_url($url,PHP_URL_HOST));
+    }
+    return array_values(array_unique($pool));
+}
+function validate_ichan_pool($value):array{
+    if(is_array($value))$items=$value;
+    elseif(is_string($value))$items=preg_split('/[\r\n,]+/',$value)?:[];
+    else respond(['error'=>'Format server pool IchanLabs tidak valid.'],422);
+    $pool=[];
+    foreach($items as $item){
+        if(!is_string($item))respond(['error'=>'Setiap node IchanLabs harus berupa URL.'],422);
+        $url=rtrim(trim($item),'/');
+        if($url==='')continue;
+        if(!valid_ichan_node($url))respond(['error'=>'Pool hanya boleh berisi URL HTTPS resmi sg1–sg10.ichsanlabs.com tanpa path.'],422);
+        $pool[]='https://'.strtolower((string)parse_url($url,PHP_URL_HOST));
+    }
+    $pool=array_values(array_unique($pool));
+    if(!$pool||count($pool)>10)respond(['error'=>'Pilih 1–10 node IchanLabs yang valid.'],422);
+    return $pool;
+}
 function config_values():array{
     $provider=app_setting('ai_provider',(string)cfg('AI_PROVIDER_DEFAULT','clario'));
     if(!in_array($provider,['clario','ichanlabs'],true))$provider='clario';
@@ -112,13 +152,21 @@ function config_values():array{
     $clarioKey=decrypt_secret(app_setting('clario_key_enc',''));
     if($clarioKey==='')$clarioKey=cfg('CLARIO_API_KEY');
     $clarioModel=app_setting('clario_model',cfg('CLARIO_MODEL','clario/gemini-3.7-flash'));
-    $ichanUrl=app_setting('ichan_base_url',(string)cfg('ICHAN_BASE_URL',''));
-    $ichanServer=app_setting('ichan_server',(string)cfg('ICHAN_SERVER','SG1'));
-    $ichanModel=app_setting('ichan_model',(string)cfg('ICHAN_MODEL',''));
-    $ichanSecret=decrypt_secret(app_setting('ichan_secret_enc',''));
-    if($ichanSecret==='')$ichanSecret=cfg('ICHAN_SECRET');
-    $ichanToken=decrypt_secret(app_setting('ichan_token_enc',''));
-    if($ichanToken==='')$ichanToken=cfg('ICHAN_TOKEN');
+    $ichanApiKey=decrypt_secret(app_setting('ichan_api_key_enc',''));
+    if($ichanApiKey==='')$ichanApiKey=cfg('ICHAN_API_KEY');
+    $ichanJwtSecret=decrypt_secret(app_setting('ichan_jwt_secret_enc',''));
+    if($ichanJwtSecret==='')$ichanJwtSecret=cfg('ICHAN_JWT_SECRET');
+    $ichanManualToken=decrypt_secret(app_setting('ichan_manual_token_enc',''));
+    if($ichanManualToken==='')$ichanManualToken=cfg('ICHAN_MANUAL_TOKEN');
+    $ttl=(int)app_setting('ichan_ttl_min',(string)cfg('ICHAN_TTL_MIN','30'));
+    if($ttl<1||$ttl>1440)$ttl=30;
+    $sub=app_setting('ichan_sub',(string)cfg('ICHAN_SUB','api-client'));
+    if($sub===''||strlen($sub)>128)$sub='api-client';
+    $tokenMode=app_setting('ichan_token_mode',(string)cfg('ICHAN_TOKEN_MODE','auto'));
+    if(!in_array($tokenMode,['auto','manual'],true))$tokenMode='auto';
+    $savedPool=app_setting('ichan_pool','');
+    $pool=normalize_ichan_pool($savedPool!==''?$savedPool:cfg('ICHAN_POOL',default_ichan_pool()));
+    if(!$pool)$pool=default_ichan_pool();
     $gemini=decrypt_secret(app_setting('gemini_key_enc',''));
     if($gemini==='')$gemini=cfg('GEMINI_API_KEY');
     $live=app_setting('gemini_live_model',cfg('GEMINI_LIVE_MODEL',''));
@@ -129,23 +177,139 @@ function config_values():array{
         'base_url'=>rtrim((string)$clarioUrl,'/'),
         'fallback_url'=>rtrim((string)$fallback,'/'),
         'api_key'=>(string)$clarioKey,
-        'model'=>$provider==='ichanlabs'?(string)$ichanModel:(string)$clarioModel,
+        'model'=>(string)$clarioModel,
         'clario_model'=>(string)$clarioModel,
-        'ichan_base_url'=>rtrim((string)$ichanUrl,'/'),
-        'ichan_server'=>(string)$ichanServer,
-        'ichan_model'=>(string)$ichanModel,
-        'ichan_secret'=>(string)$ichanSecret,
-        'ichan_token'=>(string)$ichanToken,
+        'ichan_api_key'=>(string)$ichanApiKey,
+        'ichan_jwt_secret'=>(string)$ichanJwtSecret,
+        'ichan_manual_token'=>(string)$ichanManualToken,
+        'ichan_ttl_min'=>$ttl,
+        'ichan_sub'=>(string)$sub,
+        'ichan_token_mode'=>$tokenMode,
+        'ichan_pool'=>$pool,
         'speech_input_mode'=>$speechMode,
         'gemini_key'=>(string)$gemini,
         'live_model'=>(string)$live
     ];
 }
 function http_json(string $url,array $headers=[],?array $body=null,int $timeout=25):array{$payload=$body===null?null:json_encode($body,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);if(function_exists('curl_init')){$ch=curl_init($url);curl_setopt_array($ch,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_CONNECTTIMEOUT=>8,CURLOPT_TIMEOUT=>$timeout,CURLOPT_HTTPHEADER=>$headers,CURLOPT_CUSTOMREQUEST=>$body===null?'GET':'POST',CURLOPT_POSTFIELDS=>$payload]);$out=curl_exec($ch);$status=(int)curl_getinfo($ch,CURLINFO_HTTP_CODE);$err=curl_error($ch);curl_close($ch);return ['status'=>$status,'body'=>$out===false?'':$out,'error'=>$err];}$ctx=stream_context_create(['http'=>['method'=>$body===null?'GET':'POST','header'=>implode("\r\n",$headers),'content'=>$payload??'','timeout'=>$timeout,'ignore_errors'=>true]]);$out=@file_get_contents($url,false,$ctx);$status=0;foreach($http_response_header??[] as $h)if(preg_match('/^HTTP\/\S+\s+(\d+)/',$h,$m))$status=(int)$m[1];return ['status'=>$status,'body'=>$out===false?'':$out,'error'=>$out===false?'HTTP transport error':''];}
+function base64url_encode(string $value):string{return rtrim(strtr(base64_encode($value),'+/','-_'),'=');}
+function ichan_auth_token(array $c):string{
+    if($c['ichan_token_mode']==='manual'){
+        $token=preg_replace('/^Bearer\\s+/i','',trim((string)$c['ichan_manual_token']));
+        if($token==='')respond(['error'=>'Token mode manual dipilih tetapi manual token belum diatur.'],503);
+        return $token;
+    }
+    if($c['ichan_api_key']===''||$c['ichan_jwt_secret']==='')
+        respond(['error'=>'API key dan JWT secret IchanLabs wajib diatur untuk token otomatis.'],503);
+    $header=base64url_encode((string)json_encode(['alg'=>'HS256','typ'=>'JWT'],JSON_UNESCAPED_SLASHES));
+    $payload=base64url_encode((string)json_encode([
+        'iss'=>'ichsanlabs.com',
+        'sub'=>$c['ichan_sub'],
+        'exp'=>time()+((int)$c['ichan_ttl_min']*60),
+        'apiKey'=>$c['ichan_api_key'],
+    ],JSON_UNESCAPED_SLASHES));
+    $unsigned=$header.'.'.$payload;
+    return $unsigned.'.'.base64url_encode(hash_hmac('sha256',$unsigned,$c['ichan_jwt_secret'],true));
+}
+function http_multipart(string $url,array $headers,array $fields,string $filePath,string $mime,string $filename,int $timeout=70):array{
+    if(function_exists('curl_init')&&class_exists('CURLFile')){
+        $postFields=$fields;
+        if($filePath!=='')$postFields['audio']=new CURLFile($filePath,$mime,$filename);
+        $ch=curl_init($url);
+        curl_setopt_array($ch,[
+            CURLOPT_RETURNTRANSFER=>true,
+            CURLOPT_CONNECTTIMEOUT=>10,
+            CURLOPT_TIMEOUT=>$timeout,
+            CURLOPT_HTTPHEADER=>$headers,
+            CURLOPT_POST=>true,
+            CURLOPT_POSTFIELDS=>$postFields,
+            CURLOPT_FOLLOWLOCATION=>false,
+        ]);
+        $body=curl_exec($ch);
+        $status=(int)curl_getinfo($ch,CURLINFO_HTTP_CODE);
+        $error=curl_error($ch);
+        curl_close($ch);
+        return ['status'=>$status,'body'=>$body===false?'':(string)$body,'error'=>$error];
+    }
+    $boundary='----SpeakUp'.bin2hex(random_bytes(16));
+    $body='';
+    foreach($fields as $name=>$value){
+        if(!preg_match('/^[A-Za-z0-9_-]{1,40}$/',(string)$name))return ['status'=>0,'body'=>'','error'=>'Invalid multipart field'];
+        $body.='--'.$boundary."\r\n".'Content-Disposition: form-data; name="'.$name.'"' ."\r\n\r\n".(string)$value."\r\n";
+    }
+    if($filePath!==''){
+        $audio=@file_get_contents($filePath);
+        if($audio===false)return ['status'=>0,'body'=>'','error'=>'Audio upload could not be read'];
+        $safeName=preg_replace('/[^A-Za-z0-9._-]/','_',basename($filename));
+        $body.='--'.$boundary."\r\n".'Content-Disposition: form-data; name="audio"; filename="'.$safeName.'"' ."\r\n";
+        $body.='Content-Type: '.$mime."\r\n\r\n".$audio."\r\n";
+    }
+    $body.='--'.$boundary."--\r\n";
+    $allHeaders=$headers;
+    $allHeaders[]='Content-Type: multipart/form-data; boundary='.$boundary;
+    $allHeaders[]='Content-Length: '.strlen($body);
+    $context=stream_context_create(['http'=>[
+        'method'=>'POST','header'=>implode("\r\n",$allHeaders),'content'=>$body,
+        'timeout'=>$timeout,'ignore_errors'=>true
+    ]]);
+    $response=@file_get_contents($url,false,$context);
+    $status=0;
+    foreach($http_response_header??[] as $line)if(preg_match('/^HTTP\/\S+\s+(\d+)/',$line,$match))$status=(int)$match[1];
+    return ['status'=>$status,'body'=>$response===false?'':(string)$response,'error'=>$response===false?'HTTP multipart transport error':''];
+}
+function ichan_request(string $prompt,?string $filePath=null,string $mime='audio/webm',string $filename='audio.webm',int $timeout=70):array{
+    $c=config_values();
+    if($c['provider']!=='ichanlabs')return ['status'=>503,'body'=>'','error'=>'IchanLabs bukan provider yang sedang dipilih.'];
+    if($c['ichan_api_key']==='')return ['status'=>503,'body'=>'','error'=>'Admin belum mengatur API key IchanLabs.'];
+    if($c['ichan_token_mode']==='auto'&&$c['ichan_jwt_secret']==='')return ['status'=>503,'body'=>'','error'=>'Admin belum mengatur JWT secret IchanLabs.'];
+    if($c['ichan_token_mode']==='manual'&&$c['ichan_manual_token']==='')return ['status'=>503,'body'=>'','error'=>'Admin belum mengatur manual token IchanLabs.'];
+    $pool=$c['ichan_pool'];
+    if(!$pool)return ['status'=>503,'body'=>'','error'=>'Server pool IchanLabs kosong.'];
+    $node=$pool[random_int(0,count($pool)-1)];
+    $token=ichan_auth_token($c);
+    $headers=['Authorization: Bearer '.$token,'X-API-Key: '.$c['ichan_api_key']];
+    return http_multipart($node.'/chat',$headers,['prompt'=>$prompt],$filePath??'', $mime,$filename,$timeout);
+}
+function ichan_response_text($value):string{
+    if(is_string($value))return trim($value);
+    if(is_array($value)){
+        foreach(['text','response','aiReply','ai_reply','reply','message','desc','content'] as $key)
+            if(isset($value[$key])&&is_string($value[$key])&&trim($value[$key])!=='')return trim($value[$key]);
+    }
+    return '';
+}
+function parse_ichan_response(array $response):array{
+    if($response['status']<200||$response['status']>=300)
+        return ['ok'=>false,'status'=>502,'error'=>'IchanLabs gagal memproses request.','detail'=>'HTTP '.$response['status'].'. Periksa kredensial, pool server, dan konektivitas.'];
+    $payload=json_decode($response['body'],true);
+    if(!is_array($payload))return ['ok'=>false,'status'=>502,'error'=>'Respons IchanLabs bukan JSON valid.','detail'=>'Periksa endpoint node dan token yang dikonfigurasi.'];
+    if(array_key_exists('success',$payload)&&$payload['success']===false)
+        return ['ok'=>false,'status'=>502,'error'=>'IchanLabs menolak request.','detail'=>'Periksa API key, JWT/token mode, dan status server pool.'];
+    $data=is_array($payload['data']??null)?$payload['data']:[];
+    $result=is_array($payload['result']??null)?$payload['result']:[];
+    $replyPayload=$payload;
+    unset($replyPayload['text']);
+    $reply='';
+    foreach([$data,$replyPayload,$result] as $source){$reply=ichan_response_text($source);if($reply!=='')break;}
+    if($reply===''&&isset($payload['text'])&&is_string($payload['text']))$reply=trim($payload['text']);
+    $transcript='';
+    foreach(['userTranscript','user_transcript'] as $key){
+        foreach([$payload,$data,$result] as $source){
+            if(isset($source[$key])&&is_string($source[$key])&&trim($source[$key])!==''){$transcript=trim($source[$key]);break 2;}
+        }
+    }
+    if($transcript===''&&isset($payload['text'])&&is_string($payload['text']))$transcript=trim($payload['text']);
+    if($transcript===''){
+        foreach([$payload,$data,$result] as $source){
+            if(isset($source['transcript'])&&is_string($source['transcript'])&&trim($source['transcript'])!==''){$transcript=trim($source['transcript']);break;}
+        }
+    }
+    return ['ok'=>true,'status'=>200,'reply'=>$reply,'transcript'=>$transcript];
+}
 function provider_request(string $path,?array $body=null,int $timeout=25):array{
     $c=config_values();
     if($c['provider']==='ichanlabs')
-        return ['status'=>503,'body'=>'','error'=>'Adapter IchanLabs belum diaktifkan: sample kontrak API resmi belum tersedia. Provider Clario tidak digunakan sebagai fallback.'];
+        return ['status'=>503,'body'=>'','error'=>'Endpoint JSON OpenAI-compatible tidak digunakan saat provider IchanLabs aktif.'];
     if($c['api_key']==='')return ['status'=>503,'body'=>'','error'=>'Admin belum mengatur API key Clario.'];
     $headers=['Authorization: Bearer '.$c['api_key'],'Content-Type: application/json'];
     $r=http_json($c['base_url'].$path,$headers,$body,$timeout);
@@ -228,13 +392,17 @@ if($action==='admin/settings'&&$method==='GET'){
         'clario_model'=>$c['clario_model'],
         'clario_key_configured'=>$c['api_key']!=='',
         'clario_key_masked'=>$c['api_key']===''?'':'••••••••'.substr($c['api_key'],-4),
-        'ichan_base_url'=>$c['ichan_base_url'],
-        'ichan_server'=>$c['ichan_server'],
-        'ichan_model'=>$c['ichan_model'],
-        'ichan_secret_configured'=>$c['ichan_secret']!=='',
-        'ichan_secret_masked'=>$c['ichan_secret']===''?'':'••••••••'.substr($c['ichan_secret'],-4),
-        'ichan_token_configured'=>$c['ichan_token']!=='',
-        'ichan_token_masked'=>$c['ichan_token']===''?'':'••••••••'.substr($c['ichan_token'],-4),
+        'ichan_pool'=>implode("\n",$c['ichan_pool']),
+        'ichan_api_key_configured'=>$c['ichan_api_key']!=='',
+        'ichan_api_key_masked'=>$c['ichan_api_key']===''?'':'••••••••'.substr($c['ichan_api_key'],-4),
+        'ichan_jwt_secret_configured'=>$c['ichan_jwt_secret']!=='',
+        'ichan_jwt_secret_masked'=>$c['ichan_jwt_secret']===''?'':'••••••••'.substr($c['ichan_jwt_secret'],-4),
+        'ichan_manual_token_configured'=>$c['ichan_manual_token']!=='',
+        'ichan_manual_token_masked'=>$c['ichan_manual_token']===''?'':'••••••••'.substr($c['ichan_manual_token'],-4),
+        'ichan_ttl_min'=>$c['ichan_ttl_min'],
+        'ichan_sub'=>$c['ichan_sub'],
+        'ichan_token_mode'=>$c['ichan_token_mode'],
+        'ichan_adapter'=>'jwt-hs256-formdata-pool-v1',
         'gemini_live_model'=>$c['live_model'],
         'gemini_key_configured'=>$c['gemini_key']!=='',
         'gemini_key_masked'=>$c['gemini_key']===''?'':'••••••••'.substr($c['gemini_key'],-4),
@@ -264,25 +432,32 @@ if($action==='admin/settings'&&in_array($method,['PUT','POST'],true)){
     }
     if(!preg_match('#^clario/[A-Za-z0-9._-]{2,100}$#',$clarioModel))
         respond(['error'=>'ID model Clario tidak valid.'],422);
-    $ichanBase=trim((string)($d['ichan_base_url']??$current['ichan_base_url']));
-    $ichanServer=(string)($d['ichan_server']??$current['ichan_server']);
-    $ichanModel=trim((string)($d['ichan_model']??$current['ichan_model']));
-    if(!preg_match('/^SG(?:[1-9]|10)$/',$ichanServer))respond(['error'=>'Server IchanLabs harus SG1–SG10.'],422);
-    if($ichanBase!==''&&(!filter_var($ichanBase,FILTER_VALIDATE_URL)||!str_starts_with(strtolower($ichanBase),'https://')))
-        respond(['error'=>'Endpoint IchanLabs harus berupa URL HTTPS.'],422);
-    if($ichanModel!==''&&!preg_match('/^[A-Za-z0-9][A-Za-z0-9._:\/-]{0,149}$/',$ichanModel))
-        respond(['error'=>'ID model IchanLabs tidak valid.'],422);
+    $ichanPool=validate_ichan_pool($d['ichan_pool']??$current['ichan_pool']);
+    $ichanTtl=(int)($d['ichan_ttl_min']??$current['ichan_ttl_min']);
+    if($ichanTtl<1||$ichanTtl>1440)respond(['error'=>'TTL token IchanLabs harus 1–1440 menit.'],422);
+    $ichanSub=trim((string)($d['ichan_sub']??$current['ichan_sub']));
+    if($ichanSub===''||strlen($ichanSub)>128||preg_match('/[\\r\\n\\x00-\\x1F]/',$ichanSub))
+        respond(['error'=>'Subject token IchanLabs tidak valid.'],422);
+    $ichanTokenMode=(string)($d['ichan_token_mode']??$current['ichan_token_mode']);
+    if(!in_array($ichanTokenMode,['auto','manual'],true))respond(['error'=>'Token mode IchanLabs harus auto atau manual.'],422);
     $key=trim((string)($d['clario_api_key']??''));
-    $ichanSecret=trim((string)($d['ichan_secret']??''));
-    $ichanToken=trim((string)($d['ichan_token']??''));
+    $ichanApiKey=trim((string)($d['ichan_api_key']??''));
+    $ichanJwtSecret=trim((string)($d['ichan_jwt_secret']??''));
+    $ichanManualToken=trim((string)($d['ichan_manual_token']??''));
     $gkey=trim((string)($d['gemini_api_key']??''));
-    $effectiveSecret=$ichanSecret!==''?$ichanSecret:$current['ichan_secret'];
-    $effectiveToken=$ichanToken!==''?$ichanToken:$current['ichan_token'];
+    $effectiveIchanApiKey=$ichanApiKey!==''?$ichanApiKey:$current['ichan_api_key'];
+    $effectiveJwtSecret=$ichanJwtSecret!==''?$ichanJwtSecret:$current['ichan_jwt_secret'];
+    $effectiveManualToken=$ichanManualToken!==''?$ichanManualToken:$current['ichan_manual_token'];
+    if(strlen($ichanApiKey)>1024||strlen($ichanJwtSecret)>2048||strlen($ichanManualToken)>8192)
+        respond(['error'=>'Credential IchanLabs melebihi batas ukuran.'],422);
+    foreach([$ichanApiKey,$ichanJwtSecret,$ichanManualToken] as $credential)
+        if(preg_match('/[\\x00-\\x1F\\x7F]/',$credential))respond(['error'=>'Credential IchanLabs tidak boleh berisi karakter kontrol.'],422);
     if($provider==='ichanlabs'){
-        if($ichanBase===''||$ichanModel==='')respond(['error'=>'Endpoint dan model IchanLabs wajib diisi sebelum server ini diaktifkan.'],422);
-        if($effectiveSecret===''||$effectiveToken==='')respond(['error'=>'IchanLabs memerlukan Secret dan Token.'],422);
+        if($effectiveIchanApiKey==='')respond(['error'=>'API key IchanLabs wajib diisi.'],422);
+        if($ichanTokenMode==='auto'&&$effectiveJwtSecret==='')respond(['error'=>'JWT secret wajib diisi untuk token mode auto.'],422);
+        if($ichanTokenMode==='manual'&&$effectiveManualToken==='')respond(['error'=>'Manual token wajib diisi untuk token mode manual.'],422);
     }
-    if(($key!==''||$ichanSecret!==''||$ichanToken!==''||$gkey!=='')&&crypto_key()==='')
+    if(($key!==''||$ichanApiKey!==''||$ichanJwtSecret!==''||$ichanManualToken!==''||$gkey!=='')&&crypto_key()==='')
         respond(['error'=>'APP_ENCRYPTION_KEY minimal 32 karakter wajib diatur sebelum menyimpan secret/token.'],503);
     $live=trim((string)($d['gemini_live_model']??$current['live_model']));
     put_setting('ai_provider',$provider);
@@ -290,22 +465,24 @@ if($action==='admin/settings'&&in_array($method,['PUT','POST'],true)){
     put_setting('clario_base_url',rtrim($base,'/'));
     put_setting('clario_fallback_url',rtrim($fallback,'/'));
     put_setting('clario_model',$clarioModel);
-    put_setting('ichan_base_url',rtrim($ichanBase,'/'));
-    put_setting('ichan_server',$ichanServer);
-    put_setting('ichan_model',$ichanModel);
+    put_setting('ichan_pool',json_encode($ichanPool,JSON_UNESCAPED_SLASHES));
+    put_setting('ichan_ttl_min',(string)$ichanTtl);
+    put_setting('ichan_sub',$ichanSub);
+    put_setting('ichan_token_mode',$ichanTokenMode);
     put_setting('gemini_live_model',$live);
     put_setting('app_lockdown',!empty($d['lockdown'])?'1':'0');
     put_setting('stop_registration',!empty($d['stop_registration'])?'1':'0');
     if($key!=='')put_setting('clario_key_enc',encrypt_secret($key));
-    if($ichanSecret!=='')put_setting('ichan_secret_enc',encrypt_secret($ichanSecret));
-    if($ichanToken!=='')put_setting('ichan_token_enc',encrypt_secret($ichanToken));
+    if($ichanApiKey!=='')put_setting('ichan_api_key_enc',encrypt_secret($ichanApiKey));
+    if($ichanJwtSecret!=='')put_setting('ichan_jwt_secret_enc',encrypt_secret($ichanJwtSecret));
+    if($ichanManualToken!=='')put_setting('ichan_manual_token_enc',encrypt_secret($ichanManualToken));
     if($gkey!=='')put_setting('gemini_key_enc',encrypt_secret($gkey));
     respond(['ok'=>true,'message'=>'Konfigurasi global disimpan; kredensial dienkripsi di server.','ai_provider'=>$provider,'speech_input_mode'=>$speechMode]);
 }
 if($action==='app-config'&&$method==='GET'){
     require_user();
     $c=config_values();
-    respond(['settings'=>['speech_input_mode'=>$c['speech_input_mode']]]);
+    respond(['settings'=>['speech_input_mode'=>$c['speech_input_mode'],'ai_provider'=>$c['provider']]]);
 }
 if($action==='admin/users'&&$method==='GET'){
     require_admin();
@@ -386,8 +563,38 @@ if(preg_match('#^admin/users/(\\d+)$#',$action,$m)&&$method==='DELETE'){
     db()->prepare('DELETE FROM users WHERE id=?')->execute([$id]);
     respond(['ok'=>true]);
 }
-if($action==='models'&&$method==='GET'){require_premium();$r=provider_request('/models',null,15);if($r['status']<200||$r['status']>=300)respond(['error'=>'Katalog model gagal diambil.','detail'=>substr($r['body']?:$r['error'],0,500)],$r['status']?:502);$j=json_decode($r['body'],true);respond($j??['data'=>[]]);}
-if($action==='chat'&&$method==='POST'){origin_check();$u=require_premium();rate_limit('chat',25,60);$d=read_json(128000);$text=trim((string)($d['transcript']??''));if($text===''||strlen($text)>3000)respond(['error'=>'Jawaban kosong atau melebihi 3000 karakter.'],422);$cfg=config_values();$model=$cfg['model'];$task=substr(trim((string)($d['task']??'')),0,1200);$memory=substr(trim((string)($d['memory_summary']??'')),0,1200);$system='You are an IELTS-inspired English speaking practice coach for Indonesian learners. This is a learning estimate, NOT an official IELTS score or an examiner decision. practice_stars is a separate product encouragement rating, never an IELTS band. Use original practice prompts and never claim official IELTS affiliation. Follow the provided CEFR-inspired course level. For the practice assessment, use the four IELTS Speaking criteria: Fluency and Coherence, Lexical Resource, Grammatical Range and Accuracy, Pronunciation. Return exactly one JSON object, no markdown, schema {"schema_version":2,"tutor_reply":{"text":"...","speech_text":"..."},"assessment":{"practice_stars":4,"practice_band_estimate":null,"confidence":"low|medium|high","one_focus":"Indonesian actionable feedback","criteria":{"fluency_coherence":{"band":null,"status":"provisional|scored|not_scored","evidence":[],"feedback_id":"..."},"lexical_resource":{"band":5.5,"status":"provisional","evidence":[],"feedback_id":"..."},"grammatical_range_accuracy":{"band":5.5,"status":"provisional","evidence":[],"feedback_id":"..."},"pronunciation":{"band":null,"status":"not_scored","evidence":[],"feedback_id":"Audio evaluator belum tersedia."}},"corrections":[],"retry_recommended":false},"next_action":{"type":"continue|retry","prompt":"..."}}. Band values must be half-band increments 0.0 to 9.0 or null. Assess text-based lexical and grammar cautiously; transcript alone cannot reliably score speech-rate, hesitation, connected speech, or pronunciation. Set fluency_coherence to provisional/null unless trustworthy audio evidence exists. Pronunciation must always be null/not_scored because you receive text only. Never fabricate evidence. Explain feedback briefly in Indonesian; continue roleplay naturally in English; correct at most two high-impact issues. Never update progress or mark a lesson complete.';$payload=['learner_level'=>$d['level']??'A1','lesson'=>$d['lesson']??[],'task'=>$task,'compact_memory'=>$memory,'recent_turns'=>array_slice(is_array($d['recent_turns']??null)?$d['recent_turns']:[],-6),'learner_transcript'=>$text];$body=['model'=>$model,'messages'=>[['role'=>'system','content'=>$system],['role'=>'user','content'=>json_encode($payload,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES)]],'max_tokens'=>1200,'temperature'=>0.35,'stream'=>false];$r=provider_request('/chat/completions',$body,55);if($r['status']<200||$r['status']>=300)respond(['error'=>$r['status']===503?$r['error']:'Provider AI menolak request.','detail'=>substr($r['body']?:$r['error'],0,800)],$r['status']?:502);$provider=json_decode($r['body'],true);$content=$provider['choices'][0]['message']['content']??'';if(is_array($content))$content=implode('',array_map(fn($x)=>is_array($x)?(string)($x['text']??''):(string)$x,$content));$content=trim((string)$content);$content=preg_replace('/^```(?:json)?\s*|\s*```$/i','',$content);$result=json_decode($content,true);if(!is_array($result))respond(['error'=>'Respons AI bukan JSON valid.','raw'=>substr($content,0,800)],502);if(isset($result['assessment'])&&is_array($result['assessment'])){$result['assessment']['practice_band_estimate']=null;$stars=(int)($result['assessment']['practice_stars']??3);$result['assessment']['practice_stars']=max(1,min(5,$stars));$criteriaKeys=['fluency_coherence','lexical_resource','grammatical_range_accuracy','pronunciation'];foreach($criteriaKeys as $key){if(!isset($result['assessment']['criteria'][$key])||!is_array($result['assessment']['criteria'][$key]))$result['assessment']['criteria'][$key]=['band'=>null,'status'=>'not_scored','evidence'=>[],'feedback_id'=>'Belum cukup bukti.'];$band=$result['assessment']['criteria'][$key]['band']??null;if($band!==null&&(!is_numeric($band)||(float)$band<0||(float)$band>9||abs(((float)$band*2)-round((float)$band*2))>0.001))$band=null;$result['assessment']['criteria'][$key]['band']=$band===null?null:round((float)$band*2)/2;if(in_array($key,['lexical_resource','grammatical_range_accuracy'],true))$result['assessment']['criteria'][$key]['status']='provisional';} $result['assessment']['criteria']['fluency_coherence']['band']=null;$result['assessment']['criteria']['fluency_coherence']['status']='provisional';$result['assessment']['criteria']['pronunciation']=['band'=>null,'status'=>'not_scored','evidence'=>[],'feedback_id'=>'Pronunciation memerlukan evaluasi audio yang sesuai.'];}respond(['result'=>$result,'usage'=>$provider['usage']??null]);}
+if($action==='models'&&$method==='GET'){
+    require_premium();
+    $c=config_values();
+    if($c['provider']==='ichanlabs')respond(['data'=>[],'provider'=>'ichanlabs']);
+    $r=provider_request('/models',null,15);
+    if($r['status']<200||$r['status']>=300)respond(['error'=>'Katalog model gagal diambil.','detail'=>substr($r['body']?:$r['error'],0,500)],$r['status']?:502);
+    $j=json_decode($r['body'],true);
+    respond($j??['data'=>[]]);
+}
+if($action==='chat'&&$method==='POST'){origin_check();$u=require_premium();rate_limit('chat',25,60);$d=read_json(128000);$text=trim((string)($d['transcript']??''));if($text===''||strlen($text)>3000)respond(['error'=>'Jawaban kosong atau melebihi 3000 karakter.'],422);$cfg=config_values();$task=substr(trim((string)($d['task']??'')),0,1200);$memory=substr(trim((string)($d['memory_summary']??'')),0,1200);
+if($cfg['provider']==='ichanlabs'){
+    $context=json_encode([
+        'learner_level'=>$d['level']??'A1','lesson'=>$d['lesson']??[],'practice_prompt'=>$task,
+        'memory_summary'=>$memory,
+        'recent_turns'=>array_slice(is_array($d['recent_turns']??null)?$d['recent_turns']:[],-6),
+        'learner_transcript'=>$text
+    ],JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
+    $prompt='You are Maya, a supportive English-speaking tutor for Indonesian learners. Respond naturally in English, then give one short actionable learning tip in Indonesian. Keep it concise and suitable for speech. This is practice, not an official IELTS test or score. Do not return JSON. Context: '.substr((string)$context,0,24000);
+    $parsed=parse_ichan_response(ichan_request($prompt,null,'audio/webm','audio.webm',55));
+    if(!$parsed['ok'])respond(['error'=>$parsed['error'],'detail'=>$parsed['detail']??''],(int)$parsed['status']);
+    $reply=substr(trim((string)$parsed['reply']),0,5000);
+    if($reply==='')respond(['error'=>'IchanLabs tidak mengembalikan jawaban teks.'],502);
+    $criteria=[];
+    foreach(['fluency_coherence','lexical_resource','grammatical_range_accuracy','pronunciation'] as $criterion)
+        $criteria[$criterion]=['band'=>null,'status'=>'not_scored','evidence'=>[],'feedback_id'=>'Belum tersedia dari respons IchanLabs.'];
+    respond(['result'=>[
+        'tutor_reply'=>['text'=>$reply,'speech_text'=>$reply],
+        'assessment'=>['practice_stars'=>3,'practice_band_estimate'=>null,'confidence'=>'low','one_focus'=>'Tinjau respons tutor dan lanjutkan latihan.','criteria'=>$criteria,'corrections'=>[],'retry_recommended'=>false],
+        'next_action'=>['type'=>'continue','prompt'=>'']
+    ],'provider'=>'ichanlabs']);
+}
+$model=$cfg['model'];$system='You are an IELTS-inspired English speaking practice coach for Indonesian learners. This is a learning estimate, NOT an official IELTS score or an examiner decision. practice_stars is a separate product encouragement rating, never an IELTS band. Use original practice prompts and never claim official IELTS affiliation. Follow the provided CEFR-inspired course level. For the practice assessment, use the four IELTS Speaking criteria: Fluency and Coherence, Lexical Resource, Grammatical Range and Accuracy, Pronunciation. Return exactly one JSON object, no markdown, schema {"schema_version":2,"tutor_reply":{"text":"...","speech_text":"..."},"assessment":{"practice_stars":4,"practice_band_estimate":null,"confidence":"low|medium|high","one_focus":"Indonesian actionable feedback","criteria":{"fluency_coherence":{"band":null,"status":"provisional|scored|not_scored","evidence":[],"feedback_id":"..."},"lexical_resource":{"band":5.5,"status":"provisional","evidence":[],"feedback_id":"..."},"grammatical_range_accuracy":{"band":5.5,"status":"provisional","evidence":[],"feedback_id":"..."},"pronunciation":{"band":null,"status":"not_scored","evidence":[],"feedback_id":"Audio evaluator belum tersedia."}},"corrections":[],"retry_recommended":false},"next_action":{"type":"continue|retry","prompt":"..."}}. Band values must be half-band increments 0.0 to 9.0 or null. Assess text-based lexical and grammar cautiously; transcript alone cannot reliably score speech-rate, hesitation, connected speech, or pronunciation. Set fluency_coherence to provisional/null unless trustworthy audio evidence exists. Pronunciation must always be null/not_scored because you receive text only. Never fabricate evidence. Explain feedback briefly in Indonesian; continue roleplay naturally in English; correct at most two high-impact issues. Never update progress or mark a lesson complete.';$payload=['learner_level'=>$d['level']??'A1','lesson'=>$d['lesson']??[],'task'=>$task,'compact_memory'=>$memory,'recent_turns'=>array_slice(is_array($d['recent_turns']??null)?$d['recent_turns']:[],-6),'learner_transcript'=>$text];$body=['model'=>$model,'messages'=>[['role'=>'system','content'=>$system],['role'=>'user','content'=>json_encode($payload,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES)]],'max_tokens'=>1200,'temperature'=>0.35,'stream'=>false];$r=provider_request('/chat/completions',$body,55);if($r['status']<200||$r['status']>=300)respond(['error'=>$r['status']===503?$r['error']:'Provider AI menolak request.','detail'=>substr($r['body']?:$r['error'],0,800)],$r['status']?:502);$provider=json_decode($r['body'],true);$content=$provider['choices'][0]['message']['content']??'';if(is_array($content))$content=implode('',array_map(fn($x)=>is_array($x)?(string)($x['text']??''):(string)$x,$content));$content=trim((string)$content);$content=preg_replace('/^```(?:json)?\s*|\s*```$/i','',$content);$result=json_decode($content,true);if(!is_array($result))respond(['error'=>'Respons AI bukan JSON valid.','raw'=>substr($content,0,800)],502);if(isset($result['assessment'])&&is_array($result['assessment'])){$result['assessment']['practice_band_estimate']=null;$stars=(int)($result['assessment']['practice_stars']??3);$result['assessment']['practice_stars']=max(1,min(5,$stars));$criteriaKeys=['fluency_coherence','lexical_resource','grammatical_range_accuracy','pronunciation'];foreach($criteriaKeys as $key){if(!isset($result['assessment']['criteria'][$key])||!is_array($result['assessment']['criteria'][$key]))$result['assessment']['criteria'][$key]=['band'=>null,'status'=>'not_scored','evidence'=>[],'feedback_id'=>'Belum cukup bukti.'];$band=$result['assessment']['criteria'][$key]['band']??null;if($band!==null&&(!is_numeric($band)||(float)$band<0||(float)$band>9||abs(((float)$band*2)-round((float)$band*2))>0.001))$band=null;$result['assessment']['criteria'][$key]['band']=$band===null?null:round((float)$band*2)/2;if(in_array($key,['lexical_resource','grammatical_range_accuracy'],true))$result['assessment']['criteria'][$key]['status']='provisional';} $result['assessment']['criteria']['fluency_coherence']['band']=null;$result['assessment']['criteria']['fluency_coherence']['status']='provisional';$result['assessment']['criteria']['pronunciation']=['band'=>null,'status'=>'not_scored','evidence'=>[],'feedback_id'=>'Pronunciation memerlukan evaluasi audio yang sesuai.'];}respond(['result'=>$result,'usage'=>$provider['usage']??null]);}
 if($action==='assess-audio'&&$method==='POST'){
     origin_check();
     $mode=(string)($_POST['task_mode']??'response');
@@ -398,14 +605,44 @@ if($action==='assess-audio'&&$method==='POST'){
     if((string)($_POST['consent']??'')!=='1')respond(['error'=>'Persetujuan evaluasi audio diperlukan.'],400);
     if(!isset($_FILES['audio'])||$_FILES['audio']['error']!==UPLOAD_ERR_OK)respond(['error'=>'Audio evaluasi tidak diterima.'],422);
     $file=$_FILES['audio'];
-    if((int)$file['size']<100||(int)$file['size']>12*1024*1024)respond(['error'=>'Audio WAV harus maksimal 12 MB.'],413);
-    $mime=(new finfo(FILEINFO_MIME_TYPE))->file($file['tmp_name'])?:'';
-    if(!in_array($mime,['audio/wav','audio/x-wav','audio/wave','application/octet-stream'],true))respond(['error'=>'Audio evaluasi harus berupa WAV PCM.'],415);
+    if((int)$file['size']<100||(int)$file['size']>12*1024*1024)respond(['error'=>'Audio harus berukuran maksimal 12 MB.'],413);
     $config=config_values();
+    $mime=(new finfo(FILEINFO_MIME_TYPE))->file($file['tmp_name'])?:'';
     if($config['provider']==='ichanlabs'){
-        $r=provider_request('/chat/completions',null,60);
-        respond(['error'=>$r['error'],'detail'=>'Tidak ada fallback ke Clario atau Gemini.'],503);
+        $ichanMimeMap=[
+            'audio/webm'=>'audio/webm','video/webm'=>'audio/webm',
+            'audio/ogg'=>'audio/ogg','application/ogg'=>'audio/ogg',
+            'audio/mp4'=>'audio/mp4','video/mp4'=>'audio/mp4','audio/mp4a-latm'=>'audio/mp4',
+            'audio/wav'=>'audio/wav','audio/x-wav'=>'audio/wav','audio/wave'=>'audio/wav',
+            'application/octet-stream'=>'audio/webm'
+        ];
+        if(!isset($ichanMimeMap[$mime]))respond(['error'=>'Format audio tidak didukung oleh adapter IchanLabs: '.$mime],415);
+        $level=substr(trim((string)($_POST['level']??'')),0,20);
+        $task=substr(trim((string)($_POST['task']??'')),0,1200);
+        if($mode==='read_aloud'){
+            $prompt='Transcribe the attached English read-aloud audio exactly. Return only the words actually spoken, without feedback, summary, or extra text. Put the recognized words in userTranscript when that field is supported.';
+        }else{
+            $prompt='You are a supportive English-speaking tutor for Indonesian learners. Listen to the attached voice message, transcribe the exact spoken words into userTranscript, then respond naturally in English and give one concise actionable learning tip in Indonesian. This is practice, not an official IELTS test or score. Do not return JSON. Learner level: '.$level.'. Lesson task: '.$task;
+        }
+        $ext=match($ichanMimeMap[$mime]){'audio/mp4'=>'m4a','audio/ogg'=>'ogg','audio/wav'=>'wav',default=>'webm'};
+        $parsed=parse_ichan_response(ichan_request($prompt,$file['tmp_name'],$ichanMimeMap[$mime],'audio.'.$ext,70));
+        if(!$parsed['ok'])respond(['error'=>$parsed['error'],'detail'=>$parsed['detail']??''],(int)$parsed['status']);
+        $transcript=substr(trim((string)$parsed['transcript']),0,12000);
+        if($mode==='read_aloud'&&$transcript==='')$transcript=substr(trim((string)$parsed['reply']),0,12000);
+        if($transcript==='')respond(['error'=>'IchanLabs tidak mengembalikan transkrip audio.','detail'=>'Pastikan respons node menyertakan userTranscript atau user_transcript.'],502);
+        if($mode==='read_aloud')respond(['result'=>['transcript'=>$transcript],'provider'=>'ichanlabs']);
+        $reply=substr(trim((string)$parsed['reply']),0,2000);
+        if($reply==='')respond(['error'=>'IchanLabs tidak mengembalikan respons AI.'],502);
+        $criteria=[];
+        foreach(['fluency_coherence','lexical_resource','grammatical_range_accuracy','pronunciation'] as $criterion)
+            $criteria[$criterion]=['band'=>null,'status'=>'not_scored','evidence'=>[],'feedback_id'=>'Belum tersedia dari respons IchanLabs.'];
+        respond(['result'=>[
+            'transcript'=>$transcript,
+            'tutor_reply'=>['text'=>$reply,'speech_text'=>$reply],
+            'assessment'=>['practice_stars'=>3,'practice_band_estimate'=>null,'confidence'=>'low','one_focus'=>'Tinjau respons tutor dan lanjutkan latihan.','criteria'=>$criteria,'corrections'=>[],'retry_recommended'=>false]
+        ],'provider'=>'ichanlabs']);
     }
+    if(!in_array($mime,['audio/wav','audio/x-wav','audio/wave','application/octet-stream'],true))respond(['error'=>'Audio untuk Clario harus berupa WAV PCM.'],415);
     if($config['api_key']==='')respond(['error'=>'Admin belum mengatur API key Clario.'],503);
     $raw=file_get_contents($file['tmp_name']);
     if($raw===false||strlen($raw)<100)respond(['error'=>'File audio kosong atau rusak.'],422);
@@ -453,7 +690,7 @@ if($action==='assess-audio'&&$method==='POST'){
             $item=is_array($criteria[$criterion]??null)?$criteria[$criterion]:[];
             $criteria[$criterion]=[
                 'band'=>null,
-                'status'=>$criterion==='pronunciation'?'provisional':'provisional',
+                'status'=>'provisional',
                 'evidence'=>is_array($item['evidence']??null)?array_slice($item['evidence'],0,4):[],
                 'feedback_id'=>substr((string)($item['feedback_id']??''),0,300)
             ];

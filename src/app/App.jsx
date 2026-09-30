@@ -72,6 +72,7 @@ function App() {
   const [transcript, setTranscript] = useState("");
   const [appConfig, setAppConfig] = useState({
     speech_input_mode: "live_transcribe",
+    ai_provider: "clario",
   });
   const [ttsStatus, setTtsStatus] = useState({
     phase: "idle",
@@ -126,7 +127,10 @@ function App() {
       apiJson("catalog"),
       apiJson("progress"),
       apiJson("app-config").catch(() => ({
-        settings: { speech_input_mode: "live_transcribe" },
+        settings: {
+          speech_input_mode: "live_transcribe",
+          ai_provider: "clario",
+        },
       })),
     ]);
     if (!current()) return;
@@ -134,6 +138,7 @@ function App() {
     setAppConfig({
       speech_input_mode:
         config.settings?.speech_input_mode || "live_transcribe",
+      ai_provider: config.settings?.ai_provider || "clario",
     });
     const savedSettings = (progress.progress || {}).settings || {};
     const settings = { ...initialData.settings, ...savedSettings };
@@ -231,10 +236,15 @@ function App() {
     const refreshGlobalConfig = async () => {
       try {
         const result = await apiJson("app-config");
-        if (active && result.settings?.speech_input_mode)
+        if (active && result.settings)
           setAppConfig((current) => ({
             ...current,
-            speech_input_mode: result.settings.speech_input_mode,
+            ...(result.settings.speech_input_mode
+              ? { speech_input_mode: result.settings.speech_input_mode }
+              : {}),
+            ...(result.settings.ai_provider
+              ? { ai_provider: result.settings.ai_provider }
+              : {}),
           }));
       } catch {
         // A transient config fetch must not interrupt a speaking lesson.
@@ -436,15 +446,31 @@ function App() {
         });
         if (!consent.isConfirmed) return;
 
-        const wav = await convertRecordingToWav(audioBlob);
-        if (wav.size > 12 * 1024 * 1024)
-          throw new Error("Audio melebihi batas 12 MB setelah konversi.");
+        const audioForAI =
+          appConfig.ai_provider === "ichanlabs"
+            ? audioBlob
+            : await convertRecordingToWav(audioBlob);
+        if (audioForAI.size > 12 * 1024 * 1024)
+          throw new Error("Audio melebihi batas 12 MB.");
+        const audioMime = (audioForAI.type || "audio/webm").split(";")[0];
+        const audioExtension =
+          audioMime === "audio/mp4"
+            ? "m4a"
+            : audioMime === "audio/ogg"
+              ? "ogg"
+              : audioMime === "audio/wav"
+                ? "wav"
+                : "webm";
         const form = new FormData();
         form.append("consent", "1");
         form.append("task_mode", "response");
         form.append("level", activeUnit.level);
         form.append("task", activeUnit.prompt);
-        form.append("audio", wav, `${crypto.randomUUID()}.wav`);
+        form.append(
+          "audio",
+          audioForAI,
+          `${crypto.randomUUID()}.${audioExtension}`,
+        );
         const response = await apiFetch("assess-audio", {
           method: "POST",
           body: form,
@@ -1263,6 +1289,7 @@ function App() {
                   setData={setData}
                   speak={speak}
                   speechInputMode={appConfig.speech_input_mode}
+                  aiProvider={appConfig.ai_provider}
                 />
               )}
               {page === "practice" && activeUnit && (
@@ -1354,6 +1381,12 @@ function App() {
                     setAppConfig((current) => ({
                       ...current,
                       speech_input_mode: mode,
+                    }))
+                  }
+                  onAIProviderChange={(provider) =>
+                    setAppConfig((current) => ({
+                      ...current,
+                      ai_provider: provider,
                     }))
                   }
                 />

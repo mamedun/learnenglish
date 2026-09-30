@@ -24,10 +24,16 @@ import ContentStudio from "./ContentStudio";
 import { toast } from "sonner";
 import Swal from "sweetalert2";
 
+const ICHAN_DEFAULT_POOL = Array.from(
+  { length: 10 },
+  (_, index) => `https://sg${index + 1}.ichsanlabs.com`,
+).join("\n");
+
 export default function AdminPage({
   user,
   onCatalogChange,
   onSpeechModeChange,
+  onAIProviderChange,
 }) {
   const [adminTab, setAdminTab] = useState("content");
   const [settings, setSettings] = useState({
@@ -36,9 +42,10 @@ export default function AdminPage({
     clario_base_url: "https://clariohub.id/v1",
     clario_fallback_url: "https://api-direct.clariohub.id/v1",
     clario_model: "clario/gemini-3.7-flash",
-    ichan_base_url: "",
-    ichan_server: "SG1",
-    ichan_model: "",
+    ichan_pool: ICHAN_DEFAULT_POOL,
+    ichan_ttl_min: 30,
+    ichan_sub: "api-client",
+    ichan_token_mode: "auto",
     gemini_live_model: "",
   });
   const [models, setModels] = useState([]);
@@ -46,8 +53,9 @@ export default function AdminPage({
   const [ready, setReady] = useState(false);
   const [apiKey, setApiKey] = useState("");
   const [geminiKey, setGeminiKey] = useState("");
-  const [ichanSecret, setIchanSecret] = useState("");
-  const [ichanToken, setIchanToken] = useState("");
+  const [ichanApiKey, setIchanApiKey] = useState("");
+  const [ichanJwtSecret, setIchanJwtSecret] = useState("");
+  const [ichanManualToken, setIchanManualToken] = useState("");
   const [showKey, setShowKey] = useState(false);
   const [users, setUsers] = useState([]);
   const [usersBusy, setUsersBusy] = useState(false);
@@ -227,22 +235,24 @@ export default function AdminPage({
         body: JSON.stringify({
           ...settings,
           clario_api_key: apiKey,
-          ichan_secret: ichanSecret,
-          ichan_token: ichanToken,
+          ichan_api_key: ichanApiKey,
+          ichan_jwt_secret: ichanJwtSecret,
+          ichan_manual_token: ichanManualToken,
           gemini_api_key: geminiKey,
         }),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || "Gagal menyimpan");
       setApiKey("");
-      setIchanSecret("");
-      setIchanToken("");
+      setIchanApiKey("");
+      setIchanJwtSecret("");
+      setIchanManualToken("");
       setGeminiKey("");
+      await loadSettings();
       onSpeechModeChange?.(settings.speech_input_mode || "live_transcribe");
+      onAIProviderChange?.(settings.ai_provider || "clario");
       toast.success(
-        settings.ai_provider === "ichanlabs"
-          ? "Pengaturan IchanLabs disimpan. Adapter menunggu sample API resmi sebelum dapat mengirim request."
-          : "Konfigurasi global disimpan terenkripsi di server.",
+        "Pengaturan global disimpan; credential rahasia terenkripsi di server.",
       );
     } catch (e) {
       toast.error(e.message);
@@ -262,8 +272,8 @@ export default function AdminPage({
         </span>
       </h1>
       <p className="page-intro">
-        Konfigurasi berlaku global untuk akun belajar. API key terenkripsi
-        sebelum disimpan.
+        Konfigurasi berlaku global untuk akun belajar. Credential rahasia
+        dienkripsi sebelum disimpan.
       </p>
       <div
         className="admin-tabs"
@@ -388,100 +398,158 @@ export default function AdminPage({
               </div>
               {settings.ai_provider === "ichanlabs" && (
                 <div className="ichan-config-panel">
-                  <div className="field-label">KONFIGURASI ICHANLABS</div>
+                  <div className="field-label">
+                    KONFIGURASI ICHANLABS · MULTI-POOL
+                  </div>
                   <p className="admin-provider-warning">
-                    Sample kontrak API IchanLabs belum tersedia di repository.
-                    Endpoint, header, path, dan payload sengaja tidak ditebak.
-                    Pengaturan dapat disimpan, tetapi request AI IchanLabs belum
-                    akan dikirim; Clario juga tidak menjadi fallback.
+                    Kunci API, JWT secret, dan manual token hanya dikirim ke
+                    server SpeakUp dan dienkripsi saat disimpan. Jangan memakai
+                    credential contoh yang tertanam pada sample.
                   </p>
-                  <label className="field-label" htmlFor="ichan-server">
-                    SERVER
+                  <label className="field-label" htmlFor="ichan-pool">
+                    SERVER NODE POOL · SATU URL PER BARIS
+                  </label>
+                  <textarea
+                    id="ichan-pool"
+                    className="text-field"
+                    rows={8}
+                    spellCheck={false}
+                    value={settings.ichan_pool || ICHAN_DEFAULT_POOL}
+                    onChange={(event) =>
+                      change("ichan_pool", event.target.value)
+                    }
+                    placeholder={ICHAN_DEFAULT_POOL}
+                  />
+                  <small className="field-hint">
+                    Tiap request memilih satu node secara acak. Hanya HTTPS
+                    sg1–sg10.ichsanlabs.com yang diizinkan.
+                  </small>
+                  <label className="field-label" htmlFor="ichan-api-key">
+                    API KEY{" "}
+                    {settings.ichan_api_key_masked && (
+                      <span className="key-current">
+                        · Tersimpan {settings.ichan_api_key_masked}
+                      </span>
+                    )}
+                  </label>
+                  <input
+                    id="ichan-api-key"
+                    className="text-field"
+                    type="password"
+                    autoComplete="new-password"
+                    value={ichanApiKey}
+                    onChange={(event) => setIchanApiKey(event.target.value)}
+                    placeholder={
+                      settings.ichan_api_key_configured
+                        ? "Kosongkan untuk mempertahankan API key"
+                        : "API key dari admin IchanLabs"
+                    }
+                  />
+                  <label className="field-label" htmlFor="ichan-jwt-secret">
+                    JWT SECRET{" "}
+                    {settings.ichan_jwt_secret_masked && (
+                      <span className="key-current">
+                        · Tersimpan {settings.ichan_jwt_secret_masked}
+                      </span>
+                    )}
+                  </label>
+                  <input
+                    id="ichan-jwt-secret"
+                    className="text-field"
+                    type="password"
+                    autoComplete="new-password"
+                    value={ichanJwtSecret}
+                    onChange={(event) => setIchanJwtSecret(event.target.value)}
+                    placeholder={
+                      settings.ichan_jwt_secret_configured
+                        ? "Kosongkan untuk mempertahankan JWT secret"
+                        : "Diperlukan untuk mode token otomatis"
+                    }
+                  />
+                  <div className="ichan-token-options">
+                    <label className="field-label" htmlFor="ichan-ttl">
+                      TTL TOKEN (MENIT)
+                      <input
+                        id="ichan-ttl"
+                        className="text-field"
+                        type="number"
+                        min={1}
+                        max={1440}
+                        value={settings.ichan_ttl_min ?? 30}
+                        onChange={(event) =>
+                          change("ichan_ttl_min", Number(event.target.value))
+                        }
+                      />
+                    </label>
+                    <label className="field-label" htmlFor="ichan-sub">
+                      SUBJECT (SUB)
+                      <input
+                        id="ichan-sub"
+                        className="text-field"
+                        maxLength={128}
+                        value={settings.ichan_sub || "api-client"}
+                        onChange={(event) =>
+                          change("ichan_sub", event.target.value)
+                        }
+                      />
+                    </label>
+                  </div>
+                  <label className="field-label" htmlFor="ichan-token-mode">
+                    TOKEN MODE
                   </label>
                   <div className="select-wrap">
                     <select
-                      id="ichan-server"
+                      id="ichan-token-mode"
                       className="text-field"
-                      value={settings.ichan_server || "SG1"}
+                      value={settings.ichan_token_mode || "auto"}
                       onChange={(event) =>
-                        change("ichan_server", event.target.value)
+                        change("ichan_token_mode", event.target.value)
                       }
                     >
-                      {Array.from(
-                        { length: 10 },
-                        (_, index) => `SG${index + 1}`,
-                      ).map((server) => (
-                        <option key={server}>{server}</option>
-                      ))}
+                      <option value="auto">Auto · JWT HS256 di server</option>
+                      <option value="manual">Manual token</option>
                     </select>
                     <ChevronDown size={16} />
                   </div>
-                  <label className="field-label" htmlFor="ichan-url">
-                    ENDPOINT / BASE URL
-                  </label>
-                  <input
-                    id="ichan-url"
-                    className="text-field"
-                    value={settings.ichan_base_url || ""}
-                    onChange={(event) =>
-                      change("ichan_base_url", event.target.value)
-                    }
-                    placeholder="Endpoint dari sample resmi IchanLabs"
-                  />
-                  <label className="field-label" htmlFor="ichan-model">
-                    MODEL ID
-                  </label>
-                  <input
-                    id="ichan-model"
-                    className="text-field"
-                    value={settings.ichan_model || ""}
-                    onChange={(event) =>
-                      change("ichan_model", event.target.value)
-                    }
-                    placeholder="Model sesuai kontrak IchanLabs"
-                  />
-                  <label className="field-label" htmlFor="ichan-secret">
-                    SECRET{" "}
-                    {settings.ichan_secret_masked && (
-                      <span className="key-current">
-                        · Tersimpan {settings.ichan_secret_masked}
-                      </span>
-                    )}
-                  </label>
-                  <input
-                    id="ichan-secret"
-                    className="text-field"
-                    type="password"
-                    autoComplete="new-password"
-                    value={ichanSecret}
-                    onChange={(event) => setIchanSecret(event.target.value)}
-                    placeholder={
-                      settings.ichan_secret_configured
-                        ? "Kosongkan untuk mempertahankan secret"
-                        : "Secret IchanLabs"
-                    }
-                  />
-                  <label className="field-label" htmlFor="ichan-token">
-                    TOKEN{" "}
-                    {settings.ichan_token_masked && (
-                      <span className="key-current">
-                        · Tersimpan {settings.ichan_token_masked}
-                      </span>
-                    )}
-                  </label>
-                  <input
-                    id="ichan-token"
-                    className="text-field"
-                    type="password"
-                    autoComplete="new-password"
-                    value={ichanToken}
-                    onChange={(event) => setIchanToken(event.target.value)}
-                    placeholder={
-                      settings.ichan_token_configured
-                        ? "Kosongkan untuk mempertahankan token"
-                        : "Token IchanLabs"
-                    }
-                  />
+                  {settings.ichan_token_mode === "manual" && (
+                    <>
+                      <label
+                        className="field-label"
+                        htmlFor="ichan-manual-token"
+                      >
+                        MANUAL TOKEN{" "}
+                        {settings.ichan_manual_token_masked && (
+                          <span className="key-current">
+                            · Tersimpan {settings.ichan_manual_token_masked}
+                          </span>
+                        )}
+                      </label>
+                      <input
+                        id="ichan-manual-token"
+                        className="text-field"
+                        type="password"
+                        autoComplete="new-password"
+                        value={ichanManualToken}
+                        onChange={(event) =>
+                          setIchanManualToken(event.target.value)
+                        }
+                        placeholder={
+                          settings.ichan_manual_token_configured
+                            ? "Kosongkan untuk mempertahankan token"
+                            : "Masukkan JWT manual"
+                        }
+                      />
+                    </>
+                  )}
+                  <div className="info-box">
+                    <CircleHelp size={15} />
+                    <span>
+                      Mode otomatis membuat JWT HS256 di server (iss, sub, exp,
+                      apiKey), lalu mengirim Authorization: Bearer dan
+                      X-API-Key. Audio dan prompt dikirim sebagai FormData ke
+                      node /chat.
+                    </span>
+                  </div>
                 </div>
               )}
               <div className="admin-divider" />

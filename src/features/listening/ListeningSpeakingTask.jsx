@@ -19,6 +19,7 @@ import "./ListeningSpeakingTask.css";
 export default function ListeningSpeakingTask({
   lesson,
   speechInputMode = "live_transcribe",
+  aiProvider = "clario",
   speak,
   passed,
   passedScore = 0,
@@ -44,9 +45,9 @@ export default function ListeningSpeakingTask({
     return () => {
       streamRef.current?.getTracks().forEach((track) => track.stop());
     };
-    // Reset the recorder when the lesson or global input mode changes.
+    // Reset the recorder when lesson, input mode, or global AI provider changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lesson.id, liveMode]);
+  }, [lesson.id, liveMode, aiProvider]);
   useEffect(() => {
     const onSpeechError = (event) => {
       const code = event.detail?.error;
@@ -199,15 +200,31 @@ export default function ListeningSpeakingTask({
 
     setProcessing(true);
     try {
-      const wav = await convertRecordingToWav(audioBlob);
-      if (wav.size > 12 * 1024 * 1024)
-        throw new Error("Audio melebihi batas 12 MB setelah konversi.");
+      const audioForAI =
+        aiProvider === "ichanlabs"
+          ? audioBlob
+          : await convertRecordingToWav(audioBlob);
+      if (audioForAI.size > 12 * 1024 * 1024)
+        throw new Error("Audio melebihi batas 12 MB.");
+      const audioMime = (audioForAI.type || "audio/webm").split(";")[0];
+      const audioExtension =
+        audioMime === "audio/mp4"
+          ? "m4a"
+          : audioMime === "audio/ogg"
+            ? "ogg"
+            : audioMime === "audio/wav"
+              ? "wav"
+              : "webm";
       const form = new FormData();
       form.append("consent", "1");
       form.append("task_mode", "read_aloud");
       form.append("level", lesson.level);
       form.append("task", lesson.script);
-      form.append("audio", wav, `read-aloud-${lesson.id}.wav`);
+      form.append(
+        "audio",
+        audioForAI,
+        `read-aloud-${lesson.id}.${audioExtension}`,
+      );
       const response = await apiFetch("assess-audio", {
         method: "POST",
         body: form,

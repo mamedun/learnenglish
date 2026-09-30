@@ -207,23 +207,38 @@ request(admin, 'admin/settings', 'PUT', config)
 assert request(admin, 'admin/settings')['settings']['speech_input_mode'] == 'ai_audio'
 assert request(regular, 'app-config')['settings']['speech_input_mode'] == 'ai_audio'
 
-# Selecting IchanLabs must not silently call Clario; the adapter remains blocked until its real sample is available.
+# IchanLabs uses its own encrypted API/JWT credentials and an allow-listed node pool.
 ichan_config = {
     **config,
     'ai_provider': 'ichanlabs',
-    'ichan_base_url': 'https://ichan-smoke.invalid',
-    'ichan_server': 'SG2',
-    'ichan_model': 'smoke-model',
-    'ichan_secret': 'smoke-secret-only',
-    'ichan_token': 'smoke-token-only',
+    'ichan_pool': '\n'.join(['https://sg1.ichsanlabs.com', 'https://sg2.ichsanlabs.com']),
+    'ichan_ttl_min': 30,
+    'ichan_sub': 'smoke-api-client',
+    'ichan_token_mode': 'auto',
+    'ichan_api_key': 'smoke-api-key-only',
+    'ichan_jwt_secret': 'smoke-jwt-secret-only',
+    'ichan_manual_token': '',
     'speech_input_mode': 'live_transcribe',
 }
 request(admin, 'admin/settings', 'PUT', ichan_config)
 selected = request(admin, 'admin/settings')['settings']
 assert selected['ai_provider'] == 'ichanlabs'
-assert 'smoke-secret-only' not in json.dumps(selected) and 'smoke-token-only' not in json.dumps(selected)
-models_error = request(admin, 'models', expected=503)
-assert 'sample' in (models_error.get('detail') or '').lower()
+assert selected['ichan_pool'].splitlines() == ['https://sg1.ichsanlabs.com', 'https://sg2.ichsanlabs.com']
+assert selected['ichan_token_mode'] == 'auto' and selected['ichan_ttl_min'] == 30
+assert 'smoke-api-key-only' not in json.dumps(selected) and 'smoke-jwt-secret-only' not in json.dumps(selected)
+assert request(regular, 'app-config')['settings']['ai_provider'] == 'ichanlabs'
+assert request(admin, 'models')['data'] == []
+manual_config = {
+    **ichan_config,
+    'ichan_token_mode': 'manual',
+    'ichan_jwt_secret': '',
+    'ichan_manual_token': 'smoke-manual-token-only',
+}
+request(admin, 'admin/settings', 'PUT', manual_config)
+manual_saved = request(admin, 'admin/settings')['settings']
+assert manual_saved['ichan_token_mode'] == 'manual'
+assert manual_saved['ichan_manual_token_configured']
+assert 'smoke-manual-token-only' not in json.dumps(manual_saved)
 request(admin, 'admin/settings', 'PUT', {**config, 'ai_provider': 'clario', 'speech_input_mode': 'live_transcribe'})
 assert request(regular, 'app-config')['settings']['speech_input_mode'] == 'live_transcribe'
 
@@ -241,4 +256,4 @@ assert request(regular, 'progress')['progress'] is None
 request(regular, 'logout', 'POST')
 request(regular, 'progress', expected=401)
 request(regular, 'auth/refresh', 'POST', expected=401)
-print('PASS: JWT + rotating refresh/cookies, password/logout revocation, roles, admin user CRUD, seed 6/48/18/36, catalog CRUD, server answer checks, progress, global provider/input mode, no IchanLabs fallback, CORS, lockdown, registration.')
+print('PASS: JWT + rotating refresh/cookies, password/logout revocation, roles, admin user CRUD, seed 6/48/18/36, catalog CRUD, server answer checks, progress, global provider/input mode, encrypted IchanLabs pool/token settings, CORS, lockdown, registration.')

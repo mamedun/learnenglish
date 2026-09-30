@@ -1272,3 +1272,36 @@
     justify-content: center;
   }
 }
+
+.ichan-config-panel textarea.text-field {
+  height: auto;
+  min-height: 160px;
+  padding: 10px 12px;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.ichan-config-panel .field-hint {
+  margin: -5px 0 3px;
+  color: #77738b;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.ichan-token-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.ichan-token-options .field-label {
+  margin: 3px 0 0;
+}
+.ichan-token-options .text-field {
+  display: block;
+  margin-top: 6px;
+}
+@media (max-width: 600px) {
+  .ichan-token-options {
+    grid-template-columns: 1fr;
+  }
+}
