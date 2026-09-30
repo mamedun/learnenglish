@@ -38,6 +38,9 @@ function catalog_install(PDO $pdo): void
 
     // BEGIN IMMEDIATE serializes concurrent first requests. A nonempty catalog is
     // never re-seeded (even after an admin archives every lesson).
+    // We use raw exec() for both BEGIN and COMMIT/ROLLBACK because on PHP 8.x +
+    // Windows pdo_sqlite, $pdo->commit()/rollBack() can incorrectly throw
+    // "There is no active transaction" right after exec('BEGIN ...').
     if ((int) $pdo->query('SELECT COUNT(*) FROM course_levels')->fetchColumn() > 0) return;
     $pdo->exec('BEGIN IMMEDIATE');
     try {
@@ -65,9 +68,9 @@ function catalog_install(PDO $pdo): void
                 }
             }
         }
-        $pdo->commit();
+        $pdo->exec('COMMIT');
     } catch (Throwable $e) {
-        $pdo->rollBack();
+        try { $pdo->exec('ROLLBACK'); } catch (Throwable $ignored) {}
         throw $e;
     }
 }

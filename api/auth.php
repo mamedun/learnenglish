@@ -153,6 +153,9 @@ function auth_refresh(): array
     }
     if (strlen($cookie) < 40 || strlen($cookie) > 128) respond(['error' => 'Sesi telah berakhir.', 'code' => 'refresh_expired'], 401);
     $pdo = db();
+    // Use raw exec() for both BEGIN and COMMIT/ROLLBACK because on PHP 8.x +
+    // Windows pdo_sqlite, $pdo->commit()/rollBack()/inTransaction() can
+    // incorrectly report "no active transaction" right after exec('BEGIN ...').
     $pdo->exec('BEGIN IMMEDIATE'); // serialize rotation across simultaneous refresh requests
     try {
         $q = $pdo->prepare('SELECT u.id,u.email,u.name,u.role,u.plan,u.created_at,u.must_change_password,s.sid
@@ -161,21 +164,21 @@ function auth_refresh(): array
         $q->execute([hash('sha256', $cookie), time()]);
         $row = $q->fetch();
         if (!$row) {
-            $pdo->rollBack();
+            try { $pdo->exec('ROLLBACK'); } catch (Throwable $ignored) {}
             respond(['error' => 'Sesi telah berakhir. Silakan masuk kembali.', 'code' => 'refresh_expired'], 401);
         }
         if (lockdown_on() && $row['role'] !== 'admin') {
-            $pdo->rollBack();
+            try { $pdo->exec('ROLLBACK'); } catch (Throwable $ignored) {}
             respond(['error' => 'Aplikasi sedang dikunci sementara oleh admin.', 'locked' => true], 423);
         }
         $next = auth_b64(random_bytes(32));
         $pdo->prepare('UPDATE auth_sessions SET refresh_hash=?,expires_at=? WHERE sid=?')
             ->execute([hash('sha256', $next), time() + REFRESH_TTL, $row['sid']]);
-        $pdo->commit();
+        $pdo->exec('COMMIT');
         auth_set_refresh_cookie($next);
         return ['user' => public_user($row), 'access_token' => auth_access_token((int) $row['id'], $row['sid']), 'expires_in' => ACCESS_TTL];
     } catch (Throwable $e) {
-        if ($pdo->inTransaction()) $pdo->rollBack();
+        try { $pdo->exec('ROLLBACK'); } catch (Throwable $ignored) {}
         throw $e;
     }
 }
