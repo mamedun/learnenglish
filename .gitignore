@@ -2,7 +2,7 @@ node_modules/
 dist/
 .arena/
 .env
-.env.*
+#.env.*
 data.db*
 /uploads/
 *.log
@@ -13,4 +13,4 @@ data.db*
 api/db/*.db*
 api/uploads/*
 !api/uploads/.htaccess
-api/config.php
+#api/config.php
