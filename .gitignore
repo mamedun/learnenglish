@@ -3,13 +3,14 @@ dist/
 .arena/
 .env
 .env.*
-!.env.example
 data.db*
 /uploads/
 *.log
 .DS_Store
 
 !.env.development.example
+!.env.production.example
 api/db/*.db*
 api/uploads/*
 !api/uploads/.htaccess
+api/config.php

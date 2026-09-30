@@ -2,7 +2,8 @@
 declare(strict_types=1);
 require_once __DIR__ . '/bootstrap.php';
 require_once __DIR__ . '/catalog.php';
-init_env();
+require_once __DIR__ . '/auth.php';
+app_config();
 header('X-Content-Type-Options: nosniff');
 header('Cache-Control: no-store');
 
@@ -10,26 +11,89 @@ function respond(array $data,int $status=200):never{http_response_code($status);
 function method():string{return strtoupper($_SERVER['REQUEST_METHOD']??'GET');}
 function path_info():string{$p=parse_url($_SERVER['REQUEST_URI']??'/learnenglish/api/health',PHP_URL_PATH)?:'/learnenglish/api/health';$p=preg_replace('#^/learnenglish/api/?#','',$p);$p=preg_replace('#^/api/?#','',$p);return trim($p,'/')?:'health';}
 function read_json(int $max=5_500_000):array{$length=(int)($_SERVER['CONTENT_LENGTH']??0);if($length>$max)respond(['error'=>'Request terlalu besar.'],413);$raw=file_get_contents('php://input');$v=json_decode($raw?:'{}',true);if(!is_array($v))respond(['error'=>'JSON tidak valid.'],400);return $v;}
-function db():PDO{static $pdo=null;if($pdo instanceof PDO)return $pdo;$path=envv('DATA_DB_PATH')?:__DIR__.'/db/data.db';$parent=dirname($path);if(!is_dir($parent)&&!mkdir($parent,0700,true)&&!is_dir($parent))respond(['error'=>'Tidak dapat membuat folder database.'],500);$deny=$parent.'/.htaccess';if(!is_file($deny))@file_put_contents($deny,"Options -Indexes\nRequire all denied\n");try{$pdo=new PDO('sqlite:'.$path,null,null,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC]);$pdo->exec('PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;');$pdo->exec("CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY AUTOINCREMENT,email TEXT NOT NULL UNIQUE,name TEXT NOT NULL,password_hash TEXT NOT NULL,role TEXT NOT NULL DEFAULT 'user' CHECK(role IN ('admin','user')),plan TEXT NOT NULL DEFAULT 'regular' CHECK(plan IN ('regular','premium')),created_at TEXT NOT NULL,must_change_password INTEGER NOT NULL DEFAULT 0);");$cols=$pdo->query('PRAGMA table_info(users)')->fetchAll();if(!in_array('plan',array_column($cols,'name'),true))$pdo->exec("ALTER TABLE users ADD COLUMN plan TEXT NOT NULL DEFAULT 'regular'");if(!in_array('must_change_password',array_column($cols,'name'),true))$pdo->exec("ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0");$pdo->exec("CREATE TABLE IF NOT EXISTS progress(user_id INTEGER PRIMARY KEY,payload TEXT NOT NULL DEFAULT '{}',updated_at TEXT NOT NULL,FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE);");$pdo->exec("CREATE TABLE IF NOT EXISTS app_settings(setting_key TEXT PRIMARY KEY,setting_value TEXT NOT NULL,updated_at TEXT NOT NULL);");$pdo->exec("CREATE TABLE IF NOT EXISTS audio_assets(id TEXT PRIMARY KEY,user_id INTEGER NOT NULL,client_ref TEXT,mime TEXT NOT NULL,extension TEXT NOT NULL,file_path TEXT NOT NULL,file_size INTEGER NOT NULL,created_at TEXT NOT NULL,FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE);");seed_admin($pdo);catalog_install($pdo);}catch(Throwable $e){respond(['error'=>'SQLite belum tersedia atau database gagal dibuka. Pastikan PHP PDO_SQLITE aktif dan DATA_DB_PATH dapat ditulis.','detail'=>envv('APP_DEBUG')==='1'?$e->getMessage():null],503);}return $pdo;}
+function db_diagnostics(string $path): array
+{
+    $parent = dirname($path);
+    return [
+        'pdo_sqlite' => extension_loaded('pdo_sqlite'),
+        'directory_exists' => is_dir($parent),
+        'directory_writable' => is_dir($parent) && is_writable($parent),
+        'database_exists' => is_file($path),
+        'database_readable' => is_file($path) && is_readable($path),
+        'database_writable' => is_file($path) && is_writable($path),
+    ];
+}
+function db_unavailable(string $code, string $path, ?Throwable $exception = null): never
+{
+    if ($exception) error_log('SpeakUp SQLite: ' . $exception->getMessage());
+    respond([
+        'error' => 'SQLite tidak siap. Periksa driver pdo_sqlite, path database di api/config.php, serta izin tulis file DAN direktorinya (SQLite WAL).',
+        'code' => $code,
+        'diagnostics' => db_diagnostics($path),
+        'detail' => cfg('APP_DEBUG', false) && $exception ? $exception->getMessage() : null,
+    ], 503);
+}
+function db(): PDO
+{
+    static $pdo = null;
+    if ($pdo instanceof PDO) return $pdo;
+    $path = (string) cfg('DATA_DB_PATH', __DIR__ . '/db/data.db');
+    if ($path === '' || str_contains($path, "\0")) respond(['error' => 'DATA_DB_PATH pada api/config.php tidak valid.', 'code' => 'invalid_database_path'], 503);
+    // Relative paths are ALWAYS relative to api/, never the PHP working directory.
+    if ($path[0] !== '/' && !preg_match('/^[a-zA-Z]:[\\\\\/]/', $path)) $path = __DIR__ . '/' . $path;
+    if (!extension_loaded('pdo_sqlite')) db_unavailable('missing_pdo_sqlite', $path);
+    $parent = dirname($path);
+    if (!is_dir($parent) && !@mkdir($parent, 0700, true) && !is_dir($parent)) db_unavailable('database_directory_missing', $path);
+    if (!is_writable($parent) || (is_file($path) && (!is_readable($path) || !is_writable($path)))) {
+        db_unavailable('database_permissions', $path);
+    }
+    // Apache only. Nginx must deny the database path independently (see README).
+    $deny = $parent . '/.htaccess';
+    if (!is_file($deny)) @file_put_contents($deny, "Options -Indexes\nRequire all denied\n");
+    try {
+        $fresh = !is_file($path);
+        $pdo = new PDO('sqlite:' . $path, null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]);
+        if ($fresh) @chmod($path, 0600);
+        $pdo->exec('PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;');
+        $pdo->exec("CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY AUTOINCREMENT,email TEXT NOT NULL UNIQUE,name TEXT NOT NULL,password_hash TEXT NOT NULL,role TEXT NOT NULL DEFAULT 'user' CHECK(role IN ('admin','user')),plan TEXT NOT NULL DEFAULT 'regular' CHECK(plan IN ('regular','premium')),created_at TEXT NOT NULL,must_change_password INTEGER NOT NULL DEFAULT 0);");
+        $cols = $pdo->query('PRAGMA table_info(users)')->fetchAll();
+        if (!in_array('plan', array_column($cols, 'name'), true)) $pdo->exec("ALTER TABLE users ADD COLUMN plan TEXT NOT NULL DEFAULT 'regular'");
+        if (!in_array('must_change_password', array_column($cols, 'name'), true)) $pdo->exec("ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0");
+        $pdo->exec("CREATE TABLE IF NOT EXISTS progress(user_id INTEGER PRIMARY KEY,payload TEXT NOT NULL DEFAULT '{}',updated_at TEXT NOT NULL,FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE);");
+        $pdo->exec("CREATE TABLE IF NOT EXISTS app_settings(setting_key TEXT PRIMARY KEY,setting_value TEXT NOT NULL,updated_at TEXT NOT NULL);");
+        $pdo->exec("CREATE TABLE IF NOT EXISTS audio_assets(id TEXT PRIMARY KEY,user_id INTEGER NOT NULL,client_ref TEXT,mime TEXT NOT NULL,extension TEXT NOT NULL,file_path TEXT NOT NULL,file_size INTEGER NOT NULL,created_at TEXT NOT NULL,FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE);");
+        auth_install($pdo);
+        seed_admin($pdo);
+        catalog_install($pdo);
+    } catch (Throwable $e) {
+        $pdo = null;
+        db_unavailable('database_unavailable', $path, $e);
+    }
+    return $pdo;
+}
 function seed_admin(PDO $pdo):void{
     // Explicit server-only bootstrap: no public default password or hash in Git.
     // Never overwrite or elevate an account which already owns this address.
-    $email=strtolower(trim(envv('ADMIN_EMAIL')));
-    $password=envv('ADMIN_PASSWORD');
+    $email=strtolower(trim(cfg('ADMIN_EMAIL')));
+    $password=cfg('ADMIN_PASSWORD');
     if($email===''||!filter_var($email,FILTER_VALIDATE_EMAIL)||strlen($password)<8||str_contains($password,'replace_with'))return;
     $q=$pdo->prepare('SELECT id FROM users WHERE email=?');$q->execute([$email]);
     if($q->fetch())return;
     $q=$pdo->prepare('INSERT INTO users(email,name,password_hash,role,plan,created_at,must_change_password) VALUES(?,?,?,?,?,?,1)');
-    $q->execute([$email,envv('ADMIN_NAME','SpeakUp Administrator'),password_hash($password,PASSWORD_DEFAULT),'admin','premium',gmdate('c')]);
+    $q->execute([$email,cfg('ADMIN_NAME','SpeakUp Administrator'),password_hash($password,PASSWORD_DEFAULT),'admin','premium',gmdate('c')]);
 }
 
-function user_row():?array{if(empty($_SESSION['user_id']))return null;$q=db()->prepare('SELECT id,email,name,role,plan,created_at,must_change_password FROM users WHERE id=?');$q->execute([(int)$_SESSION['user_id']]);$u=$q->fetch();if(!$u){session_destroy();return null;}return $u;}
+function user_row():?array{
+    // An invalid Bearer token must not silently fall back to a legacy cookie.
+    if (auth_bearer_header() !== '') return auth_bearer_user();
+    return auth_legacy_user();
+}
 function public_user(array $u):array{return ['id'=>(int)$u['id'],'email'=>$u['email'],'name'=>$u['name'],'role'=>$u['role'],'plan'=>$u['role']==='admin'?'admin':($u['plan']??'regular'),'created_at'=>$u['created_at'],'must_change_password'=>!empty($u['must_change_password'])];}
 function require_user():array{$u=user_row();if(!$u)respond(['error'=>'Silakan login terlebih dahulu.'],401);if(!empty($u['must_change_password']))respond(['error'=>'Ganti password awal sebelum memakai aplikasi.','password_change_required'=>true],403);if(lockdown_on()&&$u['role']!=='admin')respond(['error'=>'Aplikasi sedang dikunci sementara oleh admin.','locked'=>true],423);return $u;}
 function require_premium():array{$u=require_user();if(!premium_user($u))respond(['error'=>'Fitur ini memerlukan akun Premium.','premium_required'=>true],403);return $u;}
 function require_admin():array{$u=require_user();if($u['role']!=='admin')respond(['error'=>'Akses khusus admin.'],403);return $u;}
-function allowed_origins():array{$raw=envv('CORS_ALLOWED_ORIGINS',envv('APP_ORIGIN'));return array_values(array_filter(array_map(fn($x)=>rtrim(trim($x),'/'),explode(',',$raw))));}
-function cors_headers():void{$origin=$_SERVER['HTTP_ORIGIN']??'';if($origin==='')return;$allowed=allowed_origins();if(!in_array(rtrim($origin,'/'),$allowed,true))return;header('Access-Control-Allow-Origin: '.$origin);header('Access-Control-Allow-Credentials: true');header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');header('Access-Control-Allow-Headers: Content-Type, X-Requested-With');header('Vary: Origin');}
+function allowed_origins():array{$raw=cfg('CORS_ALLOWED_ORIGINS',[]);$origins=is_array($raw)?$raw:explode(',',(string)$raw);return array_values(array_filter(array_map(fn($x)=>rtrim(trim((string)$x),'/'),$origins)));}
+function cors_headers():void{$origin=$_SERVER['HTTP_ORIGIN']??'';if($origin==='')return;$allowed=allowed_origins();if(!in_array(rtrim($origin,'/'),$allowed,true))return;header('Access-Control-Allow-Origin: '.$origin);header('Access-Control-Allow-Credentials: true');header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With');header('Vary: Origin');}
 function origin_check():void{$origin=$_SERVER['HTTP_ORIGIN']??'';if($origin!==''&&!in_array(rtrim($origin,'/'),allowed_origins(),true))respond(['error'=>'Origin tidak diizinkan.'],403);}
 function lockdown_on():bool{return app_setting('app_lockdown','0')==='1';}
 function registration_closed():bool{return app_setting('stop_registration','0')==='1';}
@@ -37,24 +101,34 @@ function premium_user(array $u):bool{return $u['role']==='admin'||($u['plan']??'
 function rate_limit(string $bucket,int $limit=20,int $seconds=60):void{$ip=(string)($_SERVER['REMOTE_ADDR']??'unknown');$dir=rtrim(sys_get_temp_dir(),DIRECTORY_SEPARATOR).DIRECTORY_SEPARATOR.'speakup-limits';if(!is_dir($dir)&&!@mkdir($dir,0700,true)&&!is_dir($dir))return;$file=$dir.DIRECTORY_SEPARATOR.hash('sha256',$bucket.'|'.$ip).'.json';$fp=@fopen($file,'c+');if(!$fp)return;flock($fp,LOCK_EX);$state=json_decode(stream_get_contents($fp)?:'{}',true)?:['start'=>time(),'count'=>0];if(time()-(int)$state['start']>=$seconds)$state=['start'=>time(),'count'=>0];if((int)$state['count']>=$limit){$retry=max(1,$seconds-(time()-(int)$state['start']));flock($fp,LOCK_UN);fclose($fp);header('Retry-After: '.$retry);respond(['error'=>'Terlalu banyak request. Coba lagi sebentar.'],429);}$state['count']++;rewind($fp);ftruncate($fp,0);fwrite($fp,json_encode($state));fflush($fp);flock($fp,LOCK_UN);fclose($fp);}
 function app_setting(string $key,string $default=''):string{$q=db()->prepare('SELECT setting_value FROM app_settings WHERE setting_key=?');$q->execute([$key]);$v=$q->fetchColumn();return $v===false?$default:(string)$v;}
 function put_setting(string $key,string $value):void{$q=db()->prepare('INSERT INTO app_settings(setting_key,setting_value,updated_at) VALUES(?,?,?) ON CONFLICT(setting_key) DO UPDATE SET setting_value=excluded.setting_value,updated_at=excluded.updated_at');$q->execute([$key,$value,gmdate('c')]);}
-function crypto_key():string{$secret=envv('APP_ENCRYPTION_KEY');if(strlen($secret)<32||!function_exists('openssl_encrypt'))return '';return hash('sha256',$secret,true);}
+function crypto_key():string{$secret=cfg('APP_ENCRYPTION_KEY');if(strlen($secret)<32||!function_exists('openssl_encrypt'))return '';return hash('sha256',$secret,true);}
 function encrypt_secret(string $plain):string{if($plain==='')return ''; $key=crypto_key();if($key==='')respond(['error'=>'APP_ENCRYPTION_KEY wajib diatur sebelum menyimpan API key.'],503);$iv=random_bytes(12);$tag='';$cipher=openssl_encrypt($plain,'aes-256-gcm',$key,OPENSSL_RAW_DATA,$iv,$tag);if($cipher===false)respond(['error'=>'Gagal mengenkripsi konfigurasi.'],500);return base64_encode($iv.$tag.$cipher);}
 function decrypt_secret(string $encoded):string{if($encoded==='')return ''; $raw=base64_decode($encoded,true);$key=crypto_key();if($raw===false||strlen($raw)<29||$key==='')return '';return (string)(openssl_decrypt(substr($raw,28),'aes-256-gcm',$key,OPENSSL_RAW_DATA,substr($raw,0,12),substr($raw,12,16))?:'');}
-function config_values():array{$url=app_setting('clario_base_url',envv('CLARIO_BASE_URL','https://clariohub.id/v1'));$fallback=app_setting('clario_fallback_url',envv('CLARIO_FALLBACK_BASE_URL','https://api-direct.clariohub.id/v1'));$key=decrypt_secret(app_setting('clario_key_enc',''));if($key==='')$key=envv('CLARIO_API_KEY');$model=app_setting('clario_model',envv('CLARIO_MODEL','clario/gemini-3.7-flash'));$gemini=decrypt_secret(app_setting('gemini_key_enc',''));if($gemini==='')$gemini=envv('GEMINI_API_KEY');$live=app_setting('gemini_live_model',envv('GEMINI_LIVE_MODEL',''));return ['base_url'=>rtrim($url,'/'),'fallback_url'=>rtrim($fallback,'/'),'api_key'=>$key,'model'=>$model,'gemini_key'=>$gemini,'live_model'=>$live];}
+function config_values():array{$url=app_setting('clario_base_url',cfg('CLARIO_BASE_URL','https://clariohub.id/v1'));$fallback=app_setting('clario_fallback_url',cfg('CLARIO_FALLBACK_BASE_URL','https://api-direct.clariohub.id/v1'));$key=decrypt_secret(app_setting('clario_key_enc',''));if($key==='')$key=cfg('CLARIO_API_KEY');$model=app_setting('clario_model',cfg('CLARIO_MODEL','clario/gemini-3.7-flash'));$gemini=decrypt_secret(app_setting('gemini_key_enc',''));if($gemini==='')$gemini=cfg('GEMINI_API_KEY');$live=app_setting('gemini_live_model',cfg('GEMINI_LIVE_MODEL',''));return ['base_url'=>rtrim($url,'/'),'fallback_url'=>rtrim($fallback,'/'),'api_key'=>$key,'model'=>$model,'gemini_key'=>$gemini,'live_model'=>$live];}
 function http_json(string $url,array $headers=[],?array $body=null,int $timeout=25):array{$payload=$body===null?null:json_encode($body,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);if(function_exists('curl_init')){$ch=curl_init($url);curl_setopt_array($ch,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_CONNECTTIMEOUT=>8,CURLOPT_TIMEOUT=>$timeout,CURLOPT_HTTPHEADER=>$headers,CURLOPT_CUSTOMREQUEST=>$body===null?'GET':'POST',CURLOPT_POSTFIELDS=>$payload]);$out=curl_exec($ch);$status=(int)curl_getinfo($ch,CURLINFO_HTTP_CODE);$err=curl_error($ch);curl_close($ch);return ['status'=>$status,'body'=>$out===false?'':$out,'error'=>$err];}$ctx=stream_context_create(['http'=>['method'=>$body===null?'GET':'POST','header'=>implode("\r\n",$headers),'content'=>$payload??'','timeout'=>$timeout,'ignore_errors'=>true]]);$out=@file_get_contents($url,false,$ctx);$status=0;foreach($http_response_header??[] as $h)if(preg_match('/^HTTP\/\S+\s+(\d+)/',$h,$m))$status=(int)$m[1];return ['status'=>$status,'body'=>$out===false?'':$out,'error'=>$out===false?'HTTP transport error':''];}
 function provider_request(string $path,?array $body=null,int $timeout=25):array{$c=config_values();if($c['api_key']==='')return ['status'=>503,'body'=>'','error'=>'Admin belum mengatur API key Clario.'];$headers=['Authorization: Bearer '.$c['api_key'],'Content-Type: application/json'];$r=http_json($c['base_url'].$path,$headers,$body,$timeout);if(($r['status']===403||$r['status']===0)&&$c['fallback_url']!==$c['base_url'])$r=http_json($c['fallback_url'].$path,$headers,$body,$timeout);return $r;}
-function ensure_upload_dir(int $uid):string{$root=envv('UPLOADS_DIR')?:__DIR__.'/uploads';$dir=rtrim($root,'/\\').'/'.$uid;if(!is_dir($dir)&&!mkdir($dir,0700,true)&&!is_dir($dir))respond(['error'=>'Folder upload tidak dapat dibuat.'],500);$deny=rtrim($root,'/\\').'/.htaccess';if(!is_file($deny))@file_put_contents($deny,"Options -Indexes\nRequire all denied\n");return $dir;}
+function ensure_upload_dir(int $uid):string{$root=cfg('UPLOADS_DIR')?:__DIR__.'/uploads';$dir=rtrim($root,'/\\').'/'.$uid;if(!is_dir($dir)&&!mkdir($dir,0700,true)&&!is_dir($dir))respond(['error'=>'Folder upload tidak dapat dibuat.'],500);$deny=rtrim($root,'/\\').'/.htaccess';if(!is_file($deny))@file_put_contents($deny,"Options -Indexes\nRequire all denied\n");return $dir;}
 function cleanup_user_audio(int $uid):void{$q=db()->prepare('SELECT file_path FROM audio_assets WHERE user_id=?');$q->execute([$uid]);foreach($q->fetchAll() as $r)if(is_file($r['file_path']))@unlink($r['file_path']);$db=db();$db->prepare('DELETE FROM audio_assets WHERE user_id=?')->execute([$uid]);}
 
-// Start sessions only after env is read; cookie is HTTP-only and scoped to the site API.
-$isHttps=(!empty($_SERVER['HTTPS'])&&$_SERVER['HTTPS']!=='off')||((string)($_SERVER['HTTP_X_FORWARDED_PROTO']??'')==='https');cors_headers();if(($_SERVER['REQUEST_METHOD']??'GET')==='OPTIONS'){http_response_code(204);exit;}session_name('speakup_session');$sameSite=envv('SESSION_SAMESITE','Lax');if(!in_array($sameSite,['Lax','None','Strict'],true))$sameSite='Lax';session_set_cookie_params(['lifetime'=>0,'path'=>'/learnenglish/api/','secure'=>$sameSite==='None'||$isHttps,'httponly'=>true,'samesite'=>$sameSite]);if(session_status()!==PHP_SESSION_ACTIVE)session_start();
+// New authentication uses an in-memory access JWT and an HttpOnly refresh cookie.
+// Start a PHP session ONLY when migrating a pre-existing legacy session once.
+cors_headers();
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') { http_response_code(204); exit; }
+if (!empty($_COOKIE['speakup_session'])) {
+    session_name('speakup_session');
+    $sameSite = (string) cfg('SESSION_SAMESITE', 'Lax');
+    if (!in_array($sameSite, ['Lax', 'Strict', 'None'], true)) $sameSite = 'Lax';
+    session_set_cookie_params(['lifetime' => 0, 'path' => '/learnenglish/api/', 'secure' => auth_secure_request() || $sameSite === 'None', 'httponly' => true, 'samesite' => $sameSite]);
+    if (session_status() !== PHP_SESSION_ACTIVE) session_start();
+}
 $action=path_info();$method=method();
 
-if($action==='health'&&$method==='GET'){$ready=extension_loaded('pdo_sqlite');respond(['ok'=>$ready,'service'=>'SpeakUp PHP API','database'=>$ready?'sqlite':'missing_pdo_sqlite','authenticated'=>!!user_row(),'lockdown'=>lockdown_on(),'registration_closed'=>registration_closed(),'time'=>gmdate('c')],$ready?200:503);}
+if($action==='health'&&$method==='GET'){$ready=extension_loaded('pdo_sqlite');respond(['ok'=>$ready,'service'=>'SpeakUp PHP API','database'=>$ready?'sqlite':'missing_pdo_sqlite','authenticated'=>!!user_row(),'auth_configured'=>crypto_key()!=='','lockdown'=>lockdown_on(),'registration_closed'=>registration_closed(),'time'=>gmdate('c')],$ready?200:503);}
+if($action==='auth/refresh'&&$method==='POST'){origin_check();rate_limit('refresh',120,3600);respond(auth_refresh());}
 if($action==='me'&&$method==='GET'){$u=user_row();$locked=lockdown_on()&&$u&&$u['role']!=='admin';respond(['authenticated'=>(bool)$u&&!$locked,'user'=>$u&&!$locked?public_user($u):null,'locked'=>(bool)$locked,'registration_closed'=>registration_closed()]);}
-if($action==='register'&&$method==='POST'){origin_check();if(lockdown_on())respond(['error'=>'Pendaftaran dan akses publik dinonaktifkan selama app lockdown.','locked'=>true],423);if(registration_closed())respond(['error'=>'Pendaftaran sedang ditutup oleh admin.','registration_closed'=>true],403);rate_limit('register',10,3600);$d=read_json(16384);$name=trim((string)($d['name']??''));$email=strtolower(trim((string)($d['email']??'')));$password=(string)($d['password']??'');if($name===''||strlen($name)>100||!filter_var($email,FILTER_VALIDATE_EMAIL)||strlen($email)>190)respond(['error'=>'Nama atau email tidak valid.'],422);if(strlen($password)<10||strlen($password)>200)respond(['error'=>'Password harus terdiri dari 10–200 karakter.'],422);$pdo=db();try{$q=$pdo->prepare('INSERT INTO users(email,name,password_hash,role,plan,created_at) VALUES(?,?,?,?,?,?)');$q->execute([$email,$name,password_hash($password,PASSWORD_DEFAULT),'user','regular',gmdate('c')]);}catch(PDOException $e){if(str_contains(strtolower($e->getMessage()),'unique'))respond(['error'=>'Email sudah terdaftar.'],409);respond(['error'=>'Gagal membuat akun.'],500);}session_regenerate_id(true);$_SESSION['user_id']=(int)$pdo->lastInsertId();respond(['user'=>public_user(user_row())],201);}
-if($action==='login'&&$method==='POST'){origin_check();rate_limit('login',15,900);$d=read_json(16384);$email=strtolower(trim((string)($d['email']??'')));$password=(string)($d['password']??'');$q=db()->prepare('SELECT * FROM users WHERE email=?');$q->execute([$email]);$u=$q->fetch();if(!$u||!password_verify($password,(string)$u['password_hash']))respond(['error'=>'Email atau password salah.'],401);if(lockdown_on()&&$u['role']!=='admin')respond(['error'=>'Aplikasi sedang dikunci sementara oleh admin.','locked'=>true],423);session_regenerate_id(true);$_SESSION['user_id']=(int)$u['id'];respond(['user'=>public_user($u)]);}
-if($action==='logout'&&$method==='POST'){origin_check();$_SESSION=[];if(ini_get('session.use_cookies')){$p=session_get_cookie_params();setcookie(session_name(),'',time()-42000,$p['path'],$p['domain'],$p['secure'],$p['httponly']);}session_destroy();respond(['ok'=>true]);}
+if($action==='register'&&$method==='POST'){origin_check();auth_key();auth_cookie_options(time()+REFRESH_TTL);if(lockdown_on())respond(['error'=>'Pendaftaran dan akses publik dinonaktifkan selama app lockdown.','locked'=>true],423);if(registration_closed())respond(['error'=>'Pendaftaran sedang ditutup oleh admin.','registration_closed'=>true],403);rate_limit('register',10,3600);$d=read_json(16384);$name=trim((string)($d['name']??''));$email=strtolower(trim((string)($d['email']??'')));$password=(string)($d['password']??'');if($name===''||strlen($name)>100||!filter_var($email,FILTER_VALIDATE_EMAIL)||strlen($email)>190)respond(['error'=>'Nama atau email tidak valid.'],422);if(strlen($password)<10||strlen($password)>200)respond(['error'=>'Password harus terdiri dari 10–200 karakter.'],422);$pdo=db();try{$q=$pdo->prepare('INSERT INTO users(email,name,password_hash,role,plan,created_at) VALUES(?,?,?,?,?,?)');$q->execute([$email,$name,password_hash($password,PASSWORD_DEFAULT),'user','regular',gmdate('c')]);}catch(PDOException $e){if(str_contains(strtolower($e->getMessage()),'unique'))respond(['error'=>'Email sudah terdaftar.'],409);respond(['error'=>'Gagal membuat akun.'],500);}$q=$pdo->prepare('SELECT id,email,name,role,plan,created_at,must_change_password FROM users WHERE id=?');$q->execute([(int)$pdo->lastInsertId()]);respond(auth_issue($q->fetch()),201);}
+if($action==='login'&&$method==='POST'){origin_check();rate_limit('login',15,900);$d=read_json(16384);$email=strtolower(trim((string)($d['email']??'')));$password=(string)($d['password']??'');$q=db()->prepare('SELECT * FROM users WHERE email=?');$q->execute([$email]);$u=$q->fetch();if(!$u||!password_verify($password,(string)$u['password_hash']))respond(['error'=>'Email atau password salah.'],401);if(lockdown_on()&&$u['role']!=='admin')respond(['error'=>'Aplikasi sedang dikunci sementara oleh admin.','locked'=>true],423);respond(auth_issue($u));}
+if($action==='logout'&&$method==='POST'){origin_check();auth_logout();respond(['ok'=>true]);}
 if($action==='account/password'&&$method==='POST'){
     origin_check();rate_limit('password-change',8,900);
     $u=user_row();if(!$u)respond(['error'=>'Silakan login terlebih dahulu.'],401);
@@ -63,7 +137,9 @@ if($action==='account/password'&&$method==='POST'){
     $q=db()->prepare('SELECT password_hash FROM users WHERE id=?');$q->execute([(int)$u['id']]);
     if(!password_verify($current,(string)$q->fetchColumn()))respond(['error'=>'Password saat ini salah.'],401);
     db()->prepare('UPDATE users SET password_hash=?,must_change_password=0 WHERE id=?')->execute([password_hash($new,PASSWORD_DEFAULT),(int)$u['id']]);
-    session_regenerate_id(true);respond(['user'=>public_user(user_row())]);
+    auth_revoke_user((int)$u['id']);
+    $q=db()->prepare('SELECT id,email,name,role,plan,created_at,must_change_password FROM users WHERE id=?');$q->execute([(int)$u['id']]);
+    respond(auth_issue($q->fetch()));
 }
 if($action==='catalog'&&$method==='GET'){require_user();respond(catalog_data(db()));}
 if($action==='listening/check'&&$method==='POST'){origin_check();require_user();rate_limit('listening-check',120,60);respond(catalog_check_answer(db(),read_json(8192)));}

@@ -1,7 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { Toaster } from "sonner";
-import App from "./App";
+import App from "./app/App";
 import "./styles.css";
 import "./overrides.css";
 import "./theme.css";

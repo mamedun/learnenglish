@@ -12,7 +12,8 @@ import {
   Search,
   Trash2,
 } from "lucide-react";
-import { apiJson } from "./api";
+import { apiJson } from "../../api";
+import ModuleLoading from "../../components/ModuleLoading";
 
 const emptyQuestion = () => ({
   prompt: "",
@@ -220,6 +221,8 @@ export default function ContentStudio({ onCatalogChange }) {
     }
   }
 
+  if (!catalog && !error)
+    return <ModuleLoading label="katalog dan bank soal" />;
   return (
     <section className="studio-page">
       <div className="studio-heading">

@@ -1,0 +1,64 @@
+PAKET LENGKAP LEARNENGLISH / SPEAKUP
+Dibuat: 1 Oktober 2026
+Dasar: commit 5754278 (branch arena/01a0f3c0-learnenglish) + semua perubahan lokal yang belum di-commit.
+
+*** PERINGATAN KEAMANAN ***
+Zip ini berisi api/config.php yang memuat RAHASIA (APP_ENCRYPTION_KEY dan password
+admin bootstrap). Simpan secara privat. Jangan upload ke GitHub, jangan kirim ke orang
+lain, dan jangan taruh di folder yang bisa diunduh publik. api/config.php sudah
+di-ignore oleh .gitignore, jadi tidak ikut ter-commit secara tidak sengaja.
+
+ISI ZIP
+- Semua source terbaru: src/ api/ public/ tests/ index.html vite.config.js
+  package.json package-lock.json .htaccess .gitignore README.md
+  IELTS_COURSE_DESIGN.md IMAGE_PROMPTS.md
+- api/config.php          konfigurasi PHP AKTIF (pengganti .env untuk PHP)
+- api/config.example.php  template tanpa rahasia. WAJIB ikut di server karena dipakai
+                          sebagai nilai default oleh api/bootstrap.php.
+- .env.development.example dan .env.production.example
+                          contoh env untuk FRONTEND (Vite) saja
+- dist/                   hasil build frontend, siap upload (base /learnenglish/,
+                          API same-origin di /learnenglish/api)
+
+SENGAJA TIDAK DISERTAKAN
+- .env lama: sudah dihapus saat migrasi. Nilainya dipindahkan ke api/config.php.
+  PHP tidak lagi membaca .env.
+- .env.development / .env.production yang asli: memang tidak ada di workspace, hanya
+  file *.example. Salin contoh itu (mis. jadi .env.development.local) lalu sesuaikan
+  target proxy/prefix Anda.
+- node_modules/  -> jalankan: npm ci
+- .git/          -> riwayat git milik Anda sendiri
+- api/db/data.db dan api/uploads/*  -> database/upload DEV dari workspace ini.
+  JANGAN sampai menimpa database produksi Anda.
+
+LANGKAH PAKAI
+1. BACKUP dulu (lokal dan server): file SQLite produksi beserta -wal/-shm, folder
+   api/uploads, serta .env/config lama.
+2. Extract zip ke folder project (pilih overwrite). Boleh juga ke folder kosong baru.
+3. Hapus file lama yang sudah diganti (daftar di bawah).
+4. Periksa api/config.php sebelum dipakai di produksi:
+   - APP_ENCRYPTION_KEY: jika server produksi Anda sebelumnya punya .env dengan
+     APP_ENCRYPTION_KEY sendiri, isi dengan nilai LAMA itu agar API key provider yang
+     terenkripsi di database produksi tetap terbaca. Kunci berbeda = key itu tidak
+     terbaca lagi (semua sesi login juga terputus sekali).
+   - ADMIN_PASSWORD hanya dipakai saat akun admin belum ada. Setelah admin berhasil
+     login dan mengganti password, hapus/kosongkan nilainya.
+   - DATA_DB_PATH tidak diisi di file ini, sehingga defaultnya api/db/data.db. Jika
+     database produksi ada di lokasi lain, tambahkan path ABSOLUT-nya.
+   - CORS_ALLOWED_ORIGINS: sesuaikan dengan origin frontend Anda bila API beda origin.
+5. Lokal: npm ci ; php -S 0.0.0.0:8787 api/router.php ; npm run dev
+6. Produksi: upload ISI dist/ (termasuk file tersembunyi .htaccess) ke /learnenglish/
+   dan folder api/ ke /learnenglish/api/. Jangan hapus atau timpa api/db dan
+   api/uploads di server. Tes: /learnenglish/api/health, lalu hard refresh (Ctrl+F5).
+7. Jika health 503: baca "code" dan "diagnostics" di responsnya (lihat README bagian
+   Menangani 503). Jika 500: pastikan user PHP dapat membaca api/config.php
+   (mis. chmod 640 dengan group web server) dan api/config.example.php ikut ter-upload.
+
+FILE LAMA YANG SEBAIKNYA DIHAPUS (sudah dipindah/diganti)
+- .env.example
+- src/App.jsx
+- src/ContentStudio.jsx
+- src/ListeningPage.jsx
+- src/PasswordForm.jsx
+- .env di server/root lama: tidak dibaca PHP lagi. Hapus SETELAH nilainya Anda pindahkan
+  dan api/config.php berfungsi (simpan cadangan privat dulu).

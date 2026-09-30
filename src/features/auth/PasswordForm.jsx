@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { AudioLines, ArrowRight, LockKeyhole, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
-import { apiJson } from "./api";
+import { apiJson } from "../../api";
+import { useAuthStore } from "../../store/authStore";
 
 export default function PasswordForm({
   required = false,
@@ -23,6 +24,7 @@ export default function PasswordForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ current_password: current, new_password: next }),
       });
+      useAuthStore.getState().setAccessToken(result.access_token);
       setCurrent("");
       setNext("");
       setConfirm("");

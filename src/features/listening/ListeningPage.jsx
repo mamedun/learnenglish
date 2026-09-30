@@ -10,8 +10,8 @@ import {
   Volume2,
 } from "lucide-react";
 import { toast } from "sonner";
-import { apiJson } from "./api";
-import { awardXP } from "./gamification";
+import { apiJson } from "../../api";
+import { awardXP } from "../../gamification";
 
 export default function ListeningPage({
   lessons: allLessons,

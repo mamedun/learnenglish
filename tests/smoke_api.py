@@ -1,10 +1,12 @@
 """Integration smoke test for a throwaway local PHP/SQLite server.
 
-Start it with DATA_DB_PATH pointing at an EMPTY temporary SQLite file, then run:
-  SMOKE_ADMIN_EMAIL=... SMOKE_ADMIN_PASSWORD=... python3 tests/smoke_api.py
+Run tests/prepare_smoke_api.py, start that isolated API tree on port 8788, then:
+  SMOKE_ADMIN_EMAIL=smoke-admin@example.invalid \
+  SMOKE_ADMIN_PASSWORD=smoke-bootstrap-password python3 tests/smoke_api.py
 Never target production: the test changes settings, credentials and catalog content.
 """
 import http.cookiejar
+import base64
 import json
 import os
 import secrets
@@ -19,37 +21,72 @@ ADMIN_PASSWORD = os.getenv('SMOKE_ADMIN_PASSWORD')
 assert ADMIN_EMAIL and ADMIN_PASSWORD, 'Provide SMOKE_ADMIN_EMAIL and SMOKE_ADMIN_PASSWORD in your private environment'
 
 
+class Client:
+    def __init__(self):
+        self.cookies = http.cookiejar.CookieJar()
+        self.opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(self.cookies))
+        self.access_token = None
+
+
 def client():
-    return urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+    return Client()
 
 
-def request(opener, path, method='GET', payload=None, expected=200, origin=None):
+def request(client, path, method='GET', payload=None, expected=200, origin=None, token_override=None, cookie_override=None):
     data = json.dumps(payload).encode() if payload is not None else None
     headers = {'Content-Type': 'application/json'} if data is not None else {}
+    token = token_override if token_override is not None else client.access_token
+    if token and path not in ('login', 'register', 'auth/refresh'):
+        headers['Authorization'] = f'Bearer {token}'
+    if cookie_override:
+        headers['Cookie'] = f'speakup_refresh={cookie_override}'
     if origin:
         headers['Origin'] = origin
     req = urllib.request.Request(f'{BASE}/{path}', data=data, headers=headers, method=method)
     try:
-        response = opener.open(req)
+        response = client.opener.open(req)
     except urllib.error.HTTPError as error:
         response = error
     body = json.load(response)
     assert response.status == expected, f'{method} {path}: expected {expected}, got {response.status}: {body}'
+    if 'access_token' in body:
+        client.access_token = body['access_token']
+    if path == 'logout' and response.status == 200:
+        client.access_token = None
     return body
+
+
+def refresh_cookie(client):
+    return next(cookie.value for cookie in client.cookies if cookie.name == 'speakup_refresh')
 
 
 admin, regular, anon = client(), client(), client()
 health = request(anon, 'health')
-assert health['ok'] and health['database'] == 'sqlite'
+assert health['ok'] and health['database'] == 'sqlite' and health['auth_configured']
+assert request(anon, 'me')['authenticated'] is False
+assert request(anon, 'auth/refresh', 'POST', expected=401)['code'] == 'refresh_expired'
 request(anon, 'catalog', expected=401)
 request(admin, 'login', 'POST', {'email': ADMIN_EMAIL, 'password': 'incorrect'}, expected=401)
 initial = request(admin, 'login', 'POST', {'email': ADMIN_EMAIL, 'password': ADMIN_PASSWORD})['user']
 assert initial['role'] == 'admin' and initial['must_change_password']
+assert len(admin.access_token.split('.')) == 3
+claims = json.loads(base64.urlsafe_b64decode(admin.access_token.split('.')[1] + '=='))
+assert claims['exp'] - claims['iat'] == 900 and claims['sub'] == str(initial['id'])
+old_refresh = refresh_cookie(admin)
+assert request(admin, 'auth/refresh', 'POST')['user']['id'] == initial['id']
+assert refresh_cookie(admin) != old_refresh
+request(anon, 'auth/refresh', 'POST', expected=401, cookie_override=old_refresh)
 request(admin, 'admin/catalog', expected=403)
 request(admin, 'account/password', 'POST', {'current_password': 'wrong', 'new_password': 'difficult-new-password-2026'}, expected=401)
 rotated = secrets.token_urlsafe(20)
+pre_rotation_access = admin.access_token
+pre_rotation_cookie = refresh_cookie(admin)
 changed = request(admin, 'account/password', 'POST', {'current_password': ADMIN_PASSWORD, 'new_password': rotated})['user']
 assert not changed['must_change_password']
+assert refresh_cookie(admin) != pre_rotation_cookie
+request(admin, 'admin/catalog', expected=401, token_override=pre_rotation_access)
+request(anon, 'auth/refresh', 'POST', expected=401, cookie_override=pre_rotation_cookie)
+assert request(admin, 'me')['user']['id'] == initial['id']
 admin_catalog = request(admin, 'admin/catalog')
 assert len(admin_catalog['levels']) == 6
 assert sum(len(l['units']) for l in admin_catalog['levels']) == 48
@@ -122,4 +159,7 @@ request(anon, 'register', 'POST', {'name': 'Closed', 'email': 'closed@example.in
 request(admin, 'admin/settings', 'PUT', {**config, 'lockdown': False, 'stop_registration': False})
 request(regular, 'progress', 'DELETE')
 assert request(regular, 'progress')['progress'] is None
-print('PASS: admin bootstrap+rotation, role guards, seed counts, SQLite catalog CRUD, server answer checks, progress, CORS, lockdown, registration.')
+request(regular, 'logout', 'POST')
+request(regular, 'progress', expected=401)
+request(regular, 'auth/refresh', 'POST', expected=401)
+print('PASS: JWT + rotating refresh/cookies, password/logout revocation, roles, seed 6/48/18/36, catalog CRUD, server answer checks, progress, CORS, lockdown, registration.')

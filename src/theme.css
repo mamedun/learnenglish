@@ -2376,3 +2376,99 @@ img {
   display: inline-flex;
   vertical-align: middle;
 }
+
+/* Async feature chunks communicate progress instead of flashing blank content. */
+.module-loading,
+.module-error {
+  margin: 12px auto;
+  max-width: 1100px;
+  min-height: 270px;
+  border: 1px solid #e9e5f8;
+  border-radius: 24px;
+  background: #fff;
+  padding: clamp(22px, 4vw, 38px);
+  box-shadow: 0 15px 40px #463c8010;
+}
+.module-loading-label {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  color: #2b2850;
+}
+.module-loading-label strong {
+  display: block;
+  font-size: 17px;
+}
+.module-loading-label small {
+  display: block;
+  color: #85819e;
+  margin-top: 4px;
+}
+.module-loading-label .spinner {
+  margin-left: auto;
+  border-color: #e4defa;
+  border-top-color: #7056ec;
+}
+.module-loading-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  background: #eeeaff;
+  color: #7056ec;
+}
+.module-loading-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  margin-top: 29px;
+}
+.module-loading-cards > div {
+  height: 118px;
+  border-radius: 18px;
+  background: linear-gradient(110deg, #f1eef9 8%, #faf9fe 38%, #f1eef9 68%);
+  background-size: 230% 100%;
+  animation: module-shimmer 1.65s ease-in-out infinite;
+}
+.module-error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 12px;
+  color: #332e5b;
+}
+.module-error p {
+  color: #77738e;
+  margin: 0;
+}
+@keyframes module-shimmer {
+  to {
+    background-position-x: -230%;
+  }
+}
+@media (max-width: 680px) {
+  .module-loading-cards {
+    grid-template-columns: 1fr;
+  }
+  .module-loading-cards > div {
+    height: 54px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .module-loading-cards > div {
+    animation: none;
+  }
+}
+.auth-retry {
+  display: block;
+  margin-top: 10px;
+  border: 0;
+  background: transparent;
+  color: #6c51d9;
+  font-weight: 850;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0;
+}

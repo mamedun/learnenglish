@@ -1,101 +1,103 @@
 # SpeakUp — petualangan belajar bahasa Inggris
 
-Aplikasi React **JSX** + Vite dan API PHP/SQLite untuk latihan bahasa Inggris yang terinspirasi IELTS. URL frontend: `/learnenglish/`; API: `/learnenglish/api/`. Ini **bukan** produk, tes, sertifikat, atau prediksi skor resmi IELTS.
+Aplikasi React **JSX** + Vite dan API PHP/SQLite untuk latihan bahasa Inggris yang terinspirasi IELTS. URL frontend: `/learnenglish/`; API: `/learnenglish/api/`. Ini **bukan** tes atau sertifikasi IELTS resmi.
 
-## Analisis repositori & keputusan implementasi
+## Arsitektur
 
-Dokumen [desain kurikulum](./IELTS_COURSE_DESIGN.md) menentukan enam jenjang A1–C2, batas klaim IELTS, rubrik feedback AI, dan larangan membuat soal video tanpa verifikasi sumber. [Peta aset gambar](./IMAGE_PROMPTS.md) mencatat ilustrasi listening/speaking yang sudah ada. Di atas fondasi itu, aplikasi sekarang memiliki:
+- **Frontend:** `src/app/` merangkai fitur; `src/features/{auth,admin,dashboard,listening,speaking,live,progress,settings}/` berisi halaman; `src/components/` berisi status loading/error; `src/store/` menyimpan auth dan progres global dengan Zustand; `src/api.js` menangani HTTP, Bearer token, satu proses refresh untuk request bersamaan, dan retry. Modul yang jarang dibuka di-*lazy load* dengan skeleton, status aksesibel, dan fallback jika unduhan modul gagal. Semua tetap JSX/JavaScript.
+- **Pilihan dependensi:** Zustand dipakai karena state sesi dan belajar digunakan lintas halaman. `lucide-react` dan **Sonner** sudah menyediakan ikon/toast; tidak ditambah React-Toastify. `fetch` yang ada mendukung file biner, error, dan retry sehingga axios belum diperlukan. ECharts, TanStack Table, React Player, dan react-pdf belum diperlukan: belum ada grafik kompleks/tabel besar/video terverifikasi/PDF. Tambahkan hanya saat fiturnya benar-benar ada.
+- **Konten:** SQLite menyimpan 6 jenjang A1–C2, 48 unit speaking, 18 lesson listening, 36 soal, dan kunci. `api/seeds/catalog.json` digunakan sekali saat katalog kosong. Studio Admin mengedit/publikasi/arsip langsung di SQLite; kunci listening tidak dikirim ke katalog peserta dan dicek melalui `POST listening/check`.
+- **Batas produk:** Regular mendapat listening; Premium/Admin mendapat AI Speaking/Live. Audio arsip memerlukan persetujuan terpisah dari pengiriman audio ke AI. XP/streak/badge adalah motivasi, bukan skor IELTS atau proteksi anti-cheat. Bank video tetap kosong sampai sumber dan kunci soal diverifikasi. Lihat [IELTS_COURSE_DESIGN.md](./IELTS_COURSE_DESIGN.md) dan [IMAGE_PROMPTS.md](./IMAGE_PROMPTS.md).
 
-| Area | Implementasi |
-| --- | --- |
-| Frontend | React JSX/JavaScript (`src/*.jsx`, `src/*.js`), tanpa TSX, konfigurasi TypeScript, atau dependensi TypeScript. Tema ungu-koral, font Fredoka + Nunito, layout responsif, ilustrasi petualangan, ikon vektor, dashboard XP/streak/badge. |
-| Konten | SQLite sebagai **sumber data runtime** untuk jenjang, 48 unit speaking, 18 lesson listening, 36 soal dan kunci jawaban. Seed JSON orisinal di `api/seeds/catalog.json` dipakai **sekali** saat tabel jenjang katalog kosong; bukan database kedua yang disinkronkan. |
-| Admin | Akun bootstrap dari konfigurasi server privat; diwajibkan mengganti password awal (minimal 12 karakter) sebelum memakai fitur. Studio Admin mengelola unit, lesson, soal, kunci, publikasi/arsip, urutan, dan metadata jenjang tanpa rebuild frontend. |
-| Belajar | Regular mendapat listening; Premium/Admin mendapat AI Speaking dan Live. Audio arsip hanya dengan persetujuan. Progres per akun, jawaban listening dicek server, XP dan streak tersimpan di SQLite. |
-| Operasional | API health, session cookie, CORS allowlist, pembatasan akses berdasar peran, lockdown, tutup registrasi, konfigurasi provider terenkripsi, impor/ekspor progres. |
+### Login yang bertahan tanpa menyimpan token di browser storage
+
+PHP membuat **JWT akses HS256 berlaku 15 menit** dan menyimpannya hanya dalam memori Zustand; token tidak masuk `localStorage`. **Refresh token acak berlaku 30 hari sejak aktivitas terakhir**, dirotasi pada setiap `POST auth/refresh`, dikirim sebagai cookie `HttpOnly`, `SameSite=Lax` (default), dan hanya hash SHA-256-nya yang disimpan di tabel `auth_sessions`. Akses dipulihkan setelah reload; jika JWT kedaluwarsa, frontend me-refresh sekali untuk request yang sedang berjalan. Logout mencabut sesi di server; penggantian password mencabut semua sesi lama. User lama yang masih memiliki sesi PHP valid dimigrasikan sekali saat refresh. Setelah 30 hari tanpa aktivitas, login ulang tetap diperlukan.
+
+Untuk API beda origin, atur allowlist origin persis, HTTPS, dan `SESSION_SAMESITE=None`. Cookie `Secure` diwajibkan. Jika PHP berada di belakang proxy HTTPS, aktifkan `TRUST_HTTPS_PROXY` **hanya jika proxy tepercaya menimpa** header `X-Forwarded-Proto`. Gunakan HTTPS di produksi; jangan gunakan `*` untuk CORS berkredensial. Jangan mengganti `APP_ENCRYPTION_KEY` tanpa rencana rotasi: JWT lama terputus dan API key provider terenkripsi mungkin tidak dapat dibaca.
 
 ### Mengapa katalog di database?
 
-**Kelebihan:** Admin bisa memperbarui materi tanpa deploy/build; satu katalog dipakai semua akun/perangkat; soal dan kunci dikelola transaksional; kunci jawaban **tidak** dikirim dalam endpoint katalog peserta; pengarsipan mempertahankan ID agar riwayat progres lama tetap masuk akal. Seed satu kali mempertahankan materi dari repositori untuk instalasi baru.
+**Pro:** Admin dapat memperbarui materi tanpa rebuild; semua akun memakai katalog yang sama; kunci soal tetap di server; arsip mempertahankan ID/progres. **Kontra:** PHP/SQLite harus tersedia dan dapat menulis, termasuk direktori untuk WAL; butuh backup dan migrasi skema. Seed JSON yang diedit setelah instalasi tidak menyinkronkan database lama. Mengedit soal mengganti ID pertanyaan; hindari publikasi saat peserta sedang mengerjakannya.
 
-**Kekurangan/trade-off:** Server + disk SQLite harus tersedia/ditulis setiap saat; perlu backup, migrasi skema, izin file, dan pengawasan kapasitas/konkurensi untuk skala lebih besar. Katalog sekarang butuh request API alih-alih hanya file statis/CDN; pertanyaan yang diperbarui memperoleh ID baru sehingga jawaban yang sedang dibuka peserta perlu dimuat ulang. Mengedit JSON seed setelah instalasi **tidak** mengubah database yang sudah berjalan; lakukan perubahan lewat Studio. Soal dan skrip listening terlihat di client agar latihan dapat diakses; hanya kunci dan penjelasannya yang tetap di server.
+## Konfigurasi: `.env*` hanya untuk frontend, `config.php` hanya untuk PHP
 
-### Batas produk yang disengaja
+**PHP tidak membaca `.env`, `ENV_FILE`, atau `getenv()` lagi.** Semua konfigurasi backend berasal dari `api/config.php` (tidak masuk Git) yang mengembalikan array PHP. `api/config.example.php` memuat default aman **tanpa rahasia**. Di server:
 
-- Listening memakai naskah tetap + browser speech synthesis (ketersediaan suara tergantung browser/OS), bukan AI, speech recognition, atau skor band IELTS. `POST listening/check` memeriksa pilihan di server; XP bersifat motivasional, **bukan nilai ujian atau anti-cheat formal**.
-- AI Lesson/Live hanya Premium/Admin; feedback berbasis teks tidak cukup untuk menilai pronunciation atau overall band. Pengiriman audio ke Gemini untuk evaluasi memerlukan consent terpisah dari pengarsipan. Live memakai token singkat yang dibuat server, bukan long-lived key di browser; live audio tidak disimpan oleh SpeakUp. Premium diberikan manual oleh admin (tidak ada pembayaran).
-- Bank video sengaja kosong sampai satu video spesifik terverifikasi URL/izin, transkrip atau subtitle, durasi, dan kunci jawabannya. Gambar latihan deskripsi bukan bagian resmi IELTS Speaking. Lihat [IELTS_COURSE_DESIGN.md](./IELTS_COURSE_DESIGN.md).
+```bash
+cp api/config.example.php api/config.php
+chmod 600 api/config.php
+```
 
-## Jalankan lokal
+Edit file privat itu, minimal `APP_ENCRYPTION_KEY` (>=32 karakter acak), `ADMIN_EMAIL` dan `ADMIN_PASSWORD` bootstrap jika admin belum ada, `DATA_DB_PATH`, `UPLOADS_DIR`, dan `CORS_ALLOWED_ORIGINS`. Untuk database yang sudah ada, gunakan path **absolut** ke file yang benar (misalnya `__DIR__ . '/db/data.db'`); path relatif dalam config diartikan relatif terhadap `api/`, bukan working directory PHP. Akun admin hanya dibuat jika email tersebut belum ada; perubahan password di config tidak mereset akun. Setelah login awal admin wajib mengganti password (baru minimal 12 karakter); hapus password bootstrap dari config sesudahnya.
 
-Persyaratan: Node.js 20+, PHP 8.1+ dengan `pdo_sqlite`, `openssl`, `fileinfo`, session; `curl` dianjurkan (ada fallback HTTP stream). Jalankan dari root repositori:
+**Jangan commit atau kirim `api/config.php` ke web sebagai file publik.** Apache `.htaccess` menghalangi akses langsung ke config, helper, seed, DB, dan upload. Di Nginx `.htaccess` tidak berlaku: tambahkan deny untuk config dan folder privat. Idealnya simpan DB/upload di luar web root melalui path di `api/config.php`.
+
+Frontend menggunakan `.env.development.local` / `.env.production.local` yang **hanya** berisi variabel `VITE_*`; salin dari `.env.development.example` / `.env.production.example` jika perlu. Vite default mem-proxy PHP lokal; produksi same-origin memakai `/learnenglish/api` otomatis tanpa `VITE_API_BASE_URL`. Jika backend pengembangan di `rikisample.test`, set `VITE_API_PROXY_TARGET=https://rikisample.test` dan `VITE_API_PROXY_PATH_PREFIX=/learnenglish`; jika backend lokal di port 8787, gunakan `VITE_API_PROXY_TARGET=http://127.0.0.1:8787` dan `VITE_API_PROXY_PATH_PREFIX=`. Jangan pernah menaruh kredensial PHP/API key di `VITE_*`.
+
+### Jalankan lokal
+
+Persyaratan: Node.js 20+, PHP 8.1+ dengan `pdo_sqlite`, `openssl`, `fileinfo`, session; `curl` disarankan untuk provider (ada fallback HTTP stream).
 
 ```bash
 npm ci
-cp .env.example .env
-cp .env.development.example .env.development.local
+cp api/config.example.php api/config.php
+# isi APP_ENCRYPTION_KEY dan kredensial bootstrap secara privat
+php -S 0.0.0.0:8787 api/router.php    # terminal pertama
+npm run dev                            # terminal kedua
 ```
 
-Set `.env` **privat** (tidak dimasukkan Git); minimal `ADMIN_EMAIL`, `ADMIN_NAME`, `ADMIN_PASSWORD`, `APP_ENCRYPTION_KEY` (>=32 karakter acak), dan `CORS_ALLOWED_ORIGINS`. Password bootstrap minimal 8 karakter, tetapi penggantinya wajib unik dan **minimal 12 karakter**. Akun admin dibuat otomatis saat API membuka SQLite **jika email yang dikonfigurasi belum ada**, termasuk pada database lama; akun yang sudah memakai email itu tidak ditimpa atau dinaikkan haknya. Set `ADMIN_PASSWORD` sebelum login pertama; perubahan berikutnya pada `.env` tidak mereset password akun yang ada. Setelah mengganti password melalui aplikasi, hapus password bootstrap dari konfigurasi server; jangan dipakai di instalasi publik. Contoh `.env.example` tidak berisi kredensial nyata.
+Buka `http://localhost:5173/learnenglish/`. Login/bootstrap gagal bila `APP_ENCRYPTION_KEY` masih kosong (health menampilkan `auth_configured:false`). Password user baru minimal 10 karakter. Untuk mengecek API: `http://localhost:8787/learnenglish/api/health`. Browser di Vite memakai URL relatif dan proxy; tidak memanggil `localhost` dari kode frontend yang di-deploy.
 
-Dalam `.env.development.local`, ubah proxy agar menunjuk ke server PHP lokal:
+## Menangani `GET /api/health` dan `/api/me` HTTP 503
 
-```env
-VITE_API_PROXY_TARGET=http://127.0.0.1:8787
-VITE_API_PROXY_PATH_PREFIX=
-```
+**503 bukan kesalahan `api.js` di browser**: server PHP merespons gagal menyiapkan SQLite. File `.db` yang sudah ada **belum membuktikan** bahwa PHP web server memiliki driver/akses untuk membukanya. Versi API ini menambahkan `code` dan diagnostik boolean aman pada respons 503 `health`/`me`; detail exception lengkap masuk log PHP dan hanya boleh ditampilkan jika `APP_DEBUG=true` di lingkungan privat.
 
-Lalu jalankan di dua terminal:
+| `code`/indikator | Langkah perbaikan |
+| --- | --- |
+| `missing_pdo_sqlite`, `diagnostics.pdo_sqlite=false` | Aktifkan **PDO_SQLITE pada PHP yang menjalankan situs** (PHP-FPM/Apache), bukan hanya PHP CLI; periksa versi/ekstensi di panel hosting. Kode aplikasi tidak bisa memasang ekstensi hosting. |
+| `database_directory_missing` atau `directory_writable=false` | Cocokkan `DATA_DB_PATH` dengan lokasi DB lama yang benar. Beri user proses PHP izin menulis **dan traversal** ke direktori DB; WAL/SHM perlu dibuat di folder ini. Jangan gunakan `chmod 777`. |
+| `database_permissions` / `database_writable=false` saat file ada | Pastikan file `.db` dapat dibaca/ditulis oleh user PHP-FPM dan direktori induknya juga writable. Periksa kepemilikan sesudah upload/deploy serta ruang disk. |
+| `database_unavailable` padahal izin dan driver benar | Periksa log PHP untuk pesan SQLite spesifik, seed yang hilang, DB korup/terkunci, atau lokasi/path keliru. Cadangkan DB sebelum memperbaiki; **jangan menghapus DB pengguna untuk mengatasi 503**. |
+| `health` sehat namun `auth_configured=false` | Isi `APP_ENCRYPTION_KEY` dengan nilai stabil di `api/config.php` privat; login memerlukan kunci ini. |
 
-```bash
-php -S 0.0.0.0:8787 api/router.php
-npm run dev
-```
-
-Buka `http://localhost:5173/learnenglish/`. Browser hanya mengakses URL relatif `/learnenglish/api/…` di origin Vite; Vite meneruskan ke PHP. Alternatif: set `VITE_API_PROXY_TARGET=https://rikisample.test` dan `VITE_API_PROXY_PATH_PREFIX=/learnenglish` jika host PHP `.test` pengguna sudah tersedia. Jangan menaruh API key Gemini/Clario di variabel `VITE_*`.
+Jika Vite masih mem-proxy ke `https://rikisample.test` dan alamat tersebut 503, ubah `.env.development.local` agar proxy menuju **PHP yang benar**, lalu restart Vite. Jika 503 terjadi di hosting `.test` atau produksi, deploy kode/config baru dan perbaiki ekstensi/izin **di hosting tersebut**; perubahan pada repo lokal tidak otomatis memperbaiki server yang sedang aktif.
 
 ## Deploy produksi
 
-1. `npm ci && npm run build`, salin **isi** `dist/` ke `/learnenglish/` di web root. Salin folder `api/` (termasuk `api/seeds/catalog.json` dan aturan deny `.htaccess`) ke `/learnenglish/api/`. Jangan menimpa aturan rewrite produksi tanpa meninjaunya. Pastikan SPA fallback tidak menangkap `/learnenglish/api/*`.
-2. Siapkan environment **di luar web root** (misalnya `ENV_FILE=/secure/path/speakup.env`), dengan `APP_ENCRYPTION_KEY` kuat dan `ADMIN_*` sebelum kunjungan pertama. Default DB `api/db/data.db`, audio `api/uploads/{user_id}/`; atur `DATA_DB_PATH`/`UPLOADS_DIR` ke jalur absolut di luar web root bila mungkin. Proses PHP harus dapat menulis database, WAL, dan folder upload. Jangan pernah menyajikan `.env`, SQLite, seed JSON, atau file audio langsung sebagai aset publik.
-3. Dengan Apache, `.htaccess` melarang akses ke `api/db/`, `api/uploads/`, dan `api/seeds/`; dengan **Nginx, `.htaccess` diabaikan**. Tambahkan deny berikut (sesuaikan root/regex dengan server), dan pastikan path privat tidak diarahkan ke SPA atau PHP sebagai static file:
+1. `npm ci && npm run build`, salin **isi** `dist/` ke `/learnenglish/` web root. Salin `api/` (termasuk seed dan `.htaccess`) ke `/learnenglish/api/`. Pastikan SPA fallback tidak menangkap API. Buat `api/config.php` privat pada server **sebelum** mengakses API baru; jangan menyalin config development atau `.env` lama ke frontend.
+2. Konfigurasikan `DATA_DB_PATH` ke SQLite yang **sudah berjalan** jika upgrade; pertahankan database/progres, jangan membuat DB baru tanpa sengaja. Proses PHP harus dapat membuat tabel `auth_sessions`, membaca/menulis DB dan menulis di direktori untuk SQLite WAL. Simpan `APP_ENCRYPTION_KEY` yang sama dengan konfigurasi sebelumnya agar API key terenkripsi tetap dapat dibaca. Backup SQLite yang konsisten (termasuk WAL aktif) dan audio bersama.
+3. Di Apache, `.htaccess` melarang akses file privat; di **Nginx** tambahkan aturan setara (sesuaikan server block dan urutan rewrite):
 
    ```nginx
    location ^~ /learnenglish/api/db/      { return 404; }
    location ^~ /learnenglish/api/uploads/ { return 404; }
    location ^~ /learnenglish/api/seeds/   { return 404; }
+   location ~* ^/learnenglish/api/(?:config(?:\.example)?|bootstrap|catalog|auth|router)\.php$ { return 404; }
    location ~* ^/learnenglish/(?:\.env.*|.*\.(?:db|sqlite|sqlite3|log)(?:-wal|-shm)?)$ { return 404; }
    ```
 
-4. Gunakan HTTPS dan akses API satu-origin jika bisa. `CORS_ALLOWED_ORIGINS` berisi origin persis, bukan `*` dengan cookie. `SESSION_SAMESITE=Lax` untuk satu-origin; jika sengaja beda origin dan keduanya HTTPS, atur `VITE_API_BASE_URL=https://api.example.com/learnenglish/api`, allowlist frontend di API, dan `SESSION_SAMESITE=None` (cookie Secure). Pastikan sesi tidak terblokir oleh pengaturan cookie browser.
-5. Untuk pengiriman audio WAV sementara dengan consent, atur PHP `upload_max_filesize=16M`, `post_max_size=16M`, `max_execution_time=90` (batas aplikasi 12 MB). Pasang API key server-side dari Studio Admin, tersimpan AES-256-GCM dengan `APP_ENCRYPTION_KEY`; cadangkan key bersamaan dengan database agar konfigurasi terenkripsi tetap bisa dibaca.
-6. Verifikasi `/learnenglish/api/health`, login pertama dan rotasi password admin, pendaftaran, listening Regular, batas Premium, update Studio, pengaturan admin, dan unduhan audio milik akun sendiri. Kesehatan API (`ok:true`, SQLite) **tidak** sendiri membuktikan UI/proxy/fitur berjalan. Backup database SQLite secara konsisten (termasuk WAL saat aktif) dan audio bersama; rahasiakan backup.
+4. Gunakan HTTPS. Untuk frontend/API pada origin yang sama biarkan `SESSION_SAMESITE=Lax` dan `VITE_API_BASE_URL` kosong; untuk beda origin HTTPS, konfigurasi `CORS_ALLOWED_ORIGINS` (daftar origin frontend), `SESSION_SAMESITE=None`, dan URL API frontend `VITE_API_BASE_URL` saat build. Header `Authorization` diizinkan untuk CORS origin terdaftar.
+5. Atur PHP `upload_max_filesize=16M`, `post_max_size=16M`, `max_execution_time=90` untuk evaluasi WAV ber-consent (batas aplikasi 12 MB). API key provider dienkripsi dengan AES-256-GCM menggunakan `APP_ENCRYPTION_KEY`; backup kunci itu secara privat.
+6. Uji `health`, pendaftaran/login, reload/refresh, logout, progres Regular, perubahan password admin, Studio, batas Premium, dan akses audio berdasarkan kepemilikan. Respons health yang sehat tidak sendiri membuktikan semua fitur/konfigurasi provider telah diuji.
 
-Ilustrasi petualangan baru ada di `public/images/speakup-adventure.png`; aset pelajaran yang sudah ada tetap di `public/images/listening/` dan `public/images/speaking/`. Lihat [IMAGE_PROMPTS.md](./IMAGE_PROMPTS.md).
+## Endpoint penting (`/learnenglish/api/`)
 
-## Endpoint API utama (`/learnenglish/api/`)
+- `GET health`, `GET me`, `POST register/login/logout`, `POST auth/refresh`, `POST account/password`
+- `GET catalog` (tanpa kunci untuk peserta), `POST listening/check` (koreksi oleh server)
+- `GET/PUT/DELETE progress`; `GET admin/catalog`, `POST/PUT/DELETE admin/units` dan `admin/listening`, `PUT admin/levels/{id}`
+- `GET/PUT admin/settings`, `GET/PUT admin/users`; `POST/GET/DELETE audio`, `POST assess-audio`, `POST chat`, `POST live-token`, `POST live-assessment`, `GET models`
 
-- `GET health`, `GET me`, `POST register/login/logout`, `POST account/password`
-- `GET catalog` — katalog terbit untuk pengguna login, **tanpa kunci jawaban**; `POST listening/check` — hasil benar/salah/penjelasan dari server
-- `GET/PUT/DELETE progress` — progres akun, termasuk XP dan streak
-- `GET admin/catalog`; `POST/PUT/DELETE admin/units` dan `admin/listening`; `PUT admin/levels/{id}` — hanya admin
-- `GET/PUT admin/settings`, `GET/PUT admin/users` — hanya admin
-- `POST/GET/DELETE audio`, `POST assess-audio`, `POST chat`, `POST live-token`, `POST live-assessment`, `GET models` — fitur Premium/Admin sesuai consent dan konfigurasi provider
-
-## Pengujian
+## Pengujian tanpa menyentuh database pengguna
 
 ```bash
 npm run build
 npm audit --omit=dev --audit-level=high
+python3 tests/prepare_smoke_api.py
+# start PHP dari path .../.arena/smoke-api-*/api yang baru dicetak di atas:
+# php -S 0.0.0.0:8788 /path/tercetak/router.php
+SMOKE_ADMIN_EMAIL=smoke-admin@example.invalid \
+SMOKE_ADMIN_PASSWORD=smoke-bootstrap-password \
+SMOKE_API_BASE=http://127.0.0.1:8788/learnenglish/api python3 tests/smoke_api.py
 ```
 
-`tests/smoke_api.py` adalah pengujian integrasi yang **mengubah password, katalog, serta pengaturan**. Jalankan hanya dengan **database baru yang dibuang setelah tes**, dan server di `localhost`; **jangan** arahkan ke DB produksi atau preview utama. Contoh, pada dua terminal:
-
-```bash
-DATA_DB_PATH="$PWD/api/db/smoke.db" php -S 0.0.0.0:8788 api/router.php
-SMOKE_API_BASE=http://127.0.0.1:8788/learnenglish/api \
-  SMOKE_ADMIN_EMAIL=<email-bootstrap-privat> \
-  SMOKE_ADMIN_PASSWORD=<password-bootstrap-privat> python3 tests/smoke_api.py
-```
-
-Saat selesai, hentikan server, lalu hapus DB uji yang tidak diperlukan. Skrip memeriksa bootstrap/rotasi password, hak akses, 6/48/18/36 seed, CRUD + arsip, koreksi jawaban server, progres, CORS, lockdown, dan penutupan registrasi. Tes UI manual: login admin -> wajib ganti password -> Studio Admin; daftar Regular -> selesaikan lesson listening -> XP tetap setelah reload; uji desktop/mobile.
+Script membuat **salinan API dengan config.php, password, key, dan DB tes yang terpisah**, tidak membaca config/SQLite live. `smoke_api.py` memeriksa login, refresh/rotasi, revokasi saat logout/ganti password, hak akses, seed 6/48/18/36, CRUD, koreksi jawaban server, progres, CORS, lockdown, dan pendaftaran. Jangan arahkan tes destruktif ini ke server produksi. Tes browser manual: reload setelah login tidak keluar; buka modul saat loading; selesaikan listening dan pastikan XP persisten; admin wajib ganti password awal dan dapat menyunting katalog.
