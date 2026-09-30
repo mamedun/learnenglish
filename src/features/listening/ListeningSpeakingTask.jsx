@@ -201,7 +201,7 @@ export default function ListeningSpeakingTask({
     setProcessing(true);
     try {
       const audioForAI =
-        aiProvider === "ichanlabs"
+        aiProvider === "free"
           ? audioBlob
           : await convertRecordingToWav(audioBlob);
       if (audioForAI.size > 12 * 1024 * 1024)

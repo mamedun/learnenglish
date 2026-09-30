@@ -447,7 +447,7 @@ function App() {
         if (!consent.isConfirmed) return;
 
         const audioForAI =
-          appConfig.ai_provider === "ichanlabs"
+          appConfig.ai_provider === "free"
             ? audioBlob
             : await convertRecordingToWav(audioBlob);
         if (audioForAI.size > 12 * 1024 * 1024)

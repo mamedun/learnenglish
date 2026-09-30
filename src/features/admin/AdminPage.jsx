@@ -24,7 +24,7 @@ import ContentStudio from "./ContentStudio";
 import { toast } from "sonner";
 import Swal from "sweetalert2";
 
-const ICHAN_DEFAULT_POOL = Array.from(
+const FREE_DEFAULT_POOL = Array.from(
   { length: 10 },
   (_, index) => `https://sg${index + 1}.ichsanlabs.com`,
 ).join("\n");
@@ -42,10 +42,10 @@ export default function AdminPage({
     clario_base_url: "https://clariohub.id/v1",
     clario_fallback_url: "https://api-direct.clariohub.id/v1",
     clario_model: "clario/gemini-3.7-flash",
-    ichan_pool: ICHAN_DEFAULT_POOL,
-    ichan_ttl_min: 30,
-    ichan_sub: "api-client",
-    ichan_token_mode: "auto",
+    free_pool: FREE_DEFAULT_POOL,
+    free_ttl_min: 30,
+    free_sub: "api-client",
+    free_token_mode: "auto",
     gemini_live_model: "",
   });
   const [models, setModels] = useState([]);
@@ -53,9 +53,9 @@ export default function AdminPage({
   const [ready, setReady] = useState(false);
   const [apiKey, setApiKey] = useState("");
   const [geminiKey, setGeminiKey] = useState("");
-  const [ichanApiKey, setIchanApiKey] = useState("");
-  const [ichanJwtSecret, setIchanJwtSecret] = useState("");
-  const [ichanManualToken, setIchanManualToken] = useState("");
+  const [freeApiKey, setFreeApiKey] = useState("");
+  const [freeJwtSecret, setFreeJwtSecret] = useState("");
+  const [freeManualToken, setFreeManualToken] = useState("");
   const [showKey, setShowKey] = useState(false);
   const [users, setUsers] = useState([]);
   const [usersBusy, setUsersBusy] = useState(false);
@@ -235,18 +235,18 @@ export default function AdminPage({
         body: JSON.stringify({
           ...settings,
           clario_api_key: apiKey,
-          ichan_api_key: ichanApiKey,
-          ichan_jwt_secret: ichanJwtSecret,
-          ichan_manual_token: ichanManualToken,
+          free_api_key: freeApiKey,
+          free_jwt_secret: freeJwtSecret,
+          free_manual_token: freeManualToken,
           gemini_api_key: geminiKey,
         }),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || "Gagal menyimpan");
       setApiKey("");
-      setIchanApiKey("");
-      setIchanJwtSecret("");
-      setIchanManualToken("");
+      setFreeApiKey("");
+      setFreeJwtSecret("");
+      setFreeManualToken("");
       setGeminiKey("");
       await loadSettings();
       onSpeechModeChange?.(settings.speech_input_mode || "live_transcribe");
@@ -392,118 +392,118 @@ export default function AdminPage({
                   }
                 >
                   <option value="clario">Clario · OpenAI-compatible API</option>
-                  <option value="ichanlabs">IchanLabs · SG1–SG10</option>
+                  <option value="free">Free API Key · SG1–SG10</option>
                 </select>
                 <ChevronDown size={16} />
               </div>
-              {settings.ai_provider === "ichanlabs" && (
-                <div className="ichan-config-panel">
+              {settings.ai_provider === "free" && (
+                <div className="free-config-panel">
                   <div className="field-label">
-                    KONFIGURASI ICHANLABS · MULTI-POOL
+                    KONFIGURASI FREE API KEY · MULTI-POOL
                   </div>
                   <p className="admin-provider-warning">
                     Kunci API, JWT secret, dan manual token hanya dikirim ke
                     server SpeakUp dan dienkripsi saat disimpan. Jangan memakai
                     credential contoh yang tertanam pada sample.
                   </p>
-                  <label className="field-label" htmlFor="ichan-pool">
+                  <label className="field-label" htmlFor="free-pool">
                     SERVER NODE POOL · SATU URL PER BARIS
                   </label>
                   <textarea
-                    id="ichan-pool"
+                    id="free-pool"
                     className="text-field"
                     rows={8}
                     spellCheck={false}
-                    value={settings.ichan_pool || ICHAN_DEFAULT_POOL}
+                    value={settings.free_pool || FREE_DEFAULT_POOL}
                     onChange={(event) =>
-                      change("ichan_pool", event.target.value)
+                      change("free_pool", event.target.value)
                     }
-                    placeholder={ICHAN_DEFAULT_POOL}
+                    placeholder={FREE_DEFAULT_POOL}
                   />
                   <small className="field-hint">
                     Tiap request memilih satu node secara acak. Hanya HTTPS
                     sg1–sg10.ichsanlabs.com yang diizinkan.
                   </small>
-                  <label className="field-label" htmlFor="ichan-api-key">
+                  <label className="field-label" htmlFor="free-api-key">
                     API KEY{" "}
-                    {settings.ichan_api_key_masked && (
+                    {settings.free_api_key_masked && (
                       <span className="key-current">
-                        · Tersimpan {settings.ichan_api_key_masked}
+                        · Tersimpan {settings.free_api_key_masked}
                       </span>
                     )}
                   </label>
                   <input
-                    id="ichan-api-key"
+                    id="free-api-key"
                     className="text-field"
                     type="password"
                     autoComplete="new-password"
-                    value={ichanApiKey}
-                    onChange={(event) => setIchanApiKey(event.target.value)}
+                    value={freeApiKey}
+                    onChange={(event) => setFreeApiKey(event.target.value)}
                     placeholder={
-                      settings.ichan_api_key_configured
+                      settings.free_api_key_configured
                         ? "Kosongkan untuk mempertahankan API key"
-                        : "API key dari admin IchanLabs"
+                        : "Masukkan Free API Key"
                     }
                   />
-                  <label className="field-label" htmlFor="ichan-jwt-secret">
+                  <label className="field-label" htmlFor="free-jwt-secret">
                     JWT SECRET{" "}
-                    {settings.ichan_jwt_secret_masked && (
+                    {settings.free_jwt_secret_masked && (
                       <span className="key-current">
-                        · Tersimpan {settings.ichan_jwt_secret_masked}
+                        · Tersimpan {settings.free_jwt_secret_masked}
                       </span>
                     )}
                   </label>
                   <input
-                    id="ichan-jwt-secret"
+                    id="free-jwt-secret"
                     className="text-field"
                     type="password"
                     autoComplete="new-password"
-                    value={ichanJwtSecret}
-                    onChange={(event) => setIchanJwtSecret(event.target.value)}
+                    value={freeJwtSecret}
+                    onChange={(event) => setFreeJwtSecret(event.target.value)}
                     placeholder={
-                      settings.ichan_jwt_secret_configured
+                      settings.free_jwt_secret_configured
                         ? "Kosongkan untuk mempertahankan JWT secret"
                         : "Diperlukan untuk mode token otomatis"
                     }
                   />
-                  <div className="ichan-token-options">
-                    <label className="field-label" htmlFor="ichan-ttl">
+                  <div className="free-token-options">
+                    <label className="field-label" htmlFor="free-ttl">
                       TTL TOKEN (MENIT)
                       <input
-                        id="ichan-ttl"
+                        id="free-ttl"
                         className="text-field"
                         type="number"
                         min={1}
                         max={1440}
-                        value={settings.ichan_ttl_min ?? 30}
+                        value={settings.free_ttl_min ?? 30}
                         onChange={(event) =>
-                          change("ichan_ttl_min", Number(event.target.value))
+                          change("free_ttl_min", Number(event.target.value))
                         }
                       />
                     </label>
-                    <label className="field-label" htmlFor="ichan-sub">
+                    <label className="field-label" htmlFor="free-sub">
                       SUBJECT (SUB)
                       <input
-                        id="ichan-sub"
+                        id="free-sub"
                         className="text-field"
                         maxLength={128}
-                        value={settings.ichan_sub || "api-client"}
+                        value={settings.free_sub || "api-client"}
                         onChange={(event) =>
-                          change("ichan_sub", event.target.value)
+                          change("free_sub", event.target.value)
                         }
                       />
                     </label>
                   </div>
-                  <label className="field-label" htmlFor="ichan-token-mode">
+                  <label className="field-label" htmlFor="free-token-mode">
                     TOKEN MODE
                   </label>
                   <div className="select-wrap">
                     <select
-                      id="ichan-token-mode"
+                      id="free-token-mode"
                       className="text-field"
-                      value={settings.ichan_token_mode || "auto"}
+                      value={settings.free_token_mode || "auto"}
                       onChange={(event) =>
-                        change("ichan_token_mode", event.target.value)
+                        change("free_token_mode", event.target.value)
                       }
                     >
                       <option value="auto">Auto · JWT HS256 di server</option>
@@ -511,30 +511,30 @@ export default function AdminPage({
                     </select>
                     <ChevronDown size={16} />
                   </div>
-                  {settings.ichan_token_mode === "manual" && (
+                  {settings.free_token_mode === "manual" && (
                     <>
                       <label
                         className="field-label"
-                        htmlFor="ichan-manual-token"
+                        htmlFor="free-manual-token"
                       >
                         MANUAL TOKEN{" "}
-                        {settings.ichan_manual_token_masked && (
+                        {settings.free_manual_token_masked && (
                           <span className="key-current">
-                            · Tersimpan {settings.ichan_manual_token_masked}
+                            · Tersimpan {settings.free_manual_token_masked}
                           </span>
                         )}
                       </label>
                       <input
-                        id="ichan-manual-token"
+                        id="free-manual-token"
                         className="text-field"
                         type="password"
                         autoComplete="new-password"
-                        value={ichanManualToken}
+                        value={freeManualToken}
                         onChange={(event) =>
-                          setIchanManualToken(event.target.value)
+                          setFreeManualToken(event.target.value)
                         }
                         placeholder={
-                          settings.ichan_manual_token_configured
+                          settings.free_manual_token_configured
                             ? "Kosongkan untuk mempertahankan token"
                             : "Masukkan JWT manual"
                         }

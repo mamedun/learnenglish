@@ -1106,7 +1106,7 @@
   font-size: 12px;
   line-height: 1.5;
 }
-.ichan-config-panel {
+.free-config-panel {
   display: grid;
   gap: 9px;
   padding: 16px;
@@ -1115,7 +1115,7 @@
   border-radius: 14px;
   background: #fbfaff;
 }
-.ichan-config-panel .field-label:not(:first-child) {
+.free-config-panel .field-label:not(:first-child) {
   margin-top: 3px;
 }
 .admin-provider-warning {
@@ -1273,7 +1273,7 @@
   }
 }
 
-.ichan-config-panel textarea.text-field {
+.free-config-panel textarea.text-field {
   height: auto;
   min-height: 160px;
   padding: 10px 12px;
@@ -1282,26 +1282,26 @@
   font-size: 12px;
   line-height: 1.5;
 }
-.ichan-config-panel .field-hint {
+.free-config-panel .field-hint {
   margin: -5px 0 3px;
   color: #77738b;
   font-size: 12px;
   line-height: 1.45;
 }
-.ichan-token-options {
+.free-token-options {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
-.ichan-token-options .field-label {
+.free-token-options .field-label {
   margin: 3px 0 0;
 }
-.ichan-token-options .text-field {
+.free-token-options .text-field {
   display: block;
   margin-top: 6px;
 }
 @media (max-width: 600px) {
-  .ichan-token-options {
+  .free-token-options {
     grid-template-columns: 1fr;
   }
 }

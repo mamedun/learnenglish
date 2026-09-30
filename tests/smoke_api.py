@@ -207,37 +207,53 @@ request(admin, 'admin/settings', 'PUT', config)
 assert request(admin, 'admin/settings')['settings']['speech_input_mode'] == 'ai_audio'
 assert request(regular, 'app-config')['settings']['speech_input_mode'] == 'ai_audio'
 
-# IchanLabs uses its own encrypted API/JWT credentials and an allow-listed node pool.
-ichan_config = {
+# Free API uses its own encrypted API/JWT credentials and an allow-listed node pool.
+free_config = {
+    **config,
+    'ai_provider': 'free',
+    'free_pool': '\n'.join(['https://sg1.ichsanlabs.com', 'https://sg2.ichsanlabs.com']),
+    'free_ttl_min': 30,
+    'free_sub': 'smoke-api-client',
+    'free_token_mode': 'auto',
+    'free_api_key': 'smoke-api-key-only',
+    'free_jwt_secret': 'smoke-jwt-secret-only',
+    'free_manual_token': '',
+    'speech_input_mode': 'live_transcribe',
+}
+request(admin, 'admin/settings', 'PUT', free_config)
+selected = request(admin, 'admin/settings')['settings']
+assert selected['ai_provider'] == 'free'
+assert selected['free_pool'].splitlines() == ['https://sg1.ichsanlabs.com', 'https://sg2.ichsanlabs.com']
+assert selected['free_token_mode'] == 'auto' and selected['free_ttl_min'] == 30
+assert not any(key.lower().startswith('ichan') for key in selected)
+assert 'smoke-api-key-only' not in json.dumps(selected) and 'smoke-jwt-secret-only' not in json.dumps(selected)
+assert request(regular, 'app-config')['settings']['ai_provider'] == 'free'
+assert request(admin, 'models')['data'] == []
+# Accept stored/client names from the previous build while presenting only the Free API brand.
+legacy_config = {
     **config,
     'ai_provider': 'ichanlabs',
     'ichan_pool': '\n'.join(['https://sg1.ichsanlabs.com', 'https://sg2.ichsanlabs.com']),
     'ichan_ttl_min': 30,
-    'ichan_sub': 'smoke-api-client',
+    'ichan_sub': 'legacy-smoke-client',
     'ichan_token_mode': 'auto',
-    'ichan_api_key': 'smoke-api-key-only',
-    'ichan_jwt_secret': 'smoke-jwt-secret-only',
-    'ichan_manual_token': '',
-    'speech_input_mode': 'live_transcribe',
+    'ichan_api_key': 'legacy-smoke-api-key-only',
+    'ichan_jwt_secret': 'legacy-smoke-jwt-secret-only',
 }
-request(admin, 'admin/settings', 'PUT', ichan_config)
-selected = request(admin, 'admin/settings')['settings']
-assert selected['ai_provider'] == 'ichanlabs'
-assert selected['ichan_pool'].splitlines() == ['https://sg1.ichsanlabs.com', 'https://sg2.ichsanlabs.com']
-assert selected['ichan_token_mode'] == 'auto' and selected['ichan_ttl_min'] == 30
-assert 'smoke-api-key-only' not in json.dumps(selected) and 'smoke-jwt-secret-only' not in json.dumps(selected)
-assert request(regular, 'app-config')['settings']['ai_provider'] == 'ichanlabs'
-assert request(admin, 'models')['data'] == []
+request(admin, 'admin/settings', 'PUT', legacy_config)
+legacy_saved = request(admin, 'admin/settings')['settings']
+assert legacy_saved['ai_provider'] == 'free'
+assert legacy_saved['free_sub'] == 'legacy-smoke-client'
 manual_config = {
-    **ichan_config,
-    'ichan_token_mode': 'manual',
-    'ichan_jwt_secret': '',
-    'ichan_manual_token': 'smoke-manual-token-only',
+    **free_config,
+    'free_token_mode': 'manual',
+    'free_jwt_secret': '',
+    'free_manual_token': 'smoke-manual-token-only',
 }
 request(admin, 'admin/settings', 'PUT', manual_config)
 manual_saved = request(admin, 'admin/settings')['settings']
-assert manual_saved['ichan_token_mode'] == 'manual'
-assert manual_saved['ichan_manual_token_configured']
+assert manual_saved['free_token_mode'] == 'manual'
+assert manual_saved['free_manual_token_configured']
 assert 'smoke-manual-token-only' not in json.dumps(manual_saved)
 request(admin, 'admin/settings', 'PUT', {**config, 'ai_provider': 'clario', 'speech_input_mode': 'live_transcribe'})
 assert request(regular, 'app-config')['settings']['speech_input_mode'] == 'live_transcribe'
@@ -256,4 +272,4 @@ assert request(regular, 'progress')['progress'] is None
 request(regular, 'logout', 'POST')
 request(regular, 'progress', expected=401)
 request(regular, 'auth/refresh', 'POST', expected=401)
-print('PASS: JWT + rotating refresh/cookies, password/logout revocation, roles, admin user CRUD, seed 6/48/18/36, catalog CRUD, server answer checks, progress, global provider/input mode, encrypted IchanLabs pool/token settings, CORS, lockdown, registration.')
+print('PASS: JWT + rotating refresh/cookies, password/logout revocation, roles, admin user CRUD, seed 6/48/18/36, catalog CRUD, server answer checks, progress, global provider/input mode, encrypted Free API Key pool/token settings, CORS, lockdown, registration.')

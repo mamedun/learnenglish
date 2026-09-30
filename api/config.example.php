@@ -20,13 +20,13 @@ return [
     'CLARIO_MODEL' => 'clario/gemini-3.7-flash',
     'GEMINI_LIVE_MODEL' => 'gemini-3.8-live',
     'CLARIO_API_KEY' => '',
-    'ICHAN_API_KEY' => '',
-    'ICHAN_JWT_SECRET' => '',
-    'ICHAN_TTL_MIN' => 30,
-    'ICHAN_SUB' => 'api-client',
-    'ICHAN_TOKEN_MODE' => 'auto', // auto or manual
-    'ICHAN_MANUAL_TOKEN' => '',
-    'ICHAN_POOL' => [
+    'FREE_API_KEY' => '',
+    'FREE_JWT_SECRET' => '',
+    'FREE_TTL_MIN' => 30,
+    'FREE_SUB' => 'api-client',
+    'FREE_TOKEN_MODE' => 'auto', // auto or manual
+    'FREE_MANUAL_TOKEN' => '',
+    'FREE_POOL' => [
         'https://sg1.ichsanlabs.com', 'https://sg2.ichsanlabs.com',
         'https://sg3.ichsanlabs.com', 'https://sg4.ichsanlabs.com',
         'https://sg5.ichsanlabs.com', 'https://sg6.ichsanlabs.com',
