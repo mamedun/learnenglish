@@ -1061,3 +1061,214 @@
     width: 100%;
   }
 }
+
+
+/* Hidden prompt, Kokoro cache status, and global admin/user management. */
+.visible-practice-prompt {
+  padding: 9px 11px;
+  border-left: 3px solid #f5bd62;
+  border-radius: 0 9px 9px 0;
+  background: #ffffff12;
+  color: #fff9eb;
+  font-size: 14px;
+}
+.prompt-hidden-note {
+  color: #f4f0ffb8 !important;
+  font-size: 13px !important;
+  font-style: italic;
+}
+.question-reveal {
+  margin-top: 7px;
+  font-size: 12px;
+}
+.tts-cache-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 12px 0 6px;
+}
+.cache-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #7e897f;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.cache-indicator.cached {
+  color: #398255;
+}
+.tts-status {
+  margin: 6px 0 10px;
+  color: #7e897f;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.ichan-config-panel {
+  display: grid;
+  gap: 9px;
+  padding: 16px;
+  margin-top: 12px;
+  border: 1px solid #e5dff6;
+  border-radius: 14px;
+  background: #fbfaff;
+}
+.ichan-config-panel .field-label:not(:first-child) {
+  margin-top: 3px;
+}
+.admin-provider-warning {
+  margin: 0;
+  padding: 11px 12px;
+  border-radius: 10px;
+  background: #fff6e8;
+  color: #80572a;
+  font-size: 13px;
+  line-height: 1.55;
+}
+.speech-mode-info {
+  margin: 11px 0 14px;
+}
+.admin-user-toolbar,
+.admin-user-form-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.admin-user-toolbar {
+  margin-top: 15px;
+}
+.admin-user-toolbar > div,
+.admin-user-toolbar small {
+  display: block;
+}
+.admin-user-toolbar > div > b {
+  color: #302b58;
+  font-size: 16px;
+}
+.admin-user-toolbar small {
+  margin-top: 3px;
+  color: #77738b;
+  font-size: 12px;
+}
+.admin-user-form {
+  display: grid;
+  gap: 11px;
+  padding: 15px;
+  margin: 14px 0;
+  border: 1px solid #e5e0f4;
+  border-radius: 13px;
+  background: #fbfaff;
+}
+.admin-user-form > b,
+.admin-user-form-heading > b {
+  color: #302b58;
+  font-size: 15px;
+}
+.admin-user-form label {
+  display: grid;
+  gap: 5px;
+  color: #625d78;
+  font-size: 12px;
+  font-weight: 800;
+}
+.admin-user-form label small {
+  color: #817d91;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+.admin-user-form-actions,
+.admin-user-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.admin-user-form-actions .btn-primary {
+  min-height: 38px;
+  padding: 8px 13px;
+  font-size: 13px;
+}
+.admin-users-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  margin-top: 12px;
+}
+.admin-users-table {
+  width: 100%;
+  min-width: 510px;
+  border-collapse: collapse;
+  text-align: left;
+}
+.admin-users-table th {
+  padding: 9px 8px;
+  color: #8b879a;
+  font-size: 10px;
+  letter-spacing: .08em;
+}
+.admin-users-table td {
+  padding: 10px 8px;
+  border-top: 1px solid #f0eff4;
+  vertical-align: middle;
+}
+.admin-users-table td:first-child b,
+.admin-users-table td:first-child small {
+  display: block;
+}
+.admin-users-table td:first-child b {
+  color: #353057;
+  font-size: 13px;
+}
+.admin-users-table td:first-child small {
+  margin-top: 3px;
+  color: #898698;
+  font-size: 11px;
+}
+.admin-users-table .plan-select {
+  max-width: 126px;
+  min-height: 34px;
+  padding: 5px 8px;
+  font-size: 12px;
+}
+.admin-user-actions {
+  justify-content: flex-end;
+}
+.icon-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 33px;
+  height: 33px;
+  border: 1px solid #e7e5ee;
+  border-radius: 9px;
+  background: white;
+  color: #5e5875;
+  cursor: pointer;
+}
+.icon-action:hover {
+  border-color: #c9c2ee;
+  background: #f7f5ff;
+}
+.icon-action.danger {
+  color: #b33d43;
+}
+.admin-action-disabled,
+.admin-empty-users {
+  color: #9894a1;
+  font-size: 11px;
+}
+.admin-empty-users {
+  padding: 22px !important;
+  text-align: center;
+}
+@media (max-width: 600px) {
+  .tts-cache-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .tts-cache-row .outline-btn {
+    justify-content: center;
+  }
+}

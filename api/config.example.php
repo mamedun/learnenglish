@@ -20,5 +20,12 @@ return [
     'CLARIO_MODEL' => 'clario/gemini-3.7-flash',
     'GEMINI_LIVE_MODEL' => 'gemini-3.8-live',
     'CLARIO_API_KEY' => '',
+    'ICHAN_BASE_URL' => '', // Configure only from the official IchanLabs API sample.
+    'ICHAN_SERVER' => 'SG1',
+    'ICHAN_MODEL' => '',
+    'ICHAN_SECRET' => '',
+    'ICHAN_TOKEN' => '',
+    'AI_PROVIDER_DEFAULT' => 'clario',
+    'SPEECH_INPUT_MODE_DEFAULT' => 'live_transcribe',
     'GEMINI_API_KEY' => '',
 ];

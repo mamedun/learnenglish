@@ -12,6 +12,7 @@ import {
 import { toast } from "sonner";
 import { apiJson } from "../../api";
 import { awardXP } from "../../gamification";
+import ListeningSpeakingTask from "./ListeningSpeakingTask";
 
 export default function ListeningPage({
   lessons: allLessons,
@@ -19,6 +20,8 @@ export default function ListeningPage({
   initialLessonId,
   data,
   setData,
+  speak,
+  speechInputMode = "live_transcribe",
 }) {
   const [level, setLevel] = useState("All");
   const [activeId, setActiveId] = useState(null);
@@ -38,6 +41,8 @@ export default function ListeningPage({
   );
   const active = lessons.find((x) => x.id === activeId) || lessons[0];
   const done = data.listeningCompleted || [];
+  const speechPassed = (data.speakingCompleted || []).includes(active?.id);
+  const speechScore = Number(data.speakingScores?.[active?.id] || 0);
   const doneCount = allLessons.filter((x) => done.includes(x.id)).length;
   const next = allLessons.find((l) => !done.includes(l.id)) || allLessons[0];
   const keyFor = (question) => `${active.id}:${question.id}`;
@@ -51,21 +56,12 @@ export default function ListeningPage({
   useEffect(() => () => window.speechSynthesis?.cancel(), []);
 
   function play() {
-    if (!("speechSynthesis" in window)) {
-      toast.error("Audio TTS tidak tersedia. Gunakan naskah tertulis.");
+    if (typeof speak !== "function") {
+      toast.error("Text-to-speech belum tersedia. Gunakan naskah tertulis.");
       setShowScript(true);
       return;
     }
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(active.script);
-    utterance.lang = "en-US";
-    utterance.rate =
-      active.level === "A1" || active.level === "A2" ? 0.82 : 0.94;
-    const voice = window.speechSynthesis
-      .getVoices()
-      .find((v) => v.lang.toLowerCase().startsWith("en"));
-    if (voice) utterance.voice = voice;
-    window.speechSynthesis.speak(utterance);
+    speak(active.script);
   }
   async function check(question) {
     const key = keyFor(question);
@@ -96,6 +92,12 @@ export default function ListeningPage({
     if (score !== active.questions.length || !active.questions.length) {
       toast.info(
         "Jawab semua soal dengan benar dulu ya. Kamu bisa mencoba lagi!",
+      );
+      return;
+    }
+    if (!speechPassed && !finished) {
+      toast.info(
+        "Selesaikan latihan membaca nyaring hingga minimal 90% sesuai.",
       );
       return;
     }
@@ -145,12 +147,13 @@ export default function ListeningPage({
       <div className="listening-notice">
         <Volume2 size={21} />
         <div>
-          <b>Audio aman & sederhana</b>
+          <b>Audio lesson & privasi mic</b>
           <span>
-            Naskah dibacakan oleh speech synthesis browser/perangkatmu.
-            Ketersediaan suara dan pemrosesan offline bergantung OS/browser.
-            Tidak ada unggahan audio atau speech recognition. Buka naskah kapan
-            saja.
+            Naskah dibacakan dengan TTS pilihanmu. Latihan speaking memakai mode
+            global admin: transkripsi browser read-only atau rekaman yang
+            dikirim ke AI hanya setelah persetujuan. Web Speech dapat
+            menggunakan layanan vendor browser; audio tidak diarsipkan oleh
+            SpeakUp.
           </span>
         </div>
       </div>
@@ -341,6 +344,28 @@ export default function ListeningPage({
               );
             })}
           </div>
+          <ListeningSpeakingTask
+            lesson={active}
+            speak={speak}
+            speechInputMode={speechInputMode}
+            passed={speechPassed}
+            passedScore={speechScore}
+            onPass={(percent) =>
+              setData((previous) => ({
+                ...previous,
+                speakingCompleted: Array.from(
+                  new Set([...(previous.speakingCompleted || []), active.id]),
+                ),
+                speakingScores: {
+                  ...(previous.speakingScores || {}),
+                  [active.id]: Math.max(
+                    Number(previous.speakingScores?.[active.id] || 0),
+                    Number(percent) || 0,
+                  ),
+                },
+              }))
+            }
+          />
           <div className="lesson-end">
             <div>
               <b>
@@ -351,7 +376,9 @@ export default function ListeningPage({
               <small>
                 {finished
                   ? "Lanjutkan ke cerita berikutnya untuk terus berkembang."
-                  : "Pastikan semua jawaban benar untuk mendapat +10 XP."}
+                  : speechPassed
+                    ? "Soal benar dan speaking minimal 90% — siap mendapat +10 XP."
+                    : "Jawab soal dengan benar dan selesaikan latihan speaking minimal 90%."}
               </small>
             </div>
             {finished ? (
@@ -369,7 +396,7 @@ export default function ListeningPage({
               <button
                 className="btn-primary"
                 onClick={complete}
-                disabled={score !== active.questions.length}
+                disabled={score !== active.questions.length || !speechPassed}
               >
                 Selesaikan misi <Check size={16} />
               </button>

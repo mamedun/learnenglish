@@ -8,6 +8,8 @@ import {
   ChevronDown,
   ChevronRight,
   FileAudio2,
+  Eye,
+  EyeOff,
   Languages,
   Mic,
   MoreHorizontal,
@@ -18,9 +20,11 @@ import {
   Star,
   Volume2,
   WandSparkles,
+  RotateCcw,
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatTime } from "../../lib/formatTime";
+import { useSpeechRecognition } from "../../hooks/useSpeechRecognition";
 
 function PrepTimer({ unit }) {
   const [seconds, setSeconds] = useState(Number(unit.prepSeconds) || 60);
@@ -93,7 +97,59 @@ export default function PracticePage(p) {
     speak,
     playRecording,
     completed,
+    speechInputMode = "live_transcribe",
+    resetRecording,
   } = p;
+  const liveTranscription = speechInputMode !== "ai_audio";
+  const recognizer = useSpeechRecognition({ language: "en-US" });
+  const [showPrompt, setShowPrompt] = useState(false);
+  const transcribing = liveTranscription && recognizer.listening;
+  useEffect(() => {
+    setShowPrompt(false);
+    recognizer.reset();
+    p.setTranscript("");
+    p.resetRecording?.();
+    // Reset the input when switching lesson or when the admin changes the global mode.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unit.id, speechInputMode]);
+  useEffect(() => {
+    if (liveTranscription) p.setTranscript(recognizer.transcript);
+  }, [recognizer.transcript, liveTranscription, p.setTranscript]);
+  useEffect(() => {
+    const onSpeechError = (event) => {
+      const code = event.detail?.error;
+      toast.error(
+        code === "not-allowed" || code === "service-not-allowed"
+          ? "Izin mikrofon/transkripsi ditolak. Izinkan penggunaan mikrofon di browser."
+          : code === "audio-capture"
+            ? "Browser tidak menemukan mikrofon. Periksa perangkat input."
+            : `Transkripsi langsung berhenti${code ? ` (${code})` : ""}. Coba ulangi.`,
+      );
+    };
+    window.addEventListener("speakup:speech-error", onSpeechError);
+    return () =>
+      window.removeEventListener("speakup:speech-error", onSpeechError);
+  }, []);
+  function startLiveTranscription() {
+    const result = recognizer.start({ append: Boolean(recognizer.transcript) });
+    if (!result.ok) {
+      toast.error(
+        result.reason === "unsupported"
+          ? "Browser ini tidak mendukung transkripsi langsung. Minta admin mengganti mode input ke rekaman AI atau gunakan Chrome/Edge."
+          : "Mikrofon/transkripsi tidak dapat dimulai. Periksa izin browser.",
+      );
+      return;
+    }
+    p.setTranscript(recognizer.transcript);
+  }
+  function resetSpeechInput() {
+    if (liveTranscription) {
+      recognizer.reset();
+      p.setTranscript("");
+    } else {
+      resetRecording?.();
+    }
+  }
   const visual =
     unit.image ||
     (unit.part?.includes("Part 2")
@@ -180,7 +236,28 @@ export default function PracticePage(p) {
               <b>
                 Maya <span>· English coach</span>
               </b>
-              <p>“{unit.prompt}”</p>
+              {showPrompt ? (
+                <p className="visible-practice-prompt">“{unit.prompt}”</p>
+              ) : (
+                <p className="prompt-hidden-note">
+                  Pertanyaan disembunyikan agar kamu fokus mendengarkan.
+                </p>
+              )}
+              <button
+                className="text-button question-reveal"
+                onClick={() => setShowPrompt((visible) => !visible)}
+                aria-expanded={showPrompt}
+              >
+                {showPrompt ? (
+                  <>
+                    <EyeOff size={14} /> Sembunyikan soal
+                  </>
+                ) : (
+                  <>
+                    <Eye size={14} /> Tampilkan soal
+                  </>
+                )}
+              </button>
             </div>
             <button
               className="round-play"
@@ -219,115 +296,183 @@ export default function PracticePage(p) {
             </span>
           </div>
           <div className="mic-stage">
-            <div className={`mic-halo ${recording ? "is-recording" : ""}`}>
+            <div
+              className={`mic-halo ${recording || transcribing ? "is-recording" : ""}`}
+            >
               <button
                 className="mic-main"
-                onClick={recording ? stopRecording : startRecording}
-                disabled={processing}
+                onClick={() => {
+                  if (liveTranscription) {
+                    if (recognizer.listening) recognizer.stop();
+                    else startLiveTranscription();
+                  } else if (recording) {
+                    stopRecording();
+                  } else {
+                    startRecording();
+                  }
+                }}
+                disabled={
+                  processing || (liveTranscription && !recognizer.supported)
+                }
+                aria-label={
+                  recording || transcribing
+                    ? "Hentikan mikrofon"
+                    : "Mulai bicara"
+                }
               >
                 <Mic size={26} />
               </button>
             </div>
-            {recording ? (
+            {recording || transcribing ? (
               <>
-                <b className="recording-label">Sedang merekam...</b>
+                <b className="recording-label">
+                  {liveTranscription
+                    ? "Sedang mentranskripsi ucapan…"
+                    : "Sedang merekam audio…"}
+                </b>
                 <span className="record-time">
-                  {formatTime(elapsed)} <i className="live-dot" />
+                  {liveTranscription ? "LIVE · EN-US" : formatTime(elapsed)}{" "}
+                  <i className="live-dot" />
                 </span>
-                <div className="waveform">
-                  {Array.from({ length: 32 }, (_, i) => (
-                    <i
-                      key={i}
-                      style={{
-                        height: `${recording ? 12 + Math.random() * 27 : 8}px`,
-                        animationDelay: `${i * 0.03}s`,
-                      }}
-                    />
-                  ))}
-                </div>
-                <button className="stop-button" onClick={stopRecording}>
-                  <Pause size={14} fill="currentColor" /> Selesai merekam
+                {!liveTranscription && (
+                  <div className="waveform">
+                    {Array.from({ length: 32 }, (_, i) => (
+                      <i
+                        key={i}
+                        style={{
+                          height: `${12 + Math.random() * 27}px`,
+                          animationDelay: `${i * 0.03}s`,
+                        }}
+                      />
+                    ))}
+                  </div>
+                )}
+                <button
+                  className="stop-button"
+                  onClick={liveTranscription ? recognizer.stop : stopRecording}
+                >
+                  <Pause size={14} fill="currentColor" /> Selesai bicara
                 </button>
               </>
             ) : (
               <>
-                <b className="recording-label">Ketuk untuk mulai bicara</b>
+                <b className="recording-label">
+                  {liveTranscription
+                    ? "Ketuk untuk mulai bicara"
+                    : "Ketuk untuk mulai merekam"}
+                </b>
                 <span className="record-hint">
-                  atau ketik jawabanmu di bawah
+                  {liveTranscription
+                    ? recognizer.supported
+                      ? "Transkrip muncul langsung dan tidak dapat diedit"
+                      : "Transkripsi langsung tidak didukung browser ini"
+                    : "Audio baru dikirim setelah kamu menyetujui proses AI"}
                 </span>
               </>
             )}
-            <div className="mic-controls">
-              <button
-                onClick={requestMic}
-                className={
-                  permission === "granted"
-                    ? "mic-control granted"
-                    : "mic-control"
-                }
-              >
-                <Mic size={14} />
-                {permission === "granted"
-                  ? "Mikrofon siap"
-                  : permission === "denied"
-                    ? "Izin ditolak"
-                    : "Pilih mikrofon"}
-              </button>
-              {devices.length > 0 && (
-                <select
-                  aria-label="Pilih mikrofon"
-                  value={deviceId}
-                  onChange={(e) => p.changeDevice(e.target.value)}
+            {liveTranscription ? (
+              <div className="mic-controls">
+                <span
+                  className={`mic-control ${recognizer.supported ? "granted" : ""}`}
                 >
-                  {devices.map((d, i) => (
-                    <option key={d.deviceId} value={d.deviceId}>
-                      {d.label || `Mikrofon ${i + 1}`}
-                    </option>
-                  ))}
-                </select>
+                  <Mic size={14} />
+                  {recognizer.supported
+                    ? "Live transcription siap"
+                    : "Gunakan Chrome atau Edge"}
+                </span>
+              </div>
+            ) : (
+              <div className="mic-controls">
+                <button
+                  onClick={requestMic}
+                  className={
+                    permission === "granted"
+                      ? "mic-control granted"
+                      : "mic-control"
+                  }
+                >
+                  <Mic size={14} />
+                  {permission === "granted"
+                    ? "Mikrofon siap"
+                    : permission === "denied"
+                      ? "Izin ditolak"
+                      : "Pilih mikrofon"}
+                </button>
+                {devices.length > 0 && (
+                  <select
+                    aria-label="Pilih mikrofon"
+                    value={deviceId}
+                    onChange={(e) => p.changeDevice(e.target.value)}
+                  >
+                    {devices.map((device, i) => (
+                      <option key={device.deviceId} value={device.deviceId}>
+                        {device.label || `Mikrofon ${i + 1}`}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            )}
+          </div>
+          {liveTranscription ? (
+            <div className="transcript-area">
+              <div className="transcript-label">
+                <span>TRANSKRIP JAWABANMU · LANGSUNG</span>
+                <span>{p.transcript.length}/3000</span>
+              </div>
+              <textarea
+                maxLength={3000}
+                value={p.transcript}
+                readOnly
+                aria-label="Transkrip ucapan langsung, hanya baca"
+                placeholder="Transkrip ucapan akan tampil di sini…"
+              />
+              <div className="transcript-foot">
+                <span>
+                  Read-only · diproses oleh speech recognition browser
+                </span>
+                <button
+                  className="text-button"
+                  onClick={resetSpeechInput}
+                  disabled={transcribing}
+                >
+                  <RotateCcw size={13} /> Ulangi / reset
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="audio-pending-note">
+              <FileAudio2 size={17} />
+              <span>
+                Transkrip jawabanmu ditampilkan setelah audio diproses oleh AI.
+                Rekaman tidak diunggah sebelum kamu menyetujui pengiriman.
+              </span>
+              {audioBlob && (
+                <button className="text-button" onClick={resetSpeechInput}>
+                  <RotateCcw size={13} /> Rekam ulang
+                </button>
               )}
             </div>
-          </div>
-          <div className="transcript-area">
-            <div className="transcript-label">
-              <span>TRANSKRIP JAWABANMU</span>
-              <span>{transcript.length}/500</span>
-            </div>
-            <textarea
-              maxLength={500}
-              value={transcript}
-              onChange={(e) => setTranscript(e.target.value)}
-              placeholder="Speech recognition otomatis tidak aktif. Ketik jawaban, atau kirim rekaman setelah menyetujui evaluasi audio..."
-            />
-            <div className="transcript-foot">
-              <span>
-                {audioBlob ? (
-                  <>
-                    <FileAudio2 size={13} /> Audio{" "}
-                    {Math.max(1, Math.round(audioBlob.size / 1024))} KB siap
-                  </>
-                ) : (
-                  "Transkrip dapat diedit sebelum dikirim"
-                )}
-              </span>
-              <span>
-                <Languages size={13} /> English
-              </span>
-            </div>
-          </div>
+          )}
           <div className="answer-actions">
             <span>
-              <ShieldCheck size={15} /> Rekaman{" "}
-              {p.sessionSaveAudio === null
-                ? "akan ditanyakan per sesi"
-                : p.sessionSaveAudio
-                  ? "akan disimpan di akun server"
-                  : "tidak akan disimpan"}
+              <ShieldCheck size={15} />
+              {liveTranscription
+                ? "Suara ditranskripsi langsung oleh browser"
+                : p.sessionSaveAudio === null
+                  ? "arsip ditanyakan terpisah"
+                  : p.sessionSaveAudio
+                    ? "arsip audio disimpan di akun server"
+                    : "audio tidak diarsipkan"}
             </span>
             <button
               className="btn-primary"
               onClick={submitTurn}
-              disabled={processing || (!transcript.trim() && !audioBlob)}
+              disabled={
+                processing ||
+                transcribing ||
+                (liveTranscription ? !transcript.trim() : !audioBlob)
+              }
             >
               {processing ? (
                 <>
@@ -370,6 +515,11 @@ export default function PracticePage(p) {
                 <div className="feedback-dialog">
                   <div className="bubble learner-bubble">
                     <small>KAMU</small>
+                    <em className="transcript-result-label">
+                      {t.transcriptionSource === "ai"
+                        ? "TRANSKRIP · HASIL AI"
+                        : "TRANSKRIP · LIVE"}
+                    </em>
                     {t.userText}
                     {t.audioSaved && (
                       <button

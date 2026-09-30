@@ -8,6 +8,8 @@ Aplikasi React **JSX** + Vite dan API PHP/SQLite untuk latihan bahasa Inggris ya
 - **Pilihan dependensi:** Zustand dipakai karena state sesi dan belajar digunakan lintas halaman. `lucide-react` dan **Sonner** sudah menyediakan ikon/toast; tidak ditambah React-Toastify. `fetch` yang ada mendukung file biner, error, dan retry sehingga axios belum diperlukan. ECharts, TanStack Table, React Player, dan react-pdf belum diperlukan: belum ada grafik kompleks/tabel besar/video terverifikasi/PDF. Tambahkan hanya saat fiturnya benar-benar ada.
 - **Konten:** SQLite menyimpan 6 jenjang A1–C2, 48 unit speaking, 18 lesson listening, 36 soal, dan kunci. `api/seeds/catalog.json` digunakan sekali saat katalog kosong. Studio Admin mengedit/publikasi/arsip langsung di SQLite; kunci listening tidak dikirim ke katalog peserta dan dicek melalui `POST listening/check`.
 - **Batas produk:** Regular mendapat listening; Premium/Admin mendapat AI Speaking/Live. Audio arsip memerlukan persetujuan terpisah dari pengiriman audio ke AI. XP/streak/badge adalah motivasi, bukan skor IELTS atau proteksi anti-cheat. Bank video tetap kosong sampai sumber dan kunci soal diverifikasi. Lihat [IELTS_COURSE_DESIGN.md](./IELTS_COURSE_DESIGN.md) dan [IMAGE_PROMPTS.md](./IMAGE_PROMPTS.md).
+- **TTS:** Kokoro melalui TTS.Rocks menjadi default browser untuk semua akun, dengan suara pilihan, WebGPU/WASM, preload, dan cache model di IndexedDB. Browser Native tetap dapat dipilih. Model pertama kali diunduh ke perangkat.
+- **AI global & input speaking:** Admin memilih satu provider global (Clario atau IchanLabs) dan mode live transcription browser (adapter Web Speech API mengikuti pola `paulmagadi/speech-to-text-converter`) vs rekaman yang dikirim setelah persetujuan. Gemini Live tetap memakai alurnya sendiri. Adapter IchanLabs sengaja belum mengirim request sampai sample kontrak API resmi tersedia; sistem tidak menebak header/path/payload dan tidak fallback ke Clario saat IchanLabs dipilih. Latihan read-aloud membandingkan kata dengan tanda baca diabaikan; kecocokan 90% menyelesaikan speaking.
 
 ### Login yang bertahan tanpa menyimpan token di browser storage
 
@@ -85,7 +87,7 @@ Jika Vite masih mem-proxy ke `https://rikisample.test` dan alamat tersebut 503, 
 - `GET health`, `GET me`, `POST register/login/logout`, `POST auth/refresh`, `POST account/password`
 - `GET catalog` (tanpa kunci untuk peserta), `POST listening/check` (koreksi oleh server)
 - `GET/PUT/DELETE progress`; `GET admin/catalog`, `POST/PUT/DELETE admin/units` dan `admin/listening`, `PUT admin/levels/{id}`
-- `GET/PUT admin/settings`, `GET/PUT admin/users`; `POST/GET/DELETE audio`, `POST assess-audio`, `POST chat`, `POST live-token`, `POST live-assessment`, `GET models`
+- `GET/POST/PUT admin/settings`, `GET/POST/PUT/DELETE admin/users`, `GET app-config`; `POST/GET/DELETE audio`, `POST assess-audio`, `POST chat`, `POST live-token`, `POST live-assessment`, `GET models`
 
 ## Pengujian tanpa menyentuh database pengguna
 
@@ -100,4 +102,4 @@ SMOKE_ADMIN_PASSWORD=smoke-bootstrap-password \
 SMOKE_API_BASE=http://127.0.0.1:8788/learnenglish/api python3 tests/smoke_api.py
 ```
 
-Script membuat **salinan API dengan config.php, password, key, dan DB tes yang terpisah**, tidak membaca config/SQLite live. `smoke_api.py` memeriksa login, refresh/rotasi, revokasi saat logout/ganti password, hak akses, seed 6/48/18/36, CRUD, koreksi jawaban server, progres, CORS, lockdown, dan pendaftaran. Jangan arahkan tes destruktif ini ke server produksi. Tes browser manual: reload setelah login tidak keluar; buka modul saat loading; selesaikan listening dan pastikan XP persisten; admin wajib ganti password awal dan dapat menyunting katalog.
+Script membuat **salinan API dengan config.php, password, key, dan DB tes yang terpisah**, tidak membaca config/SQLite live. `smoke_api.py` memeriksa login, refresh/rotasi, revokasi saat logout/ganti password, hak akses, seed 6/48/18/36, CRUD user/katalog, koreksi jawaban server, progres, konfigurasi mode/provider global, no-fallback IchanLabs, CORS, lockdown, dan pendaftaran. `node tests/speech_similarity.mjs` menguji tanda baca dan ambang 90%. Jangan arahkan tes destruktif ini ke server produksi. Tes browser manual: reload setelah login tidak keluar; buka modul saat loading; selesaikan listening dan pastikan XP persisten; admin wajib ganti password awal dan dapat menyunting katalog.

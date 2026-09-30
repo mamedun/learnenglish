@@ -22,54 +22,6 @@ import { deleteAllRecordings, exportBackup, importBackup } from "../storage";
 import { apiFetch, apiJson, refreshSession } from "../api";
 import { useAuthStore } from "../store/authStore";
 import { useLearningStore } from "../store/learningStore";
-async function convertRecordingToWav(blob) {
-  const AudioCtx = window.AudioContext;
-  const ctx = new AudioCtx();
-  try {
-    const decoded = await ctx.decodeAudioData(await blob.arrayBuffer());
-    const rate = 16e3;
-    const length = Math.ceil(decoded.duration * rate);
-    const mono = new Float32Array(length);
-    const channels = decoded.numberOfChannels;
-    for (let ch = 0; ch < channels; ch++) {
-      const source = decoded.getChannelData(ch);
-      for (let i = 0; i < length; i++) {
-        const pos = (i * decoded.sampleRate) / rate;
-        const left = Math.floor(pos);
-        const frac = pos - left;
-        const a = source[Math.min(left, source.length - 1)] || 0;
-        const b = source[Math.min(left + 1, source.length - 1)] || a;
-        mono[i] += (a + (b - a) * frac) / channels;
-      }
-    }
-    const buffer = new ArrayBuffer(44 + length * 2);
-    const view = new DataView(buffer);
-    const write = (offset, text) => {
-      for (let i = 0; i < text.length; i++)
-        view.setUint8(offset + i, text.charCodeAt(i));
-    };
-    write(0, "RIFF");
-    view.setUint32(4, 36 + length * 2, true);
-    write(8, "WAVE");
-    write(12, "fmt ");
-    view.setUint32(16, 16, true);
-    view.setUint16(20, 1, true);
-    view.setUint16(22, 1, true);
-    view.setUint32(24, rate, true);
-    view.setUint32(28, rate * 2, true);
-    view.setUint16(32, 2, true);
-    view.setUint16(34, 16, true);
-    write(36, "data");
-    view.setUint32(40, length * 2, true);
-    for (let i = 0; i < length; i++) {
-      const x = Math.max(-1, Math.min(1, mono[i]));
-      view.setInt16(44 + i * 2, x < 0 ? x * 32768 : x * 32767, true);
-    }
-    return new Blob([buffer], { type: "audio/wav" });
-  } finally {
-    await ctx.close().catch(() => {});
-  }
-}
 const greet = () => {
   const h = new Date().getHours();
   return h < 11
@@ -86,6 +38,8 @@ import HomePage from "../features/dashboard/HomePage";
 import ModuleLoading from "../components/ModuleLoading";
 import ModuleErrorBoundary from "../components/ModuleErrorBoundary";
 import { LEVEL_ICONS } from "../features/learning/learningIcons";
+import { convertRecordingToWav } from "../lib/audio";
+import { preloadKokoro, speakKokoro } from "../lib/ttsRocks";
 
 const AdminPage = lazy(() => import("../features/admin/AdminPage"));
 const ListeningPage = lazy(() => import("../features/listening/ListeningPage"));
@@ -116,6 +70,13 @@ function App() {
   const [activeUnitId, setActiveUnitId] = useState(null);
   const [selectedListeningId, setSelectedListeningId] = useState(null);
   const [transcript, setTranscript] = useState("");
+  const [appConfig, setAppConfig] = useState({
+    speech_input_mode: "live_transcribe",
+  });
+  const [ttsStatus, setTtsStatus] = useState({
+    phase: "idle",
+    message: "Model belum dimuat.",
+  });
   const [turns, setTurns] = useState([]);
   const [recording, setRecording] = useState(false);
   const [processing, setProcessing] = useState(false);
@@ -161,19 +122,36 @@ function App() {
       return;
     }
     setDataReady(false);
-    const [course, progress] = await Promise.all([
+    const [course, progress, config] = await Promise.all([
       apiJson("catalog"),
       apiJson("progress"),
+      apiJson("app-config").catch(() => ({
+        settings: { speech_input_mode: "live_transcribe" },
+      })),
     ]);
     if (!current()) return;
     setCatalog(course);
+    setAppConfig({
+      speech_input_mode:
+        config.settings?.speech_input_mode || "live_transcribe",
+    });
+    const savedSettings = (progress.progress || {}).settings || {};
+    const settings = { ...initialData.settings, ...savedSettings };
+    // Prior releases always stored "native" as a fixed default; migrate that
+    // placeholder once to Kokoro, while preserving deliberate choices made in
+    // this release and later.
+    if (Object.keys(savedSettings).length && !savedSettings.ttsEngineVersion) {
+      settings.tts = "kokoro";
+      settings.voice = "af_heart";
+      settings.ttsCompute = "auto";
+      settings.ttsEngineVersion = 1;
+    }
     setData({
       ...initialData,
       ...(progress.progress || {}),
-      settings: {
-        ...initialData.settings,
-        ...((progress.progress || {}).settings || {}),
-      },
+      settings,
+      speakingCompleted: progress.progress?.speakingCompleted || [],
+      speakingScores: progress.progress?.speakingScores || {},
     });
     setPage("home");
     setDataReady(true);
@@ -247,6 +225,27 @@ function App() {
     );
     return () => clearTimeout(timer);
   }, [data, user, dataReady]);
+  useEffect(() => {
+    if (!user || !dataReady) return;
+    let active = true;
+    const refreshGlobalConfig = async () => {
+      try {
+        const result = await apiJson("app-config");
+        if (active && result.settings?.speech_input_mode)
+          setAppConfig((current) => ({
+            ...current,
+            speech_input_mode: result.settings.speech_input_mode,
+          }));
+      } catch {
+        // A transient config fetch must not interrupt a speaking lesson.
+      }
+    };
+    const timer = window.setInterval(refreshGlobalConfig, 30_000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [user?.id, dataReady]);
   const [, setVoiceVersion] = useState(0);
   useEffect(() => {
     if (!("speechSynthesis" in window)) return;
@@ -408,104 +407,59 @@ function App() {
     streamRef.current = null;
   }
   async function submitTurn() {
-    if (!transcript.trim() && !audioBlob) {
-      toast.error("Rekam audio atau ketik jawabanmu terlebih dahulu.");
+    const inputMode = appConfig.speech_input_mode || "live_transcribe";
+    const useServerAudio = inputMode === "ai_audio";
+    const submittedTranscript = transcript.trim();
+    if (useServerAudio && !audioBlob) {
+      toast.error("Rekam jawaban terlebih dahulu, lalu ketuk selesai merekam.");
       return;
     }
+    if (!useServerAudio && !submittedTranscript) {
+      toast.error("Mulai transkripsi dan ucapkan jawabanmu terlebih dahulu.");
+      return;
+    }
+
     setProcessing(true);
     let replyObj = null;
     let audioResult = null;
     let saveThisAudio = Boolean(sessionSaveAudio);
-    let evaluateAudio = false;
-    if (audioBlob) {
-      const choice = await Swal.fire({
-        title: "Kirim rekaman untuk evaluasi AI?",
-        text: "Jika disetujui, rekaman jawaban ini dikonversi ke WAV dan dikirim satu kali ke Google Gemini untuk feedback audio. SpeakUp tidak mengarsipkannya lewat endpoint evaluasi. Persetujuan simpan arsip ditanyakan terpisah.",
-        input: "radio",
-        inputOptions: transcript.trim()
-          ? {
-              evaluate: "Ya, kirim audio satu kali untuk dievaluasi",
-              text_only: "Tidak, gunakan teks/transkrip saja",
-            }
-          : { evaluate: "Ya, kirim audio satu kali untuk dievaluasi" },
-        inputValue: transcript.trim() ? "text_only" : "evaluate",
-        showCancelButton: true,
-        confirmButtonText: "Lanjutkan",
-        cancelButtonText: "Batal",
-        confirmButtonColor: "#315c45",
-        inputValidator: (value) => (!value ? "Pilih salah satu opsi." : void 0),
-      });
-      if (!choice.isConfirmed) {
-        setProcessing(false);
-        return;
-      }
-      evaluateAudio = choice.value === "evaluate";
-    }
-    if (audioBlob && sessionSaveAudio === null) {
-      const choice = await Swal.fire({
-        title: "Simpan rekaman ke akun?",
-        text: "Ini terpisah dari evaluasi satu kali. Jika disimpan, audio masuk arsip server dan tidak akan dikirim ulang otomatis pada sesi berikutnya.",
-        input: "radio",
-        inputOptions: {
-          save: "Simpan audio ke akun server",
-          discard: "Jangan simpan audio",
-        },
-        inputValue: data.settings.saveAudio ? "save" : "discard",
-        showCancelButton: true,
-        confirmButtonText: "Lanjutkan",
-        cancelButtonText: "Batal",
-        confirmButtonColor: "#315c45",
-        inputValidator: (value) => (!value ? "Pilih salah satu opsi." : void 0),
-      });
-      if (!choice.isConfirmed) {
-        setProcessing(false);
-        return;
-      }
-      saveThisAudio = choice.value === "save";
-      setSessionSaveAudio(saveThisAudio);
-    }
-    if (evaluateAudio && audioBlob) {
-      try {
+    try {
+      if (useServerAudio) {
+        const consent = await Swal.fire({
+          title: "Kirim audio untuk diproses AI?",
+          text: "Rekaman akan dikirim satu kali ke server AI yang dipilih admin untuk transkripsi dan feedback. Audio tidak disimpan oleh endpoint ini. Penyimpanan arsip audio (jika dipilih) adalah persetujuan terpisah.",
+          icon: "info",
+          showCancelButton: true,
+          confirmButtonText: "Setuju & kirim audio",
+          cancelButtonText: "Batal",
+          confirmButtonColor: "#315c45",
+        });
+        if (!consent.isConfirmed) return;
+
         const wav = await convertRecordingToWav(audioBlob);
         if (wav.size > 12 * 1024 * 1024)
           throw new Error("Audio melebihi batas 12 MB setelah konversi.");
         const form = new FormData();
         form.append("consent", "1");
+        form.append("task_mode", "response");
         form.append("level", activeUnit.level);
         form.append("task", activeUnit.prompt);
         form.append("audio", wav, `${crypto.randomUUID()}.wav`);
-        const r = await apiFetch("assess-audio", {
+        const response = await apiFetch("assess-audio", {
           method: "POST",
           body: form,
         });
-        const j = await r.json();
-        if (!r.ok) throw new Error(j.error || "Evaluasi audio gagal.");
-        audioResult = j.result;
+        const payload = await response.json();
+        if (!response.ok)
+          throw new Error(payload.error || "Evaluasi audio AI gagal.");
+        audioResult = payload.result;
         replyObj = audioResult;
-      } catch (e) {
-        toast.error(e.message || "Audio tidak dapat dievaluasi.");
-        if (!transcript.trim()) {
-          setProcessing(false);
-          return;
-        }
-      }
-    }
-    if (!transcript.trim() && !audioResult?.transcript) {
-      setProcessing(false);
-      toast.error(
-        "Tidak ada transkrip. Pilih evaluasi audio atau masukkan jawaban teks.",
-      );
-      return;
-    }
-    const spokenText =
-      transcript.trim() || String(audioResult?.transcript || "").trim();
-    if (transcript.trim())
-      try {
+      } else {
         const response = await apiFetch("chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            transcript: transcript.trim(),
+            transcript: submittedTranscript,
             task: activeUnit.prompt,
             lesson: {
               id: activeUnit.id,
@@ -517,43 +471,55 @@ function App() {
             level: activeUnit.level,
             memory_summary:
               data.sessions
-                .filter((s) => s.unitId === activeUnit.id)
-                .map((s) => s.summary)
+                .filter((session) => session.unitId === activeUnit.id)
+                .map((session) => session.summary)
                 .filter(Boolean)
                 .slice(-1)[0] || "",
             recent_turns: data.sessions
-              .filter((s) => s.unitId === activeUnit.id)
-              .flatMap((s) => s.turns || [])
+              .filter((session) => session.unitId === activeUnit.id)
+              .flatMap((session) => session.turns || [])
               .slice(-6)
-              .map((t) => ({ user: t.userText, assistant: t.reply })),
+              .map((turn) => ({ user: turn.userText, assistant: turn.reply })),
           }),
         });
         const payload = await response.json();
         if (!response.ok)
-          throw new Error(payload.error || "API belum tersedia");
+          throw new Error(payload.error || "Tutor AI belum tersedia.");
         replyObj = payload.result || payload;
-        if (audioResult?.assessment)
-          replyObj.assessment = audioResult.assessment;
-      } catch (err) {
-        if (!audioResult) {
-          toast.error(
-            err.message ||
-              "Tutor AI belum tersedia. Admin perlu mengatur provider di panel admin.",
-          );
-          setProcessing(false);
-          return;
-        }
       }
-    if (!replyObj) {
-      toast.error(
-        "Evaluasi belum tersedia; jawaban tidak disimpan sebagai feedback AI.",
-      );
-      setProcessing(false);
-      return;
-    }
-    let audioId = null;
-    if (saveThisAudio && audioBlob) {
-      try {
+
+      const spokenText = useServerAudio
+        ? String(audioResult?.transcript || "").trim()
+        : submittedTranscript;
+      if (!spokenText || !replyObj) {
+        throw new Error(
+          "AI belum menghasilkan transkrip. Silakan rekam ulang atau ganti mode input di admin.",
+        );
+      }
+
+      if (useServerAudio && sessionSaveAudio === null) {
+        const choice = await Swal.fire({
+          title: "Simpan rekaman ke akun?",
+          text: "Ini terpisah dari pengiriman audio untuk evaluasi AI. Rekaman arsip tidak akan dikirim ulang otomatis.",
+          input: "radio",
+          inputOptions: {
+            save: "Simpan audio ke akun server",
+            discard: "Jangan simpan audio",
+          },
+          inputValue: data.settings.saveAudio ? "save" : "discard",
+          showCancelButton: true,
+          confirmButtonText: "Lanjutkan",
+          cancelButtonText: "Lewati",
+          confirmButtonColor: "#315c45",
+          inputValidator: (value) =>
+            !value ? "Pilih salah satu opsi." : undefined,
+        });
+        saveThisAudio = Boolean(choice.isConfirmed && choice.value === "save");
+        setSessionSaveAudio(saveThisAudio);
+      }
+
+      let audioId = null;
+      if (saveThisAudio && useServerAudio && audioBlob) {
         const form = new FormData();
         form.append(
           "audio",
@@ -564,55 +530,57 @@ function App() {
         const result = await upload.json();
         if (upload.ok) audioId = result.audio.id;
         else toast.error(result.error || "Audio gagal disimpan.");
-      } catch {
-        toast.error("Audio tidak dapat diunggah.");
       }
+
+      const assessment = replyObj.assessment || {};
+      const criteria = assessment.criteria || {};
+      const item = {
+        id: crypto.randomUUID(),
+        prompt: activeUnit.prompt,
+        userText: spokenText,
+        transcriptionSource: useServerAudio ? "ai" : "live",
+        reply: replyObj.tutor_reply?.text || "Good job! Tell me more.",
+        stars: Math.max(1, Math.min(5, Number(assessment.practice_stars ?? 4))),
+        feedback:
+          assessment.one_focus ||
+          "Jawabanmu sudah menyampaikan maksud dengan baik.",
+        createdAt: new Date().toISOString(),
+        audioSaved: Boolean(audioId),
+        audioId,
+        estimatedBand: assessment.practice_band_estimate ?? null,
+        confidence: assessment.confidence || "low",
+        criteria,
+        grammar: criteria.grammatical_range_accuracy?.band ?? null,
+        context: criteria.fluency_coherence?.band ?? null,
+        pronunciation: criteria.pronunciation?.band ?? null,
+      };
+      setTurns((previous) => [...previous, item]);
+      setData((previous) => {
+        const sessions = [...previous.sessions];
+        const lastIndex = sessions.length - 1;
+        if (sessions[lastIndex]?.unitId === activeUnit.id) {
+          sessions[lastIndex] = {
+            ...sessions[lastIndex],
+            turns: [...(sessions[lastIndex].turns || []), item],
+          };
+        } else {
+          sessions.push({
+            id: crypto.randomUUID(),
+            unitId: activeUnit.id,
+            turns: [item],
+          });
+        }
+        return { ...awardXP(previous, 5), sessions };
+      });
+      setAudioBlob(null);
+      setTranscript("");
+      if (replyObj.tutor_reply?.speech_text)
+        void speak(replyObj.tutor_reply.speech_text);
+    } catch (error) {
+      toast.error(error.message || "Jawaban belum dapat diproses.");
+    } finally {
+      setProcessing(false);
     }
-    const assessment = replyObj.assessment || {};
-    const criteria = assessment.criteria || {};
-    const rawStars = Number(assessment.practice_stars ?? 4);
-    const item = {
-      id: crypto.randomUUID(),
-      prompt: activeUnit.prompt,
-      userText: spokenText,
-      reply: replyObj.tutor_reply?.text || "Good job! Tell me more.",
-      stars: Math.max(1, Math.min(5, rawStars)),
-      feedback:
-        assessment.one_focus ||
-        "Jawabanmu sudah menyampaikan maksud dengan baik.",
-      createdAt: new Date().toISOString(),
-      audioSaved: !!audioId,
-      audioId,
-      estimatedBand: assessment.practice_band_estimate ?? null,
-      confidence: assessment.confidence || "low",
-      criteria,
-      grammar: criteria.grammatical_range_accuracy?.band ?? null,
-      context: criteria.fluency_coherence?.band ?? null,
-      pronunciation: criteria.pronunciation?.band ?? null,
-    };
-    setTurns((prev) => [...prev, item]);
-    setData((prev) => {
-      const sessions = [...prev.sessions];
-      const lastIndex = sessions.length - 1;
-      if (sessions[lastIndex]?.unitId === activeUnit.id) {
-        sessions[lastIndex] = {
-          ...sessions[lastIndex],
-          turns: [...(sessions[lastIndex].turns || []), item],
-        };
-      } else {
-        sessions.push({
-          id: crypto.randomUUID(),
-          unitId: activeUnit.id,
-          turns: [item],
-        });
-      }
-      return { ...awardXP(prev, 5), sessions };
-    });
-    setAudioBlob(null);
-    setTranscript("");
-    if (replyObj.tutor_reply?.speech_text)
-      speak(replyObj.tutor_reply.speech_text);
-    setProcessing(false);
   }
   function finishUnit() {
     const avg = turns.length
@@ -637,26 +605,102 @@ function App() {
     }
     nav("home");
   }
+  function speakWithBrowser(text) {
+    const synth = window.speechSynthesis;
+    if (!synth) throw new Error("Text-to-speech tidak didukung browser ini.");
+    synth.cancel();
+    const voice =
+      synth
+        .getVoices()
+        .find((item) => item.name === data.settings.nativeVoice) ||
+      synth
+        .getVoices()
+        .find((item) => item.lang.toLowerCase().startsWith("en"));
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = voice?.lang || "en-US";
+    utterance.rate = 0.88;
+    if (voice) utterance.voice = voice;
+    synth.speak(utterance);
+  }
+
   async function speak(text) {
     if (!text) return;
-    try {
-      const synth = window.speechSynthesis;
-      if (!synth) {
-        toast.error("Text-to-speech tidak didukung browser ini.");
-        return;
+    if ((data.settings.tts || "kokoro") === "native") {
+      try {
+        speakWithBrowser(text);
+      } catch (error) {
+        toast.error(error.message || "Browser TTS gagal diputar.");
       }
-      synth.cancel();
-      let voice =
-        synth.getVoices().find((v) => v.name === data.settings.voice) ||
-        synth.getVoices().find((v) => v.lang.startsWith("en"));
-      const u = new SpeechSynthesisUtterance(text);
-      u.lang = "en-US";
-      u.rate = 0.88;
-      if (voice) u.voice = voice;
-      synth.speak(u);
-    } catch {
-      toast.error("Gagal memutar suara.");
+      return;
     }
+
+    setTtsStatus({ phase: "initialize", message: "Menyiapkan Kokoro…" });
+    try {
+      await speakKokoro(text, {
+        voice: data.settings.voice || "af_heart",
+        compute: data.settings.ttsCompute || "auto",
+        speed: 0.88,
+        onStatus: setTtsStatus,
+      });
+    } catch (error) {
+      setTtsStatus({
+        phase: "error",
+        message: error.message || "Kokoro gagal dimuat.",
+      });
+      if ("speechSynthesis" in window) {
+        toast.error(
+          "Kokoro belum tersedia. Memakai Browser Native untuk kali ini.",
+        );
+        try {
+          speakWithBrowser(text);
+        } catch {
+          // The original Kokoro error is the useful one to report.
+          toast.error(error.message || "Gagal memutar suara.");
+        }
+      } else {
+        toast.error(error.message || "Gagal memutar suara.");
+      }
+    }
+  }
+
+  async function preloadTTS() {
+    setTtsStatus({ phase: "initialize", message: "Menyiapkan model Kokoro…" });
+    try {
+      const device = await preloadKokoro({
+        compute: data.settings.ttsCompute || "auto",
+        onStatus: setTtsStatus,
+      });
+      toast.success(
+        `Model Kokoro siap (${device === "webgpu" ? "WebGPU" : "WASM"}).`,
+      );
+    } catch (error) {
+      setTtsStatus({
+        phase: "error",
+        message: error.message || "Model Kokoro gagal dimuat.",
+      });
+      toast.error(error.message || "Model Kokoro gagal dimuat.");
+    }
+  }
+
+  function resetRecording() {
+    const activeRecorder = recorder.current;
+    if (activeRecorder && activeRecorder.state !== "inactive") {
+      activeRecorder.onstop = null;
+      activeRecorder.ondataavailable = null;
+      try {
+        activeRecorder.stop();
+      } catch {
+        // The recorder may already have stopped.
+      }
+    }
+    recorder.current = null;
+    chunks.current = [];
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    setRecording(false);
+    setAudioBlob(null);
+    setTranscript("");
+    setElapsed(0);
   }
   async function playRecording(id) {
     try {
@@ -1217,6 +1261,8 @@ function App() {
                   initialLessonId={selectedListeningId}
                   data={data}
                   setData={setData}
+                  speak={speak}
+                  speechInputMode={appConfig.speech_input_mode}
                 />
               )}
               {page === "practice" && activeUnit && (
@@ -1254,6 +1300,8 @@ function App() {
                   playRecording={playRecording}
                   completed={completed}
                   sessionSaveAudio={sessionSaveAudio}
+                  speechInputMode={appConfig.speech_input_mode}
+                  resetRecording={resetRecording}
                 />
               )}
               {page === "live" && (
@@ -1290,6 +1338,8 @@ function App() {
                   resetData={resetData}
                   exportBackup={exportBackup}
                   speak={speak}
+                  preloadTTS={preloadTTS}
+                  ttsStatus={ttsStatus}
                   user={user}
                   onLogout={logout}
                   onAdmin={() => nav("admin")}
@@ -1297,7 +1347,16 @@ function App() {
                 />
               )}
               {page === "admin" && user.role === "admin" && (
-                <AdminPage user={user} onCatalogChange={reloadCatalog} />
+                <AdminPage
+                  user={user}
+                  onCatalogChange={reloadCatalog}
+                  onSpeechModeChange={(mode) =>
+                    setAppConfig((current) => ({
+                      ...current,
+                      speech_input_mode: mode,
+                    }))
+                  }
+                />
               )}
             </Suspense>
           </ModuleErrorBoundary>

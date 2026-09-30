@@ -3,9 +3,18 @@
 export const initialData = {
   completed: [],
   listeningCompleted: [],
+  speakingCompleted: [],
+  speakingScores: {},
   xp: 0,
   streak: 0,
   lastPracticeDate: null,
   sessions: [],
-  settings: { tts: "native", voice: "", saveAudio: false },
+  settings: {
+    tts: "kokoro",
+    voice: "af_heart",
+    nativeVoice: "",
+    ttsCompute: "auto",
+    ttsEngineVersion: 1,
+    saveAudio: false,
+  },
 };

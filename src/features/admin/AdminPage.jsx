@@ -12,18 +12,33 @@ import {
   RotateCcw,
   Settings,
   ShieldCheck,
+  KeyRound,
+  Pencil,
+  Trash2,
+  UserPlus,
+  X,
 } from "lucide-react";
 import { apiFetch, apiJson } from "../../api";
 import ModuleLoading from "../../components/ModuleLoading";
 import ContentStudio from "./ContentStudio";
 import { toast } from "sonner";
+import Swal from "sweetalert2";
 
-export default function AdminPage({ user, onCatalogChange }) {
+export default function AdminPage({
+  user,
+  onCatalogChange,
+  onSpeechModeChange,
+}) {
   const [adminTab, setAdminTab] = useState("content");
   const [settings, setSettings] = useState({
+    ai_provider: "clario",
+    speech_input_mode: "live_transcribe",
     clario_base_url: "https://clariohub.id/v1",
     clario_fallback_url: "https://api-direct.clariohub.id/v1",
     clario_model: "clario/gemini-3.7-flash",
+    ichan_base_url: "",
+    ichan_server: "SG1",
+    ichan_model: "",
     gemini_live_model: "",
   });
   const [models, setModels] = useState([]);
@@ -31,27 +46,148 @@ export default function AdminPage({ user, onCatalogChange }) {
   const [ready, setReady] = useState(false);
   const [apiKey, setApiKey] = useState("");
   const [geminiKey, setGeminiKey] = useState("");
+  const [ichanSecret, setIchanSecret] = useState("");
+  const [ichanToken, setIchanToken] = useState("");
   const [showKey, setShowKey] = useState(false);
   const [users, setUsers] = useState([]);
+  const [usersBusy, setUsersBusy] = useState(false);
+  const [usersError, setUsersError] = useState("");
+  const [showCreateUser, setShowCreateUser] = useState(false);
+  const [newUser, setNewUser] = useState({
+    name: "",
+    email: "",
+    password: "",
+    plan: "regular",
+  });
+  const [editingUser, setEditingUser] = useState(null);
+  const [editMode, setEditMode] = useState("edit");
+  const [editUser, setEditUser] = useState({
+    name: "",
+    email: "",
+    password: "",
+    plan: "regular",
+  });
+  async function loadUsers() {
+    setUsersError("");
+    try {
+      const response = await apiFetch("admin/users");
+      const body = await response.json();
+      if (!response.ok)
+        throw new Error(body.error || "Daftar user gagal dimuat.");
+      setUsers(body.users || []);
+    } catch (error) {
+      setUsersError(error.message || "Daftar user gagal dimuat.");
+    }
+  }
   useEffect(() => {
-    apiFetch("admin/users")
-      .then((r) => r.json())
-      .then((j) => setUsers(j.users || []))
-      .catch(() => {});
+    loadUsers();
   }, []);
   async function setPlan(id, plan) {
     try {
-      const r = await apiFetch("admin/users", {
+      const response = await apiFetch("admin/users", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, plan }),
       });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error || "Paket gagal diubah");
-      setUsers((xs) => xs.map((u) => (u.id === id ? { ...u, plan } : u)));
-      toast.success("Paket akun diperbarui.");
-    } catch (e) {
-      toast.error(e.message);
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "Paket gagal diubah");
+      setUsers((rows) =>
+        rows.map((account) => (account.id === id ? body.user : account)),
+      );
+      toast.success("Tipe akun diperbarui.");
+    } catch (error) {
+      toast.error(error.message);
+    }
+  }
+  async function createUser(event) {
+    event.preventDefault();
+    setUsersBusy(true);
+    try {
+      const response = await apiFetch("admin/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newUser),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "User gagal dibuat.");
+      setUsers((rows) => [body.user, ...rows]);
+      setNewUser({ name: "", email: "", password: "", plan: "regular" });
+      setShowCreateUser(false);
+      toast.success(
+        "Akun user berhasil dibuat. User akan diminta mengganti password saat masuk.",
+      );
+    } catch (error) {
+      toast.error(error.message);
+    } finally {
+      setUsersBusy(false);
+    }
+  }
+  function openEditUser(account, mode = "edit") {
+    setEditingUser(account);
+    setEditMode(mode);
+    setEditUser({
+      name: account.name,
+      email: account.email,
+      password: "",
+      plan: account.plan || "regular",
+    });
+  }
+  async function saveUserEdit(event) {
+    event.preventDefault();
+    if (!editingUser) return;
+    setUsersBusy(true);
+    try {
+      const changes =
+        editMode === "password"
+          ? { id: editingUser.id, password: editUser.password }
+          : { id: editingUser.id, ...editUser };
+      const response = await apiFetch("admin/users", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(changes),
+      });
+      const body = await response.json();
+      if (!response.ok)
+        throw new Error(body.error || "Perubahan user gagal disimpan.");
+      setUsers((rows) =>
+        rows.map((account) =>
+          account.id === editingUser.id ? body.user : account,
+        ),
+      );
+      setEditingUser(null);
+      setEditUser({ name: "", email: "", password: "", plan: "regular" });
+      toast.success(
+        editMode === "password"
+          ? "Password diganti. User harus membuat password baru saat masuk."
+          : "Data user berhasil diperbarui.",
+      );
+    } catch (error) {
+      toast.error(error.message);
+    } finally {
+      setUsersBusy(false);
+    }
+  }
+  async function deleteUser(account) {
+    const confirmation = await Swal.fire({
+      title: "Hapus akun user?",
+      text: `${account.name} (${account.email}) dan progres/audio server terkait akan dihapus permanen.`,
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonText: "Hapus akun",
+      cancelButtonText: "Batal",
+      confirmButtonColor: "#c84343",
+    });
+    if (!confirmation.isConfirmed) return;
+    try {
+      const response = await apiFetch(`admin/users/${account.id}`, {
+        method: "DELETE",
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "User gagal dihapus.");
+      setUsers((rows) => rows.filter((userRow) => userRow.id !== account.id));
+      toast.success("Akun dan data terkait telah dihapus.");
+    } catch (error) {
+      toast.error(error.message);
     }
   }
   const [settingsError, setSettingsError] = useState("");
@@ -59,16 +195,18 @@ export default function AdminPage({ user, onCatalogChange }) {
     setReady(false);
     setSettingsError("");
     try {
-      const [s, m] = await Promise.all([
-        apiJson("admin/settings"),
-        apiJson("models").catch(() => ({})),
-      ]);
+      const s = await apiJson("admin/settings");
       setSettings(s.settings);
-      setModels(
-        (m.data || m.models || [])
-          .map((x) => (typeof x === "string" ? x : x.id))
-          .filter((x) => String(x).startsWith("clario/")),
-      );
+      if (s.settings?.ai_provider === "clario") {
+        const m = await apiJson("models").catch(() => ({}));
+        setModels(
+          (m.data || m.models || [])
+            .map((x) => (typeof x === "string" ? x : x.id))
+            .filter((x) => String(x).startsWith("clario/")),
+        );
+      } else {
+        setModels([]);
+      }
       setReady(true);
     } catch (error) {
       setSettingsError(error.message || "Gagal memuat pengaturan admin.");
@@ -89,14 +227,23 @@ export default function AdminPage({ user, onCatalogChange }) {
         body: JSON.stringify({
           ...settings,
           clario_api_key: apiKey,
+          ichan_secret: ichanSecret,
+          ichan_token: ichanToken,
           gemini_api_key: geminiKey,
         }),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || "Gagal menyimpan");
       setApiKey("");
+      setIchanSecret("");
+      setIchanToken("");
       setGeminiKey("");
-      toast.success("Konfigurasi provider tersimpan terenkripsi di SQLite.");
+      onSpeechModeChange?.(settings.speech_input_mode || "live_transcribe");
+      toast.success(
+        settings.ai_provider === "ichanlabs"
+          ? "Pengaturan IchanLabs disimpan. Adapter menunggu sample API resmi sebelum dapat mengirim request."
+          : "Konfigurasi global disimpan terenkripsi di server.",
+      );
     } catch (e) {
       toast.error(e.message);
     } finally {
@@ -211,12 +358,185 @@ export default function AdminPage({ user, onCatalogChange }) {
           <div className="admin-grid">
             <section className="settings-card">
               <div className="setting-title">
+                <div className="setting-icon blue">
+                  <Cloud size={18} />
+                </div>
+                <div>
+                  <b>Server AI global</b>
+                  <small>
+                    Hanya provider yang dipilih yang boleh menerima request
+                    user.
+                  </small>
+                </div>
+              </div>
+              <label className="field-label" htmlFor="global-ai-provider">
+                PROVIDER AKTIF UNTUK SEMUA USER
+              </label>
+              <div className="select-wrap">
+                <select
+                  id="global-ai-provider"
+                  className="text-field"
+                  value={settings.ai_provider || "clario"}
+                  onChange={(event) =>
+                    change("ai_provider", event.target.value)
+                  }
+                >
+                  <option value="clario">Clario · OpenAI-compatible API</option>
+                  <option value="ichanlabs">IchanLabs · SG1–SG10</option>
+                </select>
+                <ChevronDown size={16} />
+              </div>
+              {settings.ai_provider === "ichanlabs" && (
+                <div className="ichan-config-panel">
+                  <div className="field-label">KONFIGURASI ICHANLABS</div>
+                  <p className="admin-provider-warning">
+                    Sample kontrak API IchanLabs belum tersedia di repository.
+                    Endpoint, header, path, dan payload sengaja tidak ditebak.
+                    Pengaturan dapat disimpan, tetapi request AI IchanLabs belum
+                    akan dikirim; Clario juga tidak menjadi fallback.
+                  </p>
+                  <label className="field-label" htmlFor="ichan-server">
+                    SERVER
+                  </label>
+                  <div className="select-wrap">
+                    <select
+                      id="ichan-server"
+                      className="text-field"
+                      value={settings.ichan_server || "SG1"}
+                      onChange={(event) =>
+                        change("ichan_server", event.target.value)
+                      }
+                    >
+                      {Array.from(
+                        { length: 10 },
+                        (_, index) => `SG${index + 1}`,
+                      ).map((server) => (
+                        <option key={server}>{server}</option>
+                      ))}
+                    </select>
+                    <ChevronDown size={16} />
+                  </div>
+                  <label className="field-label" htmlFor="ichan-url">
+                    ENDPOINT / BASE URL
+                  </label>
+                  <input
+                    id="ichan-url"
+                    className="text-field"
+                    value={settings.ichan_base_url || ""}
+                    onChange={(event) =>
+                      change("ichan_base_url", event.target.value)
+                    }
+                    placeholder="Endpoint dari sample resmi IchanLabs"
+                  />
+                  <label className="field-label" htmlFor="ichan-model">
+                    MODEL ID
+                  </label>
+                  <input
+                    id="ichan-model"
+                    className="text-field"
+                    value={settings.ichan_model || ""}
+                    onChange={(event) =>
+                      change("ichan_model", event.target.value)
+                    }
+                    placeholder="Model sesuai kontrak IchanLabs"
+                  />
+                  <label className="field-label" htmlFor="ichan-secret">
+                    SECRET{" "}
+                    {settings.ichan_secret_masked && (
+                      <span className="key-current">
+                        · Tersimpan {settings.ichan_secret_masked}
+                      </span>
+                    )}
+                  </label>
+                  <input
+                    id="ichan-secret"
+                    className="text-field"
+                    type="password"
+                    autoComplete="new-password"
+                    value={ichanSecret}
+                    onChange={(event) => setIchanSecret(event.target.value)}
+                    placeholder={
+                      settings.ichan_secret_configured
+                        ? "Kosongkan untuk mempertahankan secret"
+                        : "Secret IchanLabs"
+                    }
+                  />
+                  <label className="field-label" htmlFor="ichan-token">
+                    TOKEN{" "}
+                    {settings.ichan_token_masked && (
+                      <span className="key-current">
+                        · Tersimpan {settings.ichan_token_masked}
+                      </span>
+                    )}
+                  </label>
+                  <input
+                    id="ichan-token"
+                    className="text-field"
+                    type="password"
+                    autoComplete="new-password"
+                    value={ichanToken}
+                    onChange={(event) => setIchanToken(event.target.value)}
+                    placeholder={
+                      settings.ichan_token_configured
+                        ? "Kosongkan untuk mempertahankan token"
+                        : "Token IchanLabs"
+                    }
+                  />
+                </div>
+              )}
+              <div className="admin-divider" />
+              <div className="setting-title">
+                <div className="setting-icon lilac">
+                  <AudioLines size={18} />
+                </div>
+                <div>
+                  <b>Mode jawaban speaking global</b>
+                  <small>
+                    Digunakan bersama oleh seluruh user pada lesson speaking.
+                  </small>
+                </div>
+              </div>
+              <label className="field-label" htmlFor="speech-input-mode">
+                MODE INPUT
+              </label>
+              <div className="select-wrap">
+                <select
+                  id="speech-input-mode"
+                  className="text-field"
+                  value={settings.speech_input_mode || "live_transcribe"}
+                  onChange={(event) =>
+                    change("speech_input_mode", event.target.value)
+                  }
+                >
+                  <option value="live_transcribe">
+                    Live transcription · browser
+                  </option>
+                  <option value="ai_audio">
+                    Rekam audio · evaluasi server AI
+                  </option>
+                </select>
+                <ChevronDown size={16} />
+              </div>
+              <div className="info-box speech-mode-info">
+                <CircleHelp size={15} />
+                <span>
+                  {settings.speech_input_mode === "ai_audio"
+                    ? "Audio dikirim hanya setelah persetujuan user ke provider global. Model/provider aktif harus mendukung input audio; transkrip baru tampil setelah AI selesai."
+                    : "Transkrip browser bersifat read-only. Tergantung browser/OS, Web Speech dapat memproses audio melalui layanan vendor browser; audio tidak dikirim ke server SpeakUp."}
+                </span>
+              </div>
+              <div className="admin-divider" />
+              <div className="setting-title">
                 <div className="setting-icon green">
                   <Cloud size={18} />
                 </div>
                 <div>
                   <b>Clario · OpenAI-compatible API</b>
-                  <small>Key disimpan dengan AES-256-GCM di server</small>
+                  <small>
+                    {settings.ai_provider === "clario"
+                      ? "Provider aktif untuk seluruh user · key AES-256-GCM"
+                      : "Tidak digunakan sampai Clario dipilih sebagai provider global"}
+                  </small>
                 </div>
               </div>
               <label className="field-label">PRIMARY BASE URL</label>
@@ -277,6 +597,7 @@ export default function AdminPage({ user, onCatalogChange }) {
               </div>
               <button
                 className="outline-btn model-refresh"
+                disabled={settings.ai_provider !== "clario"}
                 onClick={() =>
                   apiFetch("models")
                     .then((r) => r.json())
@@ -367,30 +688,313 @@ export default function AdminPage({ user, onCatalogChange }) {
                   </small>
                 </div>
               </div>
-              <div className="admin-users-list">
-                {users.map((account) => (
-                  <div className="admin-user-row" key={account.id}>
-                    <span>
-                      <b>{account.name}</b>
-                      <small>
-                        {account.email} ·{" "}
-                        {account.role === "admin" ? "Admin" : "Regular"}
-                      </small>
-                    </span>
-                    {account.role === "admin" ? (
-                      <span className="secure-chip">ADMIN</span>
-                    ) : (
-                      <select
-                        className="text-field plan-select"
-                        value={account.plan || "regular"}
-                        onChange={(e) => setPlan(account.id, e.target.value)}
-                      >
-                        <option value="regular">Regular</option>
-                        <option value="premium">Premium</option>
-                      </select>
-                    )}
+              <div className="admin-user-toolbar">
+                <div>
+                  <b>{users.length} akun</b>
+                  <small>
+                    Tambah, edit, reset password, ubah tipe atau hapus user.
+                  </small>
+                </div>
+                <button
+                  className="outline-btn"
+                  onClick={() => {
+                    setShowCreateUser((value) => !value);
+                    setEditingUser(null);
+                  }}
+                >
+                  {showCreateUser ? <X size={15} /> : <UserPlus size={15} />}
+                  {showCreateUser ? "Tutup" : "Tambah user"}
+                </button>
+              </div>
+              {usersError && (
+                <div className="studio-error" role="alert">
+                  {usersError} <button onClick={loadUsers}>Coba lagi</button>
+                </div>
+              )}
+              {showCreateUser && (
+                <form className="admin-user-form" onSubmit={createUser}>
+                  <b>Buat akun user</b>
+                  <label>
+                    Nama
+                    <input
+                      className="text-field"
+                      value={newUser.name}
+                      onChange={(event) =>
+                        setNewUser((value) => ({
+                          ...value,
+                          name: event.target.value,
+                        }))
+                      }
+                      maxLength={100}
+                      required
+                    />
+                  </label>
+                  <label>
+                    Email
+                    <input
+                      className="text-field"
+                      type="email"
+                      autoComplete="off"
+                      value={newUser.email}
+                      onChange={(event) =>
+                        setNewUser((value) => ({
+                          ...value,
+                          email: event.target.value,
+                        }))
+                      }
+                      required
+                    />
+                  </label>
+                  <label>
+                    Password awal
+                    <input
+                      className="text-field"
+                      type="password"
+                      autoComplete="new-password"
+                      minLength={10}
+                      value={newUser.password}
+                      onChange={(event) =>
+                        setNewUser((value) => ({
+                          ...value,
+                          password: event.target.value,
+                        }))
+                      }
+                      required
+                    />
+                    <small>
+                      Minimal 10 karakter; user harus mengganti password saat
+                      login pertama.
+                    </small>
+                  </label>
+                  <label>
+                    Tipe akun
+                    <select
+                      className="text-field"
+                      value={newUser.plan}
+                      onChange={(event) =>
+                        setNewUser((value) => ({
+                          ...value,
+                          plan: event.target.value,
+                        }))
+                      }
+                    >
+                      <option value="regular">Regular</option>
+                      <option value="premium">Premium</option>
+                    </select>
+                  </label>
+                  <div className="admin-user-form-actions">
+                    <button
+                      className="btn-primary"
+                      type="submit"
+                      disabled={usersBusy}
+                    >
+                      {usersBusy ? "Membuat…" : "Buat akun"}
+                    </button>
+                    <button
+                      className="text-button"
+                      type="button"
+                      onClick={() => setShowCreateUser(false)}
+                    >
+                      Batal
+                    </button>
                   </div>
-                ))}
+                </form>
+              )}
+              {editingUser && (
+                <form className="admin-user-form" onSubmit={saveUserEdit}>
+                  <div className="admin-user-form-heading">
+                    <b>
+                      {editMode === "password"
+                        ? `Ganti password · ${editingUser.name}`
+                        : `Edit user · ${editingUser.name}`}
+                    </b>
+                    <button
+                      type="button"
+                      className="text-button"
+                      onClick={() => setEditingUser(null)}
+                    >
+                      <X size={15} /> Tutup
+                    </button>
+                  </div>
+                  {editMode !== "password" && (
+                    <>
+                      <label>
+                        Nama
+                        <input
+                          className="text-field"
+                          value={editUser.name}
+                          onChange={(event) =>
+                            setEditUser((value) => ({
+                              ...value,
+                              name: event.target.value,
+                            }))
+                          }
+                          maxLength={100}
+                          required
+                        />
+                      </label>
+                      <label>
+                        Email
+                        <input
+                          className="text-field"
+                          type="email"
+                          value={editUser.email}
+                          onChange={(event) =>
+                            setEditUser((value) => ({
+                              ...value,
+                              email: event.target.value,
+                            }))
+                          }
+                          required
+                        />
+                      </label>
+                      <label>
+                        Tipe akun
+                        <select
+                          className="text-field"
+                          value={editUser.plan}
+                          onChange={(event) =>
+                            setEditUser((value) => ({
+                              ...value,
+                              plan: event.target.value,
+                            }))
+                          }
+                        >
+                          <option value="regular">Regular</option>
+                          <option value="premium">Premium</option>
+                        </select>
+                      </label>
+                    </>
+                  )}
+                  <label>
+                    {editMode === "password"
+                      ? "Password baru"
+                      : "Password baru (opsional)"}
+                    <input
+                      className="text-field"
+                      type="password"
+                      autoComplete="new-password"
+                      minLength={10}
+                      value={editUser.password}
+                      onChange={(event) =>
+                        setEditUser((value) => ({
+                          ...value,
+                          password: event.target.value,
+                        }))
+                      }
+                      required={editMode === "password"}
+                    />
+                    <small>
+                      Jika diisi, user wajib mengatur password baru saat login
+                      berikutnya.
+                    </small>
+                  </label>
+                  <div className="admin-user-form-actions">
+                    <button
+                      className="btn-primary"
+                      type="submit"
+                      disabled={usersBusy}
+                    >
+                      {usersBusy
+                        ? "Menyimpan…"
+                        : editMode === "password"
+                          ? "Ganti password"
+                          : "Simpan perubahan"}
+                    </button>
+                    <button
+                      className="text-button"
+                      type="button"
+                      onClick={() => setEditingUser(null)}
+                    >
+                      Batal
+                    </button>
+                  </div>
+                </form>
+              )}
+              <div className="admin-users-table-wrap">
+                <table className="admin-users-table">
+                  <thead>
+                    <tr>
+                      <th>USER</th>
+                      <th>TIPE</th>
+                      <th>AKSI</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {users.map((account) => (
+                      <tr key={account.id}>
+                        <td>
+                          <b>{account.name}</b>
+                          <small>{account.email}</small>
+                        </td>
+                        <td>
+                          {account.role === "admin" ? (
+                            <span className="secure-chip">ADMIN</span>
+                          ) : (
+                            <select
+                              aria-label={`Tipe akun ${account.email}`}
+                              className="text-field plan-select"
+                              value={account.plan || "regular"}
+                              onChange={(event) =>
+                                setPlan(account.id, event.target.value)
+                              }
+                            >
+                              <option value="regular">Regular</option>
+                              <option value="premium">Premium</option>
+                            </select>
+                          )}
+                        </td>
+                        <td>
+                          {account.role === "admin" ? (
+                            <span className="admin-action-disabled">
+                              Admin dilindungi
+                            </span>
+                          ) : (
+                            <div className="admin-user-actions">
+                              <button
+                                className="icon-action"
+                                title="Edit user"
+                                aria-label={`Edit ${account.email}`}
+                                onClick={() => {
+                                  setShowCreateUser(false);
+                                  openEditUser(account, "edit");
+                                }}
+                              >
+                                <Pencil size={15} />
+                              </button>
+                              <button
+                                className="icon-action"
+                                title="Ganti password"
+                                aria-label={`Ganti password ${account.email}`}
+                                onClick={() => {
+                                  setShowCreateUser(false);
+                                  openEditUser(account, "password");
+                                }}
+                              >
+                                <KeyRound size={15} />
+                              </button>
+                              <button
+                                className="icon-action danger"
+                                title="Hapus user"
+                                aria-label={`Hapus ${account.email}`}
+                                onClick={() => deleteUser(account)}
+                              >
+                                <Trash2 size={15} />
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                    {!users.length && (
+                      <tr>
+                        <td colSpan={3} className="admin-empty-users">
+                          Belum ada user terdaftar.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
               </div>
             </section>
             <aside className="admin-side">

@@ -56,6 +56,30 @@ def request(client, path, method='GET', payload=None, expected=200, origin=None,
     return body
 
 
+def request_form(client, path, fields, expected=200):
+    boundary = f'----SpeakUpSmoke{secrets.token_hex(8)}'
+    chunks = []
+    for key, value in fields.items():
+        chunks.extend([
+            f'--{boundary}\r\n'.encode(),
+            f'Content-Disposition: form-data; name="{key}"\r\n\r\n'.encode(),
+            str(value).encode(),
+            b'\r\n',
+        ])
+    chunks.append(f'--{boundary}--\r\n'.encode())
+    headers = {'Content-Type': f'multipart/form-data; boundary={boundary}'}
+    if client.access_token:
+        headers['Authorization'] = f'Bearer {client.access_token}'
+    req = urllib.request.Request(f'{BASE}/{path}', data=b''.join(chunks), headers=headers, method='POST')
+    try:
+        response = client.opener.open(req)
+    except urllib.error.HTTPError as error:
+        response = error
+    body = json.load(response)
+    assert response.status == expected, f'POST {path} form: expected {expected}, got {response.status}: {body}'
+    return body
+
+
 def refresh_cookie(client):
     return next(cookie.value for cookie in client.cookies if cookie.name == 'speakup_refresh')
 
@@ -100,7 +124,28 @@ assert 'answer' in admin_catalog['listening'][0]['questions'][0]
 user_email = f'smoke-{secrets.token_hex(4)}@example.invalid'
 learner = request(regular, 'register', 'POST', {'name': 'Smoke Learner', 'email': user_email, 'password': 'example-password-2026'}, expected=201)['user']
 assert learner['plan'] == 'regular' and not learner['must_change_password']
+assert request(regular, 'app-config')['settings']['speech_input_mode'] in ('live_transcribe', 'ai_audio')
 assert len(request(regular, 'catalog')['listening']) == 18
+read_aloud_probe = request_form(regular, 'assess-audio', {'task_mode': 'read_aloud', 'consent': '1'}, expected=422)
+assert 'Audio evaluasi tidak diterima' in read_aloud_probe['error']
+response_probe = request_form(regular, 'assess-audio', {'task_mode': 'response', 'consent': '1'}, expected=403)
+assert response_probe.get('premium_required') is True
+
+# Admin user CRUD: create, change plan/profile, rotate a temporary password, delete.
+managed_email = f'managed-{secrets.token_hex(4)}@example.invalid'
+managed = request(admin, 'admin/users', 'POST', {
+    'name': 'Managed Learner', 'email': managed_email,
+    'password': 'managed-initial-password-2026', 'plan': 'premium',
+}, expected=201)['user']
+assert managed['role'] == 'user' and managed['plan'] == 'premium' and managed['must_change_password']
+managed = request(admin, 'admin/users', 'PUT', {
+    'id': managed['id'], 'name': 'Updated Learner', 'email': managed_email,
+    'password': 'managed-rotated-password-2026', 'plan': 'regular',
+})['user']
+assert managed['name'] == 'Updated Learner' and managed['plan'] == 'regular' and managed['must_change_password']
+assert any(row['id'] == managed['id'] for row in request(admin, 'admin/users')['users'])
+request(admin, f"admin/users/{managed['id']}", 'DELETE')
+request(admin, f"admin/users/{managed['id']}", 'DELETE', expected=404)
 request(regular, 'admin/catalog', expected=403)
 lesson = admin_catalog['listening'][0]
 q = lesson['questions'][0]
@@ -148,7 +193,41 @@ assert request(regular, 'catalog')['levels'][0]['label'] == 'Fondasi (smoke edit
 
 # Admin can lock registration and users out, then restore access.
 settings = request(admin, 'admin/settings')['settings']
-config = {'clario_base_url': settings['clario_base_url'], 'clario_fallback_url': settings['clario_fallback_url'], 'clario_model': settings['clario_model'], 'gemini_live_model': settings['gemini_live_model'], 'lockdown': True, 'stop_registration': True}
+config = {
+    'ai_provider': 'clario',
+    'speech_input_mode': 'ai_audio',
+    'clario_base_url': settings['clario_base_url'],
+    'clario_fallback_url': settings['clario_fallback_url'],
+    'clario_model': settings['clario_model'],
+    'gemini_live_model': settings['gemini_live_model'],
+    'lockdown': False,
+    'stop_registration': False,
+}
+request(admin, 'admin/settings', 'PUT', config)
+assert request(admin, 'admin/settings')['settings']['speech_input_mode'] == 'ai_audio'
+assert request(regular, 'app-config')['settings']['speech_input_mode'] == 'ai_audio'
+
+# Selecting IchanLabs must not silently call Clario; the adapter remains blocked until its real sample is available.
+ichan_config = {
+    **config,
+    'ai_provider': 'ichanlabs',
+    'ichan_base_url': 'https://ichan-smoke.invalid',
+    'ichan_server': 'SG2',
+    'ichan_model': 'smoke-model',
+    'ichan_secret': 'smoke-secret-only',
+    'ichan_token': 'smoke-token-only',
+    'speech_input_mode': 'live_transcribe',
+}
+request(admin, 'admin/settings', 'PUT', ichan_config)
+selected = request(admin, 'admin/settings')['settings']
+assert selected['ai_provider'] == 'ichanlabs'
+assert 'smoke-secret-only' not in json.dumps(selected) and 'smoke-token-only' not in json.dumps(selected)
+models_error = request(admin, 'models', expected=503)
+assert 'sample' in (models_error.get('detail') or '').lower()
+request(admin, 'admin/settings', 'PUT', {**config, 'ai_provider': 'clario', 'speech_input_mode': 'live_transcribe'})
+assert request(regular, 'app-config')['settings']['speech_input_mode'] == 'live_transcribe'
+
+config = {**config, 'speech_input_mode': 'live_transcribe', 'lockdown': True, 'stop_registration': True}
 request(admin, 'admin/settings', 'PUT', config)
 request(regular, 'catalog', expected=423)
 request(regular, 'register', 'POST', {'name': 'Blocked', 'email': 'blocked@example.invalid', 'password': 'blocked-password-2026'}, expected=423)
@@ -162,4 +241,4 @@ assert request(regular, 'progress')['progress'] is None
 request(regular, 'logout', 'POST')
 request(regular, 'progress', expected=401)
 request(regular, 'auth/refresh', 'POST', expected=401)
-print('PASS: JWT + rotating refresh/cookies, password/logout revocation, roles, seed 6/48/18/36, catalog CRUD, server answer checks, progress, CORS, lockdown, registration.')
+print('PASS: JWT + rotating refresh/cookies, password/logout revocation, roles, admin user CRUD, seed 6/48/18/36, catalog CRUD, server answer checks, progress, global provider/input mode, no IchanLabs fallback, CORS, lockdown, registration.')
