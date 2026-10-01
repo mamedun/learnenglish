@@ -425,7 +425,7 @@ function serializeKokoroInference(operation) {
   return result;
 }
 
-async function collectStreamedSamples(
+export async function collectStreamedSamples(
   TTS,
   text,
   { voice, speed, onChunk } = {},
@@ -446,28 +446,57 @@ async function collectStreamedSamples(
     streamAudio: false,
   });
   const chunks = [];
+  const decoder = { audioContext: null };
   let totalSamples = 0;
   let sampleRate = null;
 
-  for await (const part of stream) {
-    if (!part) continue;
-    const samples = getGeneratedSamples(part);
-    if (!samples?.length) {
-      if (part.audio == null && part.data == null && part.waveform == null)
-        continue;
-      throw new Error(
-        `Waveform Kokoro tidak dikenali (${describeAudioPayload(part)}).`,
-      );
+  try {
+    for await (const part of stream) {
+      if (!part) continue;
+      const audio = part.audio ?? part;
+      let samples = getGeneratedSamples(part);
+      let partSampleRate = getGeneratedSampleRate(part);
+
+      if (!samples?.length && typeof audio?.toBlob === "function") {
+        const AudioContextClass =
+          window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextClass)
+          throw new Error("Browser tidak mendukung pembacaan audio Kokoro.");
+        decoder.audioContext ??= new AudioContextClass();
+        const blob = await audio.toBlob();
+        if (typeof blob?.arrayBuffer !== "function")
+          throw new Error("Kokoro mengembalikan blob audio yang tidak valid.");
+        const decoded = await decoder.audioContext.decodeAudioData(
+          await blob.arrayBuffer(),
+        );
+        samples = new Float32Array(decoded.getChannelData(0));
+        partSampleRate = decoded.sampleRate;
+      }
+
+      if (!samples?.length) {
+        if (part.audio == null && part.data == null && part.waveform == null)
+          continue;
+        throw new Error(
+          `Waveform Kokoro tidak dikenali (${describeAudioPayload(part)}).`,
+        );
+      }
+      if (sampleRate !== null && sampleRate !== partSampleRate)
+        throw new Error(
+          "Kokoro menghasilkan sample rate audio yang tidak cocok.",
+        );
+      sampleRate = partSampleRate;
+      chunks.push(samples);
+      totalSamples += samples.length;
+      onChunk?.(chunks.length);
     }
-    const partSampleRate = getGeneratedSampleRate(part);
-    if (sampleRate !== null && sampleRate !== partSampleRate)
-      throw new Error(
-        "Kokoro menghasilkan sample rate audio yang tidak cocok.",
-      );
-    sampleRate = partSampleRate;
-    chunks.push(samples);
-    totalSamples += samples.length;
-    onChunk?.(chunks.length);
+  } finally {
+    if (
+      decoder.audioContext &&
+      decoder.audioContext.state !== "closed" &&
+      typeof decoder.audioContext.close === "function"
+    ) {
+      await decoder.audioContext.close().catch(() => {});
+    }
   }
 
   if (!totalSamples || !sampleRate)

@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { getGeneratedSamples } from "../src/lib/ttsRocks.js";
+import {
+  collectStreamedSamples,
+  getGeneratedSamples,
+} from "../src/lib/ttsRocks.js";
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 const [
@@ -42,6 +45,61 @@ assert.deepEqual(
   expectedWaveform,
 );
 
+const previousWindow = globalThis.window;
+let audioContextClosed = false;
+class FakeTextSplitterStream {
+  push(text) {
+    this.text = text;
+  }
+  close() {
+    this.closed = true;
+  }
+}
+globalThis.window = {
+  AudioContext: class {
+    state = "running";
+    async decodeAudioData() {
+      return {
+        sampleRate: 24_000,
+        getChannelData: () => expectedWaveform,
+      };
+    }
+    async close() {
+      audioContextClosed = true;
+      this.state = "closed";
+    }
+  },
+};
+try {
+  const decoded = await collectStreamedSamples(
+    {
+      TextSplitterStream: FakeTextSplitterStream,
+      kokoroTtsInstance: {
+        stream(splitter, options) {
+          assert.equal(splitter.text, "stream test");
+          assert.equal(splitter.closed, true);
+          assert.equal(options.voice, "af_heart");
+          return (async function* () {
+            yield {
+              audio: {
+                toBlob: () => ({ arrayBuffer: async () => new ArrayBuffer(4) }),
+              },
+            };
+          })();
+        },
+      },
+    },
+    "stream test",
+    { voice: "af_heart", speed: 0.88 },
+  );
+  assert.deepEqual(decoded.samples, expectedWaveform);
+  assert.equal(decoded.sampleRate, 24_000);
+  assert.equal(audioContextClosed, true);
+} finally {
+  if (previousWindow === undefined) delete globalThis.window;
+  else globalThis.window = previousWindow;
+}
+
 assert.match(app, /const engine = isSmallViewport \? "native"/);
 assert.ok(
   app.indexOf("if (context) {") < app.indexOf('if (engine === "native"'),
@@ -64,6 +122,8 @@ assert.match(generator, /generateKokoroCompositeAudio/);
 assert.match(ttsRocks, /serializeKokoroInference/);
 assert.match(ttsRocks, /new TTS\.TextSplitterStream\(\)/);
 assert.match(ttsRocks, /kokoroTtsInstance\.stream\(splitter/);
+assert.match(ttsRocks, /audio\?\.toBlob/);
+assert.match(ttsRocks, /decodeAudioData/);
 assert.doesNotMatch(ttsRocks, /kokoroTtsInstance\.generate/);
 assert.match(generator, /Generate ulang mengganti file lama/);
 assert.match(legacyStudio, /<SharedTtsCacheGenerator/);
