@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 (ROOT / '.arena').mkdir(exist_ok=True)
 TARGET = Path(tempfile.mkdtemp(prefix='smoke-api-', dir=ROOT / '.arena')) / 'api'
 TARGET.mkdir()
-for name in ('index.php', 'auth.php', 'bootstrap.php', 'catalog.php', 'router.php', 'tts_cache.php', 'commerce.php',
+for name in ('index.php', 'auth.php', 'bootstrap.php', 'catalog.php', 'router.php', 'tts_cache.php', 'commerce.php', 'courseware.php',
              'config.example.php', '.htaccess'):
     shutil.copy2(ROOT / 'api' / name, TARGET / name)
 shutil.copytree(ROOT / 'api' / 'seeds', TARGET / 'seeds')

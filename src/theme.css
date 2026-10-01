@@ -102,7 +102,7 @@ img {
 .brand small,
 .auth-brand small {
   color: #928eae;
-  font-size: 10px;
+  font-size: 12px;
   letter-spacing: 1.7px;
   font-weight: 900;
   margin-top: 5px;
@@ -114,7 +114,7 @@ img {
 }
 .side-label {
   color: #9993b4;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 900;
   letter-spacing: 1.5px;
   padding: 0 14px 10px;
@@ -147,7 +147,7 @@ img {
   border-radius: 20px;
   background: #fff0de;
   color: #b46b2c;
-  font-size: 9px;
+  font-size: 12px;
   padding: 4px 7px;
 }
 .sidebar-course {
@@ -178,7 +178,7 @@ img {
 }
 .level-item small {
   color: #9793a9;
-  font-size: 11px;
+  font-size: 12px;
   margin-top: 3px;
 }
 .sidebar-premium {
@@ -228,7 +228,7 @@ img {
 }
 .profile-row small {
   color: #918ba9;
-  font-size: 11px;
+  font-size: 12px;
 }
 .avatar {
   width: 37px;
@@ -296,7 +296,7 @@ img {
 }
 .eyebrow {
   color: #7867d2;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 900;
   letter-spacing: 1.7px;
 }
@@ -395,7 +395,7 @@ img {
 }
 .auth-story .eyebrow {
   color: #d0c9ff;
-  font-size: 11px;
+  font-size: 12px;
 }
 .auth-story h1 {
   font-family: "Fredoka", sans-serif;
@@ -469,7 +469,7 @@ img {
 }
 .auth-card-kicker {
   color: #7563d3;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 900;
 }
 .auth-card h2 {
@@ -542,12 +542,12 @@ img {
 }
 .auth-terms {
   color: #8d89a4;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.45;
 }
 .auth-footer {
   color: #8e8aa5;
-  font-size: 11px;
+  font-size: 12px;
   padding: 14px;
 }
 .auth-loading {
@@ -627,7 +627,7 @@ img {
   color: #464260;
 }
 .password-form label span {
-  font-size: 11px;
+  font-size: 12px;
   color: #908ba6;
   font-weight: 700;
 }
@@ -671,7 +671,7 @@ img {
 }
 .welcome-date {
   color: #8075b6;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 900;
   letter-spacing: 1.4px;
   background: #f0ecff;
@@ -706,7 +706,7 @@ img {
 }
 .hero-kicker {
   color: #dacfff;
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 1.3px;
 }
 .status-dot {
@@ -816,7 +816,7 @@ img {
 }
 .stat-card small {
   color: #77718e;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 900;
   letter-spacing: 1px;
 }
@@ -892,7 +892,7 @@ img {
   background: #f1eeff;
   color: #6e58d1;
   font:
-    800 11px "Nunito",
+    800 12px "Nunito",
     sans-serif;
   border-radius: 99px;
   padding: 5px 10px;
@@ -914,7 +914,7 @@ img {
 }
 .curr-foot small {
   color: #77738e;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 800;
 }
 .tiny-progress {
@@ -947,7 +947,7 @@ img {
 }
 .daily-card small {
   color: #b9704f;
-  font-size: 11px;
+  font-size: 12px;
 }
 .daily-card p {
   color: #503b64;
@@ -1020,7 +1020,7 @@ img {
 }
 .achievement-badge small {
   color: #85809b;
-  font-size: 11px;
+  font-size: 12px;
   display: block;
   margin-top: 3px;
   line-height: 1.25;
@@ -1074,7 +1074,7 @@ img {
 }
 .page-sticker small {
   color: #8d6e60;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 900;
 }
 .listening-notice {
@@ -1166,13 +1166,13 @@ img {
   margin-bottom: 3px;
 }
 .listening-item small {
-  font-size: 11px;
+  font-size: 12px;
   color: #8a849e;
 }
 .listen-level {
   background: #e9e4ff;
   color: #604aca;
-  font-size: 10px;
+  font-size: 12px;
   border-radius: 8px;
   padding: 6px;
 }
@@ -1201,7 +1201,7 @@ img {
 }
 .listening-visual figcaption {
   color: #87829d;
-  font-size: 11px;
+  font-size: 12px;
 }
 .audio-player-card {
   background: #292551;
@@ -1510,7 +1510,7 @@ img {
 }
 .progress-level small {
   color: #85809b;
-  font-size: 11px;
+  font-size: 12px;
 }
 .progress-level-icon {
   width: 40px;
@@ -1545,7 +1545,7 @@ img {
   color: #89849b;
 }
 .field-label {
-  font-size: 11px;
+  font-size: 12px;
   color: #756dae;
 }
 .text-field {
@@ -1578,7 +1578,7 @@ img {
 }
 .settings-side .version-info {
   color: #928ca6;
-  font-size: 11px;
+  font-size: 12px;
 }
 .admin-page {
   max-width: 1250px;
@@ -1784,14 +1784,14 @@ img {
   display: block;
 }
 .studio-list-item small {
-  font-size: 10px;
+  font-size: 12px;
   color: #928ca7;
   display: block;
   line-height: 1.4;
   margin-top: 2px;
 }
 .studio-id {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 900;
   color: #6551d5;
   background: #e9e4ff;
@@ -1857,7 +1857,7 @@ img {
   color: #278f73;
   background: #e6f8f1;
   border-radius: 99px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 900;
   padding: 6px 10px;
   white-space: nowrap;
@@ -1895,7 +1895,7 @@ img {
 }
 .studio-field small {
   color: #8e89a4;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   line-height: 1.35;
 }
@@ -1933,7 +1933,7 @@ img {
   color: #453a86;
 }
 .studio-publish small {
-  font-size: 11px;
+  font-size: 12px;
   color: #797096;
 }
 .studio-actions {
@@ -2078,7 +2078,7 @@ img {
     border-radius: 10px;
     padding: 7px 6px;
     color: #817a9b;
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 800;
     min-width: 0;
     flex: 1;
@@ -2114,7 +2114,7 @@ img {
   }
   .xp-pill,
   .streak-pill {
-    font-size: 11px;
+    font-size: 12px;
     padding: 6px 8px;
   }
   .topbar .icon-btn {
@@ -2152,7 +2152,7 @@ img {
     gap: 7px;
   }
   .auth-benefits > div {
-    font-size: 11px;
+    font-size: 12px;
     padding: 7px 9px;
   }
   .auth-illustration {
@@ -2162,7 +2162,7 @@ img {
     padding: 27px 24px;
   }
   .auth-footer {
-    font-size: 10px;
+    font-size: 12px;
   }
   .welcome-row {
     min-height: 85px;
@@ -2301,9 +2301,11 @@ img {
   }
   .studio-heading {
     align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
   }
   .studio-heading .outline-btn {
-    font-size: 0;
+    font-size: 12px;
     padding: 10px;
   }
   .studio-heading .outline-btn svg {
@@ -2339,7 +2341,7 @@ img {
     min-height: 155px;
   }
   .curriculum-card p {
-    font-size: 11px;
+    font-size: 12px;
   }
   .badge-row {
     grid-template-columns: 1fr 1fr;
@@ -2353,13 +2355,13 @@ img {
     font-size: 23px;
   }
   .achievement-badge b {
-    font-size: 11px;
+    font-size: 12px;
   }
   .achievement-badge small {
-    font-size: 10px;
+    font-size: 12px;
   }
   .mobile-nav button {
-    font-size: 9px;
+    font-size: 12px;
   }
   .answer-options button {
     font-size: 12px;
@@ -2376,7 +2378,7 @@ img {
 }
 /* Vector rewards remain legible even on systems without emoji fonts. */
 .sidebar .brand small {
-  font-size: 9px;
+  font-size: 12px;
   letter-spacing: 1px;
   white-space: nowrap;
 }
@@ -2536,7 +2538,7 @@ img {
 .live-topic > label {
   grid-column: 1 / -1;
   color: #46516a;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.09em;
 }
@@ -2586,7 +2588,7 @@ img {
   border-radius: 99px;
   background: #e7f4ed;
   color: #245b42;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.04em;
   text-align: center;

@@ -52,7 +52,7 @@
   align-items: center;
   gap: 7px;
   color: #dfebe2;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.09em;
 }
@@ -124,7 +124,7 @@
   flex-direction: column;
   gap: 8px;
   color: #748076;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.08em;
 }
@@ -191,7 +191,7 @@
 }
 .shop-fine-print {
   color: #7b877d;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.55;
 }
 .shop-order-summary {
@@ -235,7 +235,7 @@
   gap: 6px;
   margin: 13px 0;
   color: #77837a;
-  font-size: 11px;
+  font-size: 12px;
 }
 .shop-qr-wrap {
   display: flex;
@@ -258,7 +258,7 @@
 }
 .shop-qr-wrap span {
   color: #657368;
-  font-size: 11px;
+  font-size: 12px;
   text-align: center;
 }
 .shop-static-qr-main img {
@@ -300,7 +300,7 @@
   gap: 7px;
   margin-top: 11px;
   color: #52725b;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.4;
 }
 .shop-contacted-note svg {
@@ -316,7 +316,7 @@
   border: 0;
   background: transparent;
   color: #647268;
-  font-size: 11px;
+  font-size: 12px;
   cursor: pointer;
 }
 .shop-purchase-status {
@@ -340,7 +340,7 @@
   gap: 3px;
 }
 .shop-purchase-status small {
-  font-size: 11px;
+  font-size: 12px;
 }
 .shop-empty-order {
   display: flex;
@@ -408,7 +408,7 @@
 .shop-history-row small {
   overflow: hidden;
   color: #7c867e;
-  font-size: 10px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -426,7 +426,7 @@
   border-radius: 99px;
   background: #fff4df;
   color: #91631a;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 800;
   white-space: nowrap;
 }

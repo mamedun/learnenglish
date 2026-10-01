@@ -129,7 +129,7 @@
               <i class="fa-solid fa-circle-exclamation text-rose-400 text-base mt-0.5 flex-shrink-0"></i>
               <div>
                 <p class="font-bold text-rose-300">Sesi Terputus (Disconnected)</p>
-                <p id="disconnectReasonText" class="text-[11px] text-rose-200/90 mt-1 leading-relaxed font-sans"></p>
+                <p id="disconnectReasonText" class="text-xs text-rose-200/90 mt-1 leading-relaxed font-sans"></p>
               </div>
             </div>
             <button id="closeAlertBtn" class="text-rose-400 hover:text-rose-200 text-xs p-1" title="Tutup Notifikasi">
@@ -184,7 +184,7 @@
         <div class="space-y-1.5">
           <label for="micSelect" class="block text-xs font-medium text-slate-400 flex justify-between items-center">
             <span><i class="fa-solid fa-microphone text-emerald-400/80 mr-1"></i> Pilih Microphone</span>
-            <button id="refreshMicsBtn" class="text-emerald-400 hover:underline text-[11px] font-normal">
+            <button id="refreshMicsBtn" class="text-emerald-400 hover:underline text-xs font-normal">
               <i class="fa-solid fa-rotate-right mr-1"></i>Refresh
             </button>
           </label>
@@ -280,9 +280,9 @@
       <div class="p-3 bg-slate-900 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
         <div id="typingIndicator" class="flex items-center space-x-2 text-emerald-400 opacity-0 transition-opacity">
           <i class="fa-solid fa-circle-notch fa-spin text-xs"></i>
-          <span class="text-[11px] font-medium">Coach sedang mendengarkan/berbicara...</span>
+          <span class="text-xs font-medium">Coach sedang mendengarkan/berbicara...</span>
         </div>
-        <span class="text-[11px] text-slate-500">Transkrip diperbarui secara terdekat (*real-time*)</span>
+        <span class="text-xs text-slate-500">Transkrip diperbarui secara terdekat (*real-time*)</span>
       </div>
 
     </section>
@@ -314,7 +314,7 @@
             <i class="fa-solid fa-eye"></i>
           </button>
         </div>
-        <p class="text-[11px] text-slate-400">
+        <p class="text-xs text-slate-400">
           Belum punya API key? Dapatkan secara gratis di 
           <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" class="text-emerald-400 underline hover:text-emerald-300">Google AI Studio</a>.
           Key disimpan dengan aman di penyimpanan lokal peramban Anda (*localStorage*).
@@ -987,7 +987,7 @@ Adopt the following rules for our live audio interaction:
               <i class="fa-solid fa-graduation-cap"></i>
             </div>
             <div class="bg-slate-900 border border-slate-800 rounded-2xl rounded-tl-none p-3.5 text-slate-200 max-w-xl leading-relaxed">
-              <span class="block text-[10px] font-bold text-emerald-400 uppercase tracking-wider mb-1">English Coach</span>
+              <span class="block text-xs font-bold text-emerald-400 uppercase tracking-wider mb-1">English Coach</span>
               <p class="bubble-content whitespace-pre-wrap"></p>
             </div>
           `;
@@ -995,7 +995,7 @@ Adopt the following rules for our live audio interaction:
           bubble.className = 'flex items-start space-x-3 justify-end text-xs';
           bubble.innerHTML = `
             <div class="bg-emerald-950/80 border border-emerald-800/80 rounded-2xl rounded-tr-none p-3.5 text-emerald-100 max-w-xl leading-relaxed">
-              <span class="block text-[10px] font-bold text-emerald-400 uppercase tracking-wider mb-1 text-right">You</span>
+              <span class="block text-xs font-bold text-emerald-400 uppercase tracking-wider mb-1 text-right">You</span>
               <p class="bubble-content whitespace-pre-wrap"></p>
             </div>
             <div class="w-8 h-8 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center font-bold flex-shrink-0 border border-slate-700">

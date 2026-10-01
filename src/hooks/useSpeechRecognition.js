@@ -35,6 +35,7 @@ export function useSpeechRecognition({ language = "en-US" } = {}) {
   const [braveDetected, setBraveDetected] = useState(() => isBraveBrowser());
   const recognitionRef = useRef(null);
   const prefixRef = useRef("");
+  const ignoreLateResultsRef = useRef(false);
 
   useEffect(() => {
     setSupported(Boolean(getRecognitionConstructor()));
@@ -55,7 +56,8 @@ export function useSpeechRecognition({ language = "en-US" } = {}) {
     };
   }, []);
 
-  const stop = useCallback(() => {
+  const stop = useCallback((options = {}) => {
+    if (options?.discardPendingResults) ignoreLateResultsRef.current = true;
     const recognition = recognitionRef.current;
     if (recognition) {
       try {
@@ -68,6 +70,7 @@ export function useSpeechRecognition({ language = "en-US" } = {}) {
   }, []);
 
   const reset = useCallback(() => {
+    ignoreLateResultsRef.current = true;
     const recognition = recognitionRef.current;
     recognitionRef.current = null;
     if (recognition) {
@@ -97,6 +100,7 @@ export function useSpeechRecognition({ language = "en-US" } = {}) {
         return { ok: false, reason: "unsupported" };
       }
       if (recognitionRef.current) return { ok: true };
+      ignoreLateResultsRef.current = false;
 
       const prefix = append ? transcript.trim() : "";
       prefixRef.current = prefix;
@@ -108,6 +112,7 @@ export function useSpeechRecognition({ language = "en-US" } = {}) {
         recognition.interimResults = true;
         recognition.lang = language;
         recognition.onresult = (event) => {
+          if (ignoreLateResultsRef.current) return;
           const parts = [];
           for (let i = 0; i < event.results.length; i += 1) {
             const result = event.results[i];

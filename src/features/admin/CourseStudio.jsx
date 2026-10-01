@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  ArrowDown,
   ArrowDownWideNarrow,
+  ArrowUp,
   ArrowUpWideNarrow,
   BookOpen,
   Check,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Download,
   ExternalLink,
   FileUp,
@@ -59,7 +63,7 @@ const categoryTemplate = (modality, index) => ({
 const unitTemplate = (modality, index, categoryId) => ({
   id: `${modality.replace("_lesson", "")}-unit-${index + 1}`,
   categoryId,
-  title: `Materi ${index + 1}`,
+  title: `${modality === "live_lesson" ? "Topik" : "Materi"} ${index + 1}`,
   subtitle: "",
   masterPrompt: "",
   mediaUrl: "",
@@ -97,6 +101,24 @@ const unitTemplate = (modality, index, categoryId) => ({
             responseStyle: "Warm, concise, and supportive.",
           },
 });
+function uniqueDraftId(base, records = []) {
+  const used = new Set(
+    records.map((record) =>
+      String(typeof record === "string" ? record : record?.id || ""),
+    ),
+  );
+  if (!used.has(base)) return base;
+  let suffix = 2;
+  while (used.has(`${base}-${suffix}`)) suffix += 1;
+  return `${base}-${suffix}`;
+}
+function orderUnits(modality, units = []) {
+  return modality === "live_lesson"
+    ? [...units].sort(
+        (a, b) => Number(a.sortOrder ?? 0) - Number(b.sortOrder ?? 0),
+      )
+    : units;
+}
 function mediaKind(url = "") {
   const value = String(url).trim();
   if (/youtube\.com|youtu\.be/i.test(value)) return "youtube";
@@ -134,6 +156,7 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
   const [courseDraft, setCourseDraft] = useState(NEW_COURSE);
   const [isNew, setIsNew] = useState(false);
   const [tab, setTab] = useState("settings");
+  const [courseListCollapsed, setCourseListCollapsed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(false);
   const [modality, setModality] = useState("listening");
@@ -189,7 +212,7 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
     };
   }, [selectedId, isNew]);
   useEffect(() => {
-    const units = moduleDrafts[modality]?.units || [];
+    const units = orderUnits(modality, moduleDrafts[modality]?.units || []);
     const selected =
       units.find((unit) => unit.id === selectedUnitId) || units[0];
     if (selected) {
@@ -308,10 +331,19 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
     }
   }
   const currentModule = moduleDrafts[modality] || { categories: [], units: [] };
+  const displayedUnits = orderUnits(modality, currentModule.units || []);
   const selectedUnit =
-    currentModule.units?.find((unit) => unit.id === selectedUnitId) ||
-    currentModule.units?.[0] ||
+    displayedUnits.find((unit) => unit.id === selectedUnitId) ||
+    displayedUnits[0] ||
     null;
+  function selectStudioTab(nextTab) {
+    setTab(nextTab);
+    if (MODE_LABEL[nextTab]) {
+      setModality(nextTab);
+      setCategoryIndex(0);
+      setSelectedUnitId("");
+    }
+  }
   function setModule(next) {
     setModuleDrafts((current) => ({
       ...current,
@@ -339,10 +371,9 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
     }));
   }
   function addCategory() {
-    const category = categoryTemplate(
-      modality,
-      currentModule.categories?.length || 0,
-    );
+    const categories = currentModule.categories || [];
+    const category = categoryTemplate(modality, categories.length);
+    category.id = uniqueDraftId(category.id, categories);
     setModule((current) => ({
       ...current,
       categories: [...(current.categories || []), category],
@@ -368,20 +399,41 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
     }));
   }
   function addUnit() {
-    if (!currentModule.categories?.length) {
+    const isLiveTopic = modality === "live_lesson";
+    const categories = currentModule.categories || [];
+    let hiddenLiveCategory = null;
+    if (!isLiveTopic && !categories.length) {
       toast.info("Buat kategori terlebih dahulu.");
       return;
     }
-    const category =
-      currentModule.categories[categoryIndex]?.id ||
-      currentModule.categories[0].id;
-    const unit = unitTemplate(
-      modality,
-      currentModule.units?.length || 0,
-      category,
-    );
+    if (isLiveTopic && !categories.length) {
+      hiddenLiveCategory = {
+        ...categoryTemplate(modality, 0),
+        id: "live-topics",
+        name: "Live topics",
+        label: "",
+      };
+    }
+    const categoryId = isLiveTopic
+      ? categories[0]?.id || hiddenLiveCategory.id
+      : categories[categoryIndex]?.id || categories[0].id;
+    const currentUnits = currentModule.units || [];
+    const currentOrders = currentUnits.map((item, index) => {
+      const order = Number(item.sortOrder);
+      return Number.isFinite(order) ? order : index;
+    });
+    const nextOrder =
+      isLiveTopic && currentOrders.length
+        ? Math.max(-1, ...currentOrders) + 1
+        : currentUnits.length;
+    const unit = unitTemplate(modality, nextOrder, categoryId);
+    unit.id = uniqueDraftId(unit.id, currentUnits);
     setModule((current) => ({
       ...current,
+      categories:
+        current.categories?.length || !hiddenLiveCategory
+          ? current.categories || []
+          : [hiddenLiveCategory],
       units: [...(current.units || []), unit],
     }));
     setSelectedUnitId(unit.id);
@@ -394,7 +446,29 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
       units: current.units.filter((unit) => unit.id !== selectedUnit.id),
     }));
     setSelectedUnitId("");
-    toast.success("Materi dihapus dari draft. Simpan modul untuk menerapkan.");
+    toast.success(
+      `${modality === "live_lesson" ? "Topik" : "Materi"} dihapus dari draft. Simpan modul untuk menerapkan.`,
+    );
+  }
+  function moveUnit(unitId, direction) {
+    setModule((current) => {
+      const units = [...(current.units || [])]
+        .map((unit, index) => ({ unit, index }))
+        .sort(
+          (a, b) =>
+            Number(a.unit.sortOrder ?? a.index) -
+              Number(b.unit.sortOrder ?? b.index) || a.index - b.index,
+        )
+        .map(({ unit }) => unit);
+      const from = units.findIndex((unit) => unit.id === unitId);
+      const to = from + direction;
+      if (from < 0 || to < 0 || to >= units.length) return current;
+      [units[from], units[to]] = [units[to], units[from]];
+      return {
+        ...current,
+        units: units.map((unit, index) => ({ ...unit, sortOrder: index })),
+      };
+    });
   }
   async function saveModule() {
     if (!selectedId || isNew) {
@@ -470,7 +544,34 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
     event.target.value = "";
     if (!file) return;
     try {
-      const payload = JSON.parse(await file.text());
+      let payload = JSON.parse(await file.text());
+      if (
+        modality === "live_lesson" &&
+        payload &&
+        Array.isArray(payload.units) &&
+        payload.units.length
+      ) {
+        const categories = Array.isArray(payload.categories)
+          ? payload.categories
+          : [];
+        const hiddenCategory = categories[0] || {
+          ...categoryTemplate(modality, 0),
+          id: "live-topics",
+          name: "Live topics",
+          label: "",
+        };
+        payload = {
+          ...payload,
+          categories: categories.length ? categories : [hiddenCategory],
+          units: payload.units.map((unit, index) => ({
+            ...unit,
+            categoryId: categories.length
+              ? unit.categoryId || hiddenCategory.id
+              : hiddenCategory.id,
+            sortOrder: unit.sortOrder ?? index,
+          })),
+        };
+      }
       const saved = await apiJson(
         `admin/courses/${encodeURIComponent(selectedId)}/content/${modality}`,
         {
@@ -615,16 +716,39 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
             ruang.
           </p>
         </div>
-        <button
-          className="outline-btn"
-          onClick={() => refresh()}
-          disabled={loading}
-        >
-          <RefreshCw size={15} /> Perbarui
-        </button>
+        <div className="course-studio-header-actions">
+          <button
+            className="outline-btn course-studio-list-toggle"
+            onClick={() => setCourseListCollapsed((collapsed) => !collapsed)}
+            aria-expanded={!courseListCollapsed}
+            aria-controls="course-studio-course-list"
+          >
+            {courseListCollapsed ? (
+              <ChevronRight size={15} />
+            ) : (
+              <ChevronLeft size={15} />
+            )}
+            {courseListCollapsed
+              ? "Tampilkan daftar course"
+              : "Sembunyikan daftar"}
+          </button>
+          <button
+            className="outline-btn"
+            onClick={() => refresh()}
+            disabled={loading}
+          >
+            <RefreshCw size={15} /> Perbarui
+          </button>
+        </div>
       </div>
-      <div className="course-studio-layout">
-        <aside className="course-studio-list">
+      <div
+        className={`course-studio-layout ${courseListCollapsed ? "is-list-collapsed" : ""}`}
+      >
+        <aside
+          id="course-studio-course-list"
+          className="course-studio-list"
+          aria-hidden={courseListCollapsed}
+        >
           <div className="course-studio-list-top">
             <b>Course</b>
             <button className="course-add-btn" onClick={startNew}>
@@ -751,7 +875,7 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
                   <button
                     key={item.id}
                     className={tab === item.id ? "active" : ""}
-                    onClick={() => setTab(item.id)}
+                    onClick={() => selectStudioTab(item.id)}
                   >
                     {item.label}
                   </button>
@@ -957,10 +1081,16 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
                 <div className="course-editor-panel course-content-editor">
                   <div className="course-module-toolbar">
                     <div>
-                      <h4>{MODE_LABEL[tab]} · kategori & materi</h4>
+                      <h4>
+                        {MODE_LABEL[tab]} ·{" "}
+                        {modality === "live_lesson"
+                          ? "topik"
+                          : "kategori & materi"}
+                      </h4>
                       <p>
-                        JSON import/export tersedia untuk kategori, units, bank
-                        soal, dialog, dan prompt.
+                        {modality === "live_lesson"
+                          ? "Kelola topik role-play, urutkan percakapan, dan atur peran serta pembuka teacher. Kategori internal tetap disimpan agar format API lama kompatibel."
+                          : "Kategori dan materi tersimpan terpisah untuk tiap modality. JSON import/export mendukung units, bank soal, dialog, dan prompt."}
                       </p>
                     </div>
                     <div className="course-editor-actions">
@@ -987,170 +1117,235 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
                       />
                     </div>
                   </div>
-                  <div className="course-content-layout">
-                    <aside className="course-content-categories">
-                      <div className="course-subheading">
-                        <b>Kategori</b>
-                        <button
-                          className="course-icon-action"
-                          onClick={addCategory}
-                          title="Tambah kategori"
-                        >
-                          <Plus size={16} />
-                        </button>
-                      </div>
-                      {(currentModule.categories || []).map(
-                        (category, index) => (
-                          <div
-                            className={`course-category-row ${categoryIndex === index ? "active" : ""}`}
-                            key={`${category.id}-${index}`}
+                  <div
+                    className={`course-content-layout ${modality === "live_lesson" ? "course-content-layout-live" : ""}`}
+                  >
+                    {modality !== "live_lesson" && (
+                      <aside className="course-content-categories">
+                        <div className="course-subheading">
+                          <b>Kategori</b>
+                          <button
+                            className="course-icon-action"
+                            onClick={addCategory}
+                            title="Tambah kategori"
                           >
-                            <button
-                              className="course-category-select"
-                              onClick={() => setCategoryIndex(index)}
+                            <Plus size={16} />
+                          </button>
+                        </div>
+                        {(currentModule.categories || []).map(
+                          (category, index) => (
+                            <div
+                              className={`course-category-row ${categoryIndex === index ? "active" : ""}`}
+                              key={`${category.id}-${index}`}
                             >
-                              <span
-                                className="course-studio-swatch"
-                                style={{ background: category.color }}
-                              />
-                              <span>
-                                <b>{category.name || category.id}</b>
-                                <small>{category.id}</small>
-                              </span>
-                            </button>
-                            <button
-                              className="course-icon-action delete"
-                              title="Hapus kategori"
-                              onClick={() => removeCategory(index)}
-                            >
-                              <X size={14} />
-                            </button>
-                            <div className="course-category-edit">
-                              <input
-                                value={category.id}
-                                readOnly
-                                aria-label="ID kategori"
-                                title="ID kategori stabil untuk menjaga materi yang terhubung"
-                              />
-                              <input
-                                value={category.name}
-                                onChange={(event) =>
-                                  patchCategory(
-                                    index,
-                                    "name",
-                                    event.target.value,
-                                  )
-                                }
-                                placeholder="Nama kategori"
-                              />
-                              <input
-                                value={category.label || ""}
-                                onChange={(event) =>
-                                  patchCategory(
-                                    index,
-                                    "label",
-                                    event.target.value,
-                                  )
-                                }
-                                placeholder="Label"
-                              />
-                              <textarea
-                                value={category.guide || ""}
-                                onChange={(event) =>
-                                  patchCategory(
-                                    index,
-                                    "guide",
-                                    event.target.value,
-                                  )
-                                }
-                                placeholder="Panduan kategori"
-                                rows={2}
-                              />
-                              <div>
+                              <button
+                                className="course-category-select"
+                                onClick={() => setCategoryIndex(index)}
+                              >
+                                <span
+                                  className="course-studio-swatch"
+                                  style={{ background: category.color }}
+                                />
+                                <span>
+                                  <b>{category.name || category.id}</b>
+                                  <small>{category.id}</small>
+                                </span>
+                              </button>
+                              <button
+                                className="course-icon-action delete"
+                                title="Hapus kategori"
+                                onClick={() => removeCategory(index)}
+                              >
+                                <X size={14} />
+                              </button>
+                              <div className="course-category-edit">
                                 <input
-                                  type="color"
-                                  value={category.color || "#F56B45"}
+                                  value={category.id}
+                                  readOnly
+                                  aria-label="ID kategori"
+                                  title="ID kategori stabil untuk menjaga materi yang terhubung"
+                                />
+                                <input
+                                  value={category.name}
                                   onChange={(event) =>
                                     patchCategory(
                                       index,
-                                      "color",
+                                      "name",
                                       event.target.value,
                                     )
                                   }
+                                  placeholder="Nama kategori"
                                 />
                                 <input
-                                  type="number"
-                                  value={category.sortOrder ?? index}
+                                  value={category.label || ""}
                                   onChange={(event) =>
                                     patchCategory(
                                       index,
-                                      "sortOrder",
-                                      Number(event.target.value),
+                                      "label",
+                                      event.target.value,
                                     )
                                   }
+                                  placeholder="Label"
                                 />
+                                <textarea
+                                  value={category.guide || ""}
+                                  onChange={(event) =>
+                                    patchCategory(
+                                      index,
+                                      "guide",
+                                      event.target.value,
+                                    )
+                                  }
+                                  placeholder="Panduan kategori"
+                                  rows={2}
+                                />
+                                <div>
+                                  <input
+                                    type="color"
+                                    value={category.color || "#F56B45"}
+                                    onChange={(event) =>
+                                      patchCategory(
+                                        index,
+                                        "color",
+                                        event.target.value,
+                                      )
+                                    }
+                                  />
+                                  <input
+                                    type="number"
+                                    value={category.sortOrder ?? index}
+                                    onChange={(event) =>
+                                      patchCategory(
+                                        index,
+                                        "sortOrder",
+                                        Number(event.target.value),
+                                      )
+                                    }
+                                  />
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        ),
-                      )}
-                      {!currentModule.categories?.length && (
-                        <p className="course-studio-tip">
-                          Tambahkan kategori sebelum membuat materi.
-                        </p>
-                      )}
-                    </aside>
+                          ),
+                        )}
+                        {!currentModule.categories?.length && (
+                          <p className="course-studio-tip">
+                            Tambahkan kategori sebelum membuat materi.
+                          </p>
+                        )}
+                      </aside>
+                    )}
                     <section className="course-content-unit-editor">
                       <div className="course-subheading">
-                        <b>Materi / unit</b>
+                        <b>
+                          {modality === "live_lesson"
+                            ? "Topik percakapan"
+                            : "Materi / unit"}
+                        </b>
                         <div>
                           <button
                             className="outline-btn"
                             onClick={addUnit}
-                            disabled={!currentModule.categories?.length}
+                            disabled={
+                              modality !== "live_lesson" &&
+                              !currentModule.categories?.length
+                            }
                           >
-                            <Plus size={15} /> Tambah materi
+                            <Plus size={15} />
+                            {modality === "live_lesson"
+                              ? "Tambah topik"
+                              : "Tambah materi"}
                           </button>
                           {selectedUnit && (
                             <button
                               className="course-icon-action delete"
                               onClick={deleteUnit}
-                              title="Hapus materi"
+                              title={`Hapus ${modality === "live_lesson" ? "topik" : "materi"}`}
                             >
                               <Trash2 size={15} />
                             </button>
                           )}
                         </div>
                       </div>
-                      {(currentModule.units || []).length > 0 && (
-                        <div className="course-unit-list">
-                          {currentModule.units.map((unit) => (
-                            <button
-                              key={unit.id}
-                              className={
-                                unit.id === selectedUnitId ? "active" : ""
-                              }
-                              onClick={() => setSelectedUnitId(unit.id)}
-                            >
-                              <span className="course-unit-order">
-                                {Number(unit.sortOrder) + 1}
-                              </span>
-                              <span>
-                                <b>{unit.title}</b>
-                                <small>
-                                  {unit.id} ·{" "}
-                                  {unit.published ? "Published" : "Draft"}
-                                </small>
-                              </span>
-                            </button>
-                          ))}
+                      {displayedUnits.length > 0 && (
+                        <div
+                          className={`course-unit-list ${modality === "live_lesson" ? "course-live-topic-list" : ""}`}
+                        >
+                          {displayedUnits.map((unit, index) =>
+                            modality === "live_lesson" ? (
+                              <div
+                                className="course-live-topic-row"
+                                key={unit.id}
+                              >
+                                <button
+                                  className={`course-live-topic-select ${unit.id === selectedUnitId ? "active" : ""}`}
+                                  onClick={() => setSelectedUnitId(unit.id)}
+                                >
+                                  <span className="course-unit-order">
+                                    {index + 1}
+                                  </span>
+                                  <span>
+                                    <b>{unit.title}</b>
+                                    <small>
+                                      {unit.subtitle || unit.id} ·{" "}
+                                      {unit.published ? "Published" : "Draft"}
+                                    </small>
+                                  </span>
+                                </button>
+                                <div className="course-live-topic-actions">
+                                  <button
+                                    className="course-icon-action"
+                                    type="button"
+                                    aria-label={`Pindahkan ${unit.title} ke atas`}
+                                    title="Pindahkan ke atas"
+                                    disabled={index === 0}
+                                    onClick={() => moveUnit(unit.id, -1)}
+                                  >
+                                    <ArrowUp size={14} />
+                                  </button>
+                                  <button
+                                    className="course-icon-action"
+                                    type="button"
+                                    aria-label={`Pindahkan ${unit.title} ke bawah`}
+                                    title="Pindahkan ke bawah"
+                                    disabled={
+                                      index === displayedUnits.length - 1
+                                    }
+                                    onClick={() => moveUnit(unit.id, 1)}
+                                  >
+                                    <ArrowDown size={14} />
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <button
+                                key={unit.id}
+                                className={
+                                  unit.id === selectedUnitId ? "active" : ""
+                                }
+                                onClick={() => setSelectedUnitId(unit.id)}
+                              >
+                                <span className="course-unit-order">
+                                  {Number(unit.sortOrder) + 1}
+                                </span>
+                                <span>
+                                  <b>{unit.title}</b>
+                                  <small>
+                                    {unit.id} ·{" "}
+                                    {unit.published ? "Published" : "Draft"}
+                                  </small>
+                                </span>
+                              </button>
+                            ),
+                          )}
                         </div>
                       )}
                       {selectedUnit ? (
                         <div className="course-unit-form">
                           <div className="course-field-grid">
                             <label>
-                              ID materi
+                              {modality === "live_lesson"
+                                ? "ID topik"
+                                : "ID materi"}
                               <input
                                 className="text-field"
                                 value={selectedUnit.id}
@@ -1159,27 +1354,29 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
                                 }
                               />
                             </label>
-                            <label>
-                              Kategori
-                              <select
-                                className="text-field"
-                                value={selectedUnit.categoryId}
-                                onChange={(event) =>
-                                  patchUnit("categoryId", event.target.value)
-                                }
-                              >
-                                {(currentModule.categories || []).map(
-                                  (category) => (
-                                    <option
-                                      key={category.id}
-                                      value={category.id}
-                                    >
-                                      {category.name}
-                                    </option>
-                                  ),
-                                )}
-                              </select>
-                            </label>
+                            {modality !== "live_lesson" && (
+                              <label>
+                                Kategori
+                                <select
+                                  className="text-field"
+                                  value={selectedUnit.categoryId}
+                                  onChange={(event) =>
+                                    patchUnit("categoryId", event.target.value)
+                                  }
+                                >
+                                  {(currentModule.categories || []).map(
+                                    (category) => (
+                                      <option
+                                        key={category.id}
+                                        value={category.id}
+                                      >
+                                        {category.name}
+                                      </option>
+                                    ),
+                                  )}
+                                </select>
+                              </label>
+                            )}
                             <label>
                               Judul
                               <input
@@ -1292,7 +1489,9 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
                                   patchUnit("published", event.target.checked)
                                 }
                               />{" "}
-                              Materi diterbitkan
+                              {modality === "live_lesson"
+                                ? "Topik diterbitkan"
+                                : "Materi diterbitkan"}
                             </label>
                           </div>
                           <div className="course-content-help">
@@ -1303,7 +1502,9 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
                                 : "Atur content.teacherRole, learnerRole, situation, opening, dan responseStyle. Live Teacher membuka percakapan lebih dulu."}
                           </div>
                           <label className="course-json-label">
-                            KONTEN MATERI · JSON OBJECT
+                            {modality === "live_lesson"
+                              ? "KONTEN TOPIK · JSON OBJECT"
+                              : "KONTEN MATERI · JSON OBJECT"}
                             <textarea
                               className="course-json-editor"
                               spellCheck={false}
@@ -1321,7 +1522,11 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
                               disabled={busy || isNew}
                             >
                               <Check size={15} />
-                              {busy ? "Menyimpan…" : "Simpan modul"}
+                              {busy
+                                ? "Menyimpan…"
+                                : modality === "live_lesson"
+                                  ? "Simpan topik"
+                                  : "Simpan modul"}
                             </button>
                             <button
                               className="outline-btn"
@@ -1341,7 +1546,9 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
                         </div>
                       ) : (
                         <div className="course-studio-empty compact">
-                          Pilih kategori lalu tambahkan unit materi.
+                          {modality === "live_lesson"
+                            ? "Belum ada topik. Tambahkan topik pertama untuk memulai."
+                            : "Pilih kategori lalu tambahkan unit materi."}
                         </div>
                       )}
                     </section>

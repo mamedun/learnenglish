@@ -1,5 +1,8 @@
+import { useMemo } from "react";
 import { ArrowRight, BookOpen, Flame, Sparkles, Star, Zap } from "lucide-react";
 import { achievements } from "../../gamification";
+import { hasCourseAccess } from "../courses/courseAccess";
+import { aggregateCourseAchievements } from "../progress/progressSummary";
 import { BADGE_ICONS } from "../learning/learningIcons";
 import "./homeCourses.css";
 
@@ -69,13 +72,21 @@ export default function HomePage({
   nav = () => {},
 }) {
   const enrolled = courses
-    .filter((course) => course.enrolled)
+    .filter((course) => hasCourseAccess(course))
     .sort(
       (a, b) =>
         new Date(b.lastActivityAt || 0) - new Date(a.lastActivityAt || 0),
     );
+  const availableCourses = courses
+    .filter(
+      (course) => !hasCourseAccess(course) && course.status === "published",
+    )
+    .slice(0, 2);
   const latest = enrolled[0];
-  const badgeList = achievements(data).slice(0, 4);
+  const badgeList = useMemo(
+    () => achievements(aggregateCourseAchievements(data, courses)).slice(0, 4),
+    [data, courses],
+  );
   return (
     <div className="home-courses-page">
       <section className="home-courses-welcome">
@@ -169,7 +180,13 @@ export default function HomePage({
         <div>
           <div className="eyebrow">NEXT UP</div>
           <h2>Temukan jalur belajar berikutnya</h2>
-          <p>IT Remote Worker gratis · Tour Guide English Rp25.000</p>
+          <p>
+            {availableCourses.length
+              ? availableCourses
+                  .map((course) => `${course.name} ${price(course.price)}`)
+                  .join(" · ")
+              : "Semua course yang tersedia sudah ada di ruang belajarmu."}
+          </p>
         </div>
         <button onClick={() => nav("courses")}>
           Buka katalog <ArrowRight size={16} />

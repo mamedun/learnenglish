@@ -23,6 +23,7 @@ import {
   useSpeechRecognition,
 } from "../../hooks/useSpeechRecognition";
 import ProcessingStatus from "../../components/ProcessingStatus";
+import useSmallViewport from "../../hooks/useSmallViewport";
 import "./ListeningSpeakingTask.css";
 
 export default function ListeningSpeakingTask({
@@ -62,7 +63,9 @@ export default function ListeningSpeakingTask({
   const similarityThreshold = normalizeSpeechThreshold(
     speechSimilarityThreshold,
   );
+  const isSmallViewport = useSmallViewport();
   const liveInput = liveMode && !directAudioMode;
+  const mobileTranscriptEditable = liveInput && isSmallViewport;
   const answer = liveInput ? recognition.transcript : aiTranscript;
   const preview = answer
     ? compareSpokenText(lesson.script, answer, similarityThreshold)
@@ -653,23 +656,41 @@ export default function ListeningSpeakingTask({
           {liveInput ? (
             <div className="transcript-area shadowing-transcript">
               <div className="transcript-label">
-                <span>TRANSKRIP LANGSUNG · READ-ONLY</span>
+                <span>
+                  {mobileTranscriptEditable
+                    ? "TRANSKRIP LANGSUNG · BISA DIEDIT"
+                    : "TRANSKRIP LANGSUNG · READ-ONLY"}
+                </span>
                 <span>{answer.length} karakter</span>
               </div>
               <textarea
                 value={answer}
-                readOnly
+                readOnly={!mobileTranscriptEditable}
+                onFocus={() => {
+                  if (mobileTranscriptEditable && recognition.listening)
+                    recognition.stop({ discardPendingResults: true });
+                }}
+                onChange={(event) =>
+                  recognition.setTranscript(event.target.value)
+                }
+                aria-label={
+                  mobileTranscriptEditable
+                    ? "Transkrip live, bisa diedit atau diisi dengan dikte keyboard"
+                    : "Transkrip live, hanya baca"
+                }
                 placeholder={
-                  recognition.braveDetected
-                    ? "Live transcription tidak tersedia di Brave. Gunakan Google Chrome."
-                    : recognition.supported
-                      ? "Ketuk Mulai bicara, lalu ucapkan paragraf…"
-                      : "Browser tidak mendukung Web Speech API. Minta admin mengaktifkan mode rekaman AI."
+                  mobileTranscriptEditable
+                    ? "Ketik jawaban atau gunakan mikrofon keyboard untuk dikte…"
+                    : recognition.braveDetected
+                      ? "Live transcription tidak tersedia di Brave. Gunakan Google Chrome."
+                      : recognition.supported
+                        ? "Ketuk Mulai bicara, lalu ucapkan paragraf…"
+                        : "Browser tidak mendukung Web Speech API. Minta admin mengaktifkan mode rekaman AI."
                 }
               />
               <div className="transcript-foot">
-                {directAudioMode
-                  ? "Audio dinilai langsung oleh server AI; browser tidak membuat transkrip sebelum pengiriman."
+                {mobileTranscriptEditable
+                  ? "Di HP, gunakan mikrofon keyboard untuk dikte teks. Audio tidak diunggah."
                   : speechScoringMode === "ai"
                     ? "Naskah dan transkrip teks dinilai AI; audio tidak dikirim."
                     : "Punctuation diabaikan saat menghitung kecocokan."}

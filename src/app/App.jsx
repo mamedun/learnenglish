@@ -19,6 +19,8 @@ import {
 import { initialData } from "../data";
 import { DEFAULT_LIVE_TOPIC_ID, getLiveTopic } from "../data/liveTopics";
 import { awardXP } from "../gamification";
+import { hasCourseAccess } from "../features/courses/courseAccess";
+import { buildCourseProgressSummary } from "../features/progress/progressSummary";
 import { deleteAllRecordings, exportBackup, importBackup } from "../storage";
 import { apiFetch, apiJson, apiUrl, refreshSession } from "../api";
 import {
@@ -111,6 +113,8 @@ function App() {
   const [courseList, setCourseList] = useState([]);
   const [courseAds, setCourseAds] = useState([]);
   const [courseCache, setCourseCache] = useState({});
+  const progressCourseLoadsRef = useRef(new Set());
+  const [progressCatalogLoading, setProgressCatalogLoading] = useState(false);
   const [coursePageLoading, setCoursePageLoading] = useState(false);
   const [coursePageError, setCoursePageError] = useState("");
   const [coursePurchase, setCoursePurchase] = useState(null);
@@ -256,8 +260,10 @@ function App() {
     if (!current()) return;
     setUser(account);
     accountIdRef.current = account.id;
+    progressCourseLoadsRef.current.clear();
+    setProgressCatalogLoading(false);
     setLoadError("");
-    if (account.must_change_password) {
+    if (account.role === "admin" && account.must_change_password) {
       setDataReady(false);
       return;
     }
@@ -356,6 +362,8 @@ function App() {
     setCatalog(ieltsCourse?.catalog || legacyCatalog);
     setCourseList(courseware.courses || []);
     setCourseAds(courseware.ads || []);
+    progressCourseLoadsRef.current.clear();
+    setProgressCatalogLoading(false);
     setCourseCache(ieltsCourse ? { ielts: ieltsCourse } : {});
   }
   async function reloadCourses() {
@@ -372,6 +380,48 @@ function App() {
     if (courseId === "ielts" && payload.catalog) setCatalog(payload.catalog);
     return payload;
   }
+  useEffect(() => {
+    if (!user || !dataReady || page !== "progress") return;
+    const missing = courseList.filter(
+      (course) =>
+        hasCourseAccess(course) &&
+        !courseCache[course.id] &&
+        !progressCourseLoadsRef.current.has(course.id),
+    );
+    if (!missing.length) return;
+    const requestUserId = user.id;
+    missing.forEach((course) => progressCourseLoadsRef.current.add(course.id));
+    setProgressCatalogLoading(true);
+    Promise.all(
+      missing.map(async (course) => {
+        try {
+          return [
+            course.id,
+            await apiJson(
+              `course-data?course_id=${encodeURIComponent(course.id)}`,
+            ),
+          ];
+        } catch {
+          return [course.id, null];
+        }
+      }),
+    )
+      .then((results) => {
+        if (accountIdRef.current !== requestUserId) return;
+        results.forEach(([courseId, payload]) => {
+          if (!payload) progressCourseLoadsRef.current.delete(courseId);
+        });
+        const loaded = Object.fromEntries(
+          results.filter(([, payload]) => payload),
+        );
+        if (Object.keys(loaded).length)
+          setCourseCache((previous) => ({ ...previous, ...loaded }));
+      })
+      .finally(() => {
+        if (accountIdRef.current === requestUserId)
+          setProgressCatalogLoading(false);
+      });
+  }, [page, user?.id, dataReady, courseList, courseCache]);
   function incrementCourseProgress(courseId) {
     const increment = (course) => {
       const progress = course.progress || {};
@@ -2860,8 +2910,8 @@ Because this is live audio, comment on pronunciation or word stress only when a 
     useAuthStore.getState().setAccessToken(result.access_token);
     await loadAccount(result.user);
     toast.success(
-      result.user.must_change_password
-        ? "Akun siap. Ganti password awal sebelum melanjutkan."
+      result.user.role === "admin" && result.user.must_change_password
+        ? "Akun admin siap. Ganti password awal sebelum melanjutkan."
         : mode === "register"
           ? "Akun berhasil dibuat. Selamat belajar!"
           : "Berhasil masuk. Welcome back!",
@@ -2888,6 +2938,10 @@ Because this is live audio, comment on pronunciation or word stress only when a 
       return;
     }
     accountIdRef.current = null;
+    progressCourseLoadsRef.current.clear();
+    setProgressCatalogLoading(false);
+    setCourseList([]);
+    setCourseCache({});
     useAuthStore.getState().clearAuth();
     useLearningStore.getState().resetLearning();
     setTurns([]);
@@ -2904,7 +2958,7 @@ Because this is live audio, comment on pronunciation or word stress only when a 
       </div>
     );
   if (!user) return <AuthScreen onAuth={authenticate} />;
-  if (user.must_change_password)
+  if (user.role === "admin" && user.must_change_password)
     return <PasswordForm required onLogout={logout} onChanged={loadAccount} />;
   if (!dataReady)
     return (
@@ -3311,15 +3365,14 @@ Because this is live audio, comment on pronunciation or word stress only when a 
               {page === "progress" && (
                 <ProgressPage
                   data={data}
-                  pct={pct}
-                  totalDone={totalDone}
-                  allTurns={allTurns}
+                  courses={courseList}
+                  courseCatalogs={courseCache}
+                  fallbackCatalog={activeCatalog}
+                  progressCatalogLoading={progressCatalogLoading}
                   startUnit={startUnit}
-                  allUnits={allUnits}
-                  curriculum={curriculum}
+                  startListening={startListening}
                   nav={nav}
                   hasLearningAccess={hasLearningAccess}
-                  listeningLessons={listeningLessons}
                 />
               )}
               {page === "settings" && (

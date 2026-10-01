@@ -32,7 +32,7 @@
   gap: 4px;
 }
 .ielts-task-meta small {
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 1px;
   color: #9aa49b;
   font-weight: 700;
@@ -64,7 +64,7 @@
   gap: 3px;
 }
 .prep-timer small {
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 1.2px;
   color: #78917c;
   font-weight: 700;
@@ -103,7 +103,7 @@
   color: #9e7336;
 }
 .band-estimate small {
-  font-size: 11px;
+  font-size: 12px;
   color: #a49981;
   margin-left: auto;
 }
@@ -117,7 +117,7 @@
   background: #fafbf9;
   border: 1px solid #eff1ed;
   border-radius: 6px;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.35;
   min-width: 0;
 }
@@ -126,7 +126,7 @@
   color: #537258 !important;
 }
 .score-row small {
-  font-size: 11px;
+  font-size: 12px;
   color: #a0a99f;
   display: block;
 }
@@ -138,7 +138,7 @@
 }
 .feedback-top:after {
   content: "★ = rating latihan, bukan band IELTS";
-  font-size: 11px;
+  font-size: 12px;
   color: #a09a8b;
   letter-spacing: 0;
   font-weight: 500;
@@ -190,7 +190,7 @@
 }
 .auth-brand small {
   display: block;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   color: #8b978d;
   letter-spacing: 1.25px;
@@ -368,7 +368,7 @@
   display: block;
   text-align: center;
   margin-top: 13px;
-  font-size: 11px;
+  font-size: 12px;
   color: #a1aaa2;
   line-height: 1.5;
 }
@@ -449,7 +449,7 @@
   border: 1px solid #ffffff45;
   border-radius: 20px;
   padding: 5px 8px;
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.8px;
 }
 .admin-grid {
@@ -1153,7 +1153,7 @@
 .free-browser-debug-setting small {
   margin-top: 4px;
   color: #7f798e;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.45;
 }
 .free-browser-debug-switch {
@@ -1243,7 +1243,7 @@
 }
 .admin-user-form label small {
   color: #817d91;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
   line-height: 1.4;
 }
@@ -1272,7 +1272,7 @@
 .admin-users-table th {
   padding: 9px 8px;
   color: #8b879a;
-  font-size: 10px;
+  font-size: 12px;
   letter-spacing: 0.08em;
 }
 .admin-users-table td {
@@ -1291,7 +1291,7 @@
 .admin-users-table td:first-child small {
   margin-top: 3px;
   color: #898698;
-  font-size: 11px;
+  font-size: 12px;
 }
 .admin-users-table .plan-select {
   max-width: 126px;
@@ -1324,7 +1324,7 @@
 .admin-action-disabled,
 .admin-empty-users {
   color: #9894a1;
-  font-size: 11px;
+  font-size: 12px;
 }
 .admin-empty-users {
   padding: 22px !important;
@@ -1419,7 +1419,7 @@
 }
 .processing-status-copy small {
   color: #728477;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.45;
 }
 .processing-status-progress {
@@ -1472,7 +1472,7 @@
 }
 .speech-browser-warning-content small {
   color: #8b7657;
-  font-size: 11px;
+  font-size: 12px;
 }
 .mic-main .mic-main-spinner {
   width: 22px;
@@ -1567,7 +1567,7 @@
   display: block;
   margin-top: 4px;
   color: #89839d;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
   line-height: 1.45;
 }
@@ -1579,7 +1579,7 @@
 .studio-cache-hint,
 .studio-cache-status {
   color: #77708f;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.5;
 }
 .dialogue-hint {
@@ -1642,7 +1642,7 @@
   display: block;
   margin-top: 4px;
   color: #89839d;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.45;
 }
 .studio-cache-generator .studio-cache-hint,
@@ -1780,7 +1780,7 @@
   align-items: center;
   gap: 7px;
   color: #82702b;
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 850;
   letter-spacing: 0.09em;
 }
@@ -1794,7 +1794,7 @@
   align-items: center;
   gap: 3px;
   color: #7a7a5f;
-  font-size: 10px;
+  font-size: 12px;
 }
 .diamond-pill {
   display: inline-flex;
@@ -1854,7 +1854,7 @@
 }
 .practice-mode-label {
   color: #78867b;
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 850;
   letter-spacing: 0.08em;
 }
@@ -1864,7 +1864,7 @@
 }
 .practice-response-mode > small {
   color: #758178;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.4;
 }
 .practice-response-mode > strong {
@@ -1878,7 +1878,7 @@
 .practice-wallet-hint {
   margin: 0 0 11px;
   color: #7a847c;
-  font-size: 11px;
+  font-size: 12px;
   text-align: right;
 }
 .practice-retry-note {
@@ -1896,7 +1896,7 @@
   border-radius: 999px;
   background: #e9f4ea;
   color: #41744b;
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 900;
   letter-spacing: 0.04em;
   white-space: nowrap;
@@ -1936,7 +1936,7 @@
 .lesson-points-banner small,
 .lesson-points-banner > span {
   color: #758078;
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.35;
 }
 .lesson-points-meter {
@@ -1962,7 +1962,7 @@
   border-radius: 99px;
   background: #f2f2ed;
   color: #778078;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 800;
   white-space: nowrap;
 }
@@ -1988,7 +1988,7 @@
 }
 .practice-criterion > span {
   color: #647269;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 750;
   line-height: 1.35;
 }
@@ -2002,12 +2002,12 @@
 }
 .practice-criterion > small {
   color: #7a857c;
-  font-size: 9px;
+  font-size: 12px;
   line-height: 1.4;
 }
 .practice-criterion > small.criteria-evidence {
   color: #55665a;
-  font-size: 10px;
+  font-size: 12px;
 }
 .finish-row .btn-primary:disabled {
   opacity: 0.48;
@@ -2037,7 +2037,7 @@
   .diamond-pill {
     min-height: 32px;
     padding: 6px 9px;
-    font-size: 11px;
+    font-size: 12px;
   }
   .practice-response-modes {
     grid-template-columns: 1fr;
@@ -2059,7 +2059,7 @@
     align-items: flex-end;
   }
   .session-count {
-    font-size: 10px !important;
+    font-size: 12px !important;
   }
   .practice-criteria-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
@@ -2070,6 +2070,6 @@
     gap: 4px;
   }
   .clear-lesson-history {
-    font-size: 11px !important;
+    font-size: 12px !important;
   }
 }

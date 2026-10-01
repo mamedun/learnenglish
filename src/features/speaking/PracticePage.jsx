@@ -42,6 +42,7 @@ import {
   useSpeechRecognition,
 } from "../../hooks/useSpeechRecognition";
 import CourseMedia from "../courses/CourseMedia";
+import useSmallViewport from "../../hooks/useSmallViewport";
 
 function PrepTimer({ unit }) {
   const [seconds, setSeconds] = useState(Number(unit.prepSeconds) || 60);
@@ -127,6 +128,8 @@ export default function PracticePage(p) {
   const currentUnitIdRef = useRef(unit.id);
   currentUnitIdRef.current = unit.id;
   const liveTranscription = responseMode === "transcript";
+  const isSmallViewport = useSmallViewport();
+  const mobileTranscriptEditable = liveTranscription && isSmallViewport;
   const recognizer = useSpeechRecognition({ language: "en-US" });
   const [showPrompt, setShowPrompt] = useState(false);
   const [scenarioComplete, setScenarioComplete] = useState(() =>
@@ -683,13 +686,34 @@ export default function PracticePage(p) {
               <textarea
                 maxLength={3000}
                 value={stripTranscriptSourceLabel(p.transcript)}
-                readOnly
-                aria-label="Transkrip ucapan langsung, hanya baca"
-                placeholder="Transkrip ucapan akan tampil di sini…"
+                readOnly={!mobileTranscriptEditable}
+                onFocus={() => {
+                  if (mobileTranscriptEditable && recognizer.listening)
+                    recognizer.stop({ discardPendingResults: true });
+                }}
+                onChange={(event) => {
+                  const value = stripTranscriptSourceLabel(
+                    event.target.value,
+                  ).slice(0, 3000);
+                  recognizer.setTranscript(value);
+                  p.setTranscript(value);
+                }}
+                aria-label={
+                  mobileTranscriptEditable
+                    ? "Transkrip jawaban live, bisa diedit atau diisi dengan dikte keyboard"
+                    : "Transkrip ucapan langsung, hanya baca"
+                }
+                placeholder={
+                  mobileTranscriptEditable
+                    ? "Ketik jawaban atau gunakan mikrofon keyboard untuk dikte…"
+                    : "Transkrip ucapan akan tampil di sini…"
+                }
               />
               <div className="transcript-foot">
                 <span>
-                  Read-only · transkrip dikirim ke tutor AI; audio tidak dikirim
+                  {mobileTranscriptEditable
+                    ? "Bisa diedit di HP · gunakan mikrofon keyboard untuk dikte; audio tidak dikirim"
+                    : "Read-only · transkrip dikirim ke tutor AI; audio tidak dikirim"}
                 </span>
                 <button
                   className="text-button"

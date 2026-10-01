@@ -10,6 +10,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import "./coursePages.css";
+import { hasCourseAccess } from "./courseAccess";
 
 const rupiah = (amount) =>
   Number(amount || 0) === 0
@@ -31,6 +32,7 @@ function modeTitle(mode) {
 }
 
 function CourseCard({ course, onOpen, onContinue }) {
+  const hasAccess = hasCourseAccess(course);
   const progress = course.progress || {};
   const last = course.lastModality;
   return (
@@ -63,7 +65,7 @@ function CourseCard({ course, onOpen, onContinue }) {
           <p>{course.description}</p>
         </div>
       </button>
-      {course.enrolled ? (
+      {hasAccess ? (
         <div className="course-card-progress-row">
           <div className="course-card-progress-copy">
             <span>
@@ -104,13 +106,13 @@ export function CoursesPage({
   onContinueCourse,
 }) {
   const enrolled = useMemo(
-    () => courses.filter((course) => course.enrolled),
+    () => courses.filter((course) => hasCourseAccess(course)),
     [courses],
   );
   const available = useMemo(
     () =>
       courses.filter(
-        (course) => !course.enrolled && course.status === "published",
+        (course) => !hasCourseAccess(course) && course.status === "published",
       ),
     [courses],
   );

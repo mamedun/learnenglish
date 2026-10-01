@@ -94,8 +94,8 @@ function user_row():?array{
     if (auth_bearer_header() !== '') return auth_bearer_user();
     return auth_legacy_user();
 }
-function public_user(array $u):array{return ['id'=>(int)$u['id'],'email'=>$u['email'],'name'=>$u['name'],'role'=>$u['role'],'plan'=>$u['role']==='admin'?'admin':($u['plan']??'regular'),'diamonds'=>isset($u['diamonds'])?(int)$u['diamonds']:wallet_balance((int)$u['id']),'unlimited_diamonds'=>$u['role']==='admin','created_at'=>$u['created_at'],'must_change_password'=>!empty($u['must_change_password'])];}
-function require_user():array{$u=user_row();if(!$u)respond(['error'=>'Silakan login terlebih dahulu.'],401);if(!empty($u['must_change_password']))respond(['error'=>'Ganti password awal sebelum memakai aplikasi.','password_change_required'=>true],403);if(lockdown_on()&&$u['role']!=='admin')respond(['error'=>'Aplikasi sedang dikunci sementara oleh admin.','locked'=>true],423);return $u;}
+function public_user(array $u):array{return ['id'=>(int)$u['id'],'email'=>$u['email'],'name'=>$u['name'],'role'=>$u['role'],'plan'=>$u['role']==='admin'?'admin':($u['plan']??'regular'),'diamonds'=>isset($u['diamonds'])?(int)$u['diamonds']:wallet_balance((int)$u['id']),'unlimited_diamonds'=>$u['role']==='admin','created_at'=>$u['created_at'],'must_change_password'=>$u['role']==='admin'&&!empty($u['must_change_password'])];}
+function require_user():array{$u=user_row();if(!$u)respond(['error'=>'Silakan login terlebih dahulu.'],401);if($u['role']==='admin'&&!empty($u['must_change_password']))respond(['error'=>'Ganti password awal sebelum memakai aplikasi.','password_change_required'=>true],403);if(lockdown_on()&&$u['role']!=='admin')respond(['error'=>'Aplikasi sedang dikunci sementara oleh admin.','locked'=>true],423);return $u;}
 function require_admin():array{$u=require_user();if($u['role']!=='admin')respond(['error'=>'Akses khusus admin.'],403);return $u;}
 function allowed_origins():array{$raw=cfg('CORS_ALLOWED_ORIGINS',[]);$origins=is_array($raw)?$raw:explode(',',(string)$raw);return array_values(array_filter(array_map(fn($x)=>rtrim(trim((string)$x),'/'),$origins)));}
 function cors_headers():void{$origin=$_SERVER['HTTP_ORIGIN']??'';if($origin==='')return;$allowed=allowed_origins();if(!in_array(rtrim($origin,'/'),$allowed,true))return;header('Access-Control-Allow-Origin: '.$origin);header('Access-Control-Allow-Credentials: true');header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With');header('Vary: Origin');}
@@ -861,7 +861,7 @@ if($action==='admin/users'&&$method==='POST'){
     if(strlen($password)<10||strlen($password)>200)respond(['error'=>'Password awal harus terdiri dari 10–200 karakter.'],422);
     if(!in_array($plan,['regular','premium'],true))respond(['error'=>'Tipe akun harus Regular atau Premium.'],422);
     try{
-        $q=db()->prepare("INSERT INTO users(email,name,password_hash,role,plan,created_at,must_change_password) VALUES(?,?,?,?,?,?,1)");
+        $q=db()->prepare("INSERT INTO users(email,name,password_hash,role,plan,created_at,must_change_password) VALUES(?,?,?,?,?,?,0)");
         $q->execute([$email,$name,password_hash($password,PASSWORD_DEFAULT),'user',$plan,gmdate('c')]);
     }catch(PDOException $e){
         if(str_contains(strtolower($e->getMessage()),'unique'))respond(['error'=>'Email sudah terdaftar.'],409);
@@ -893,7 +893,7 @@ if($action==='admin/users'&&$method==='PUT'){
         respond(['error'=>'Password sementara harus terdiri dari 10–200 karakter.'],422);
     try{
         if($password!==''){
-            db()->prepare('UPDATE users SET name=?,email=?,plan=?,password_hash=?,must_change_password=1 WHERE id=?')
+            db()->prepare('UPDATE users SET name=?,email=?,plan=?,password_hash=?,must_change_password=0 WHERE id=?')
                 ->execute([$name,$email,$plan,password_hash($password,PASSWORD_DEFAULT),$id]);
             auth_revoke_user($id);
         }else{

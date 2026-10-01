@@ -220,12 +220,18 @@ managed = request(admin, 'admin/users', 'POST', {
     'name': 'Managed Learner', 'email': managed_email,
     'password': 'managed-initial-password-2026',
 }, expected=201)['user']
-assert managed['role'] == 'user' and managed['plan'] == 'regular' and managed['must_change_password']
+assert managed['role'] == 'user' and managed['plan'] == 'regular' and not managed['must_change_password']
 managed = request(admin, 'admin/users', 'PUT', {
     'id': managed['id'], 'name': 'Updated Learner', 'email': managed_email,
     'password': 'managed-rotated-password-2026', 'plan': 'regular',
 })['user']
-assert managed['name'] == 'Updated Learner' and managed['plan'] == 'regular' and managed['must_change_password']
+assert managed['name'] == 'Updated Learner' and managed['plan'] == 'regular' and not managed['must_change_password']
+managed_client = client()
+managed_login = request(managed_client, 'login', 'POST', {
+    'email': managed_email, 'password': 'managed-rotated-password-2026',
+})['user']
+assert managed_login['role'] == 'user' and not managed_login['must_change_password']
+request(managed_client, 'progress')  # Admin-issued temporary passwords do not block regular users.
 managed_search = request(admin, f"admin/users?search={urllib.parse.quote(managed_email)}&page=1&page_size=10")
 assert managed_search['total'] == 1 and managed_search['users'][0]['id'] == managed['id']
 assert request(admin, 'admin/wallet', 'PUT', {'id': managed['id'], 'mode': 'set', 'balance': 25})['diamonds'] == 25

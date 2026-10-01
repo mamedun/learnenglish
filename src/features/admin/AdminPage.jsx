@@ -17,7 +17,6 @@ import {
 } from "lucide-react";
 import { apiFetch, apiJson } from "../../api";
 import ModuleLoading from "../../components/ModuleLoading";
-import ContentStudio from "./ContentStudio";
 import AdminAudioCache from "./AdminAudioCache";
 import AdminUsersPanel from "./AdminUsersPanel";
 import AdminPurchasesHub from "./AdminPurchasesHub";
@@ -282,14 +281,6 @@ export default function AdminPage({
         </button>
         <button
           role="tab"
-          aria-selected={adminTab === "content"}
-          className={adminTab === "content" ? "active" : ""}
-          onClick={() => setAdminTab("content")}
-        >
-          <BookOpen size={17} /> Studio konten
-        </button>
-        <button
-          role="tab"
           aria-selected={adminTab === "audio"}
           className={adminTab === "audio" ? "active" : ""}
           onClick={() => setAdminTab("audio")}
@@ -331,8 +322,6 @@ export default function AdminPage({
       </div>
       {adminTab === "courses" ? (
         <CourseStudio onCatalogChange={onCatalogChange} />
-      ) : adminTab === "content" ? (
-        <ContentStudio onCatalogChange={onCatalogChange} />
       ) : adminTab === "audio" ? (
         <AdminAudioCache />
       ) : adminTab === "users" ? (
