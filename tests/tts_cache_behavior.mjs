@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { getGeneratedSamples } from "../src/lib/ttsRocks.js";
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 const [
@@ -23,6 +24,23 @@ const [
   read("api/catalog.php"),
   read("src/lib/ttsRocks.js"),
 ]);
+
+const expectedWaveform = Float32Array.from([0.25, -0.5, 0.75]);
+assert.deepEqual(
+  getGeneratedSamples({ audio: { audio: expectedWaveform } }),
+  expectedWaveform,
+);
+assert.deepEqual(
+  getGeneratedSamples({ audio: { data: expectedWaveform } }),
+  expectedWaveform,
+);
+assert.deepEqual(getGeneratedSamples(expectedWaveform), expectedWaveform);
+assert.deepEqual(
+  getGeneratedSamples({
+    audio: { audio: new Float32Array(0), data: expectedWaveform },
+  }),
+  expectedWaveform,
+);
 
 assert.match(app, /const engine = isSmallViewport \? "native"/);
 assert.ok(

@@ -359,22 +359,61 @@ function wavFromFloat32(samples, sampleRate) {
   return new Blob([buffer], { type: "audio/wav" });
 }
 
-function getGeneratedSamples(result) {
-  const candidate =
-    result?.data ??
-    result?.audio?.data ??
-    result?.audio?.audio ??
-    result?.audio ??
-    result?.waveform;
-  if (candidate instanceof Float32Array) return candidate;
-  if (ArrayBuffer.isView(candidate))
-    return new Float32Array(
-      candidate.buffer,
-      candidate.byteOffset,
-      Math.floor(candidate.byteLength / Float32Array.BYTES_PER_ELEMENT),
-    );
-  if (Array.isArray(candidate)) return Float32Array.from(candidate);
+function toFloat32Samples(candidate) {
+  if (candidate instanceof Float32Array)
+    return candidate.length ? candidate : null;
+  if (candidate instanceof ArrayBuffer) {
+    if (candidate.byteLength < Float32Array.BYTES_PER_ELEMENT) return null;
+    return new Float32Array(candidate, 0, Math.floor(candidate.byteLength / 4));
+  }
+  if (ArrayBuffer.isView(candidate)) {
+    if (!candidate.length) return null;
+    return Float32Array.from(candidate);
+  }
+  if (Array.isArray(candidate)) {
+    if (!candidate.length) return null;
+    if (candidate.every((sample) => typeof sample === "number"))
+      return Float32Array.from(candidate);
+    const chunks = candidate.map(toFloat32Samples).filter(Boolean);
+    const length = chunks.reduce((total, chunk) => total + chunk.length, 0);
+    if (!length) return null;
+    const samples = new Float32Array(length);
+    let offset = 0;
+    for (const chunk of chunks) {
+      samples.set(chunk, offset);
+      offset += chunk.length;
+    }
+    return samples;
+  }
   return null;
+}
+
+export function getGeneratedSamples(result) {
+  const audio = result?.audio;
+  const candidates = [
+    audio?.audio,
+    audio?.data,
+    audio?.waveform,
+    result?.waveform,
+    result?.data,
+    audio,
+    result,
+  ];
+  for (const candidate of candidates) {
+    const samples = toFloat32Samples(candidate);
+    if (samples?.length) return samples;
+  }
+  return null;
+}
+
+function describeAudioPayload(result) {
+  const payload = result?.audio ?? result;
+  const constructor = payload?.constructor?.name || typeof payload;
+  const keys =
+    payload && typeof payload === "object" ? Object.keys(payload) : [];
+  return keys.length
+    ? `${constructor} (${keys.slice(0, 8).join(", ")})`
+    : constructor;
 }
 
 function serializeKokoroInference(operation) {
@@ -411,11 +450,16 @@ async function collectStreamedSamples(
   let sampleRate = null;
 
   for await (const part of stream) {
-    if (!part?.audio) continue;
+    if (!part) continue;
     const samples = getGeneratedSamples(part);
+    if (!samples?.length) {
+      if (part.audio == null && part.data == null && part.waveform == null)
+        continue;
+      throw new Error(
+        `Waveform Kokoro tidak dikenali (${describeAudioPayload(part)}).`,
+      );
+    }
     const partSampleRate = getGeneratedSampleRate(part);
-    if (!samples?.length)
-      throw new Error("Kokoro tidak menghasilkan waveform audio yang valid.");
     if (sampleRate !== null && sampleRate !== partSampleRate)
       throw new Error(
         "Kokoro menghasilkan sample rate audio yang tidak cocok.",
@@ -427,7 +471,7 @@ async function collectStreamedSamples(
   }
 
   if (!totalSamples || !sampleRate)
-    throw new Error("Kokoro tidak menghasilkan waveform audio yang valid.");
+    throw new Error("Kokoro menyelesaikan stream tanpa mengirim chunk audio.");
 
   const combined = new Float32Array(totalSamples);
   let offset = 0;
