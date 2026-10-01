@@ -10,6 +10,19 @@ let initPromise;
 let configuredDevice = "";
 let activeConfig = { compute: "auto", onStatus: () => {} };
 
+const BUSY_TTS_PHASES = new Set([
+  "initialize",
+  "download",
+  "cache",
+  "cache-hit",
+  "load-model",
+  "speaking",
+]);
+
+export function isTtsBusy(status) {
+  return BUSY_TTS_PHASES.has(status?.phase);
+}
+
 export const KOKORO_VOICES = [
   { id: "af_heart", name: "Heart", accent: "American · feminine" },
   { id: "af_bella", name: "Bella", accent: "American · feminine" },

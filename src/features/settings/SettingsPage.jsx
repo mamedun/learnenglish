@@ -17,7 +17,11 @@ import PasswordForm from "../auth/PasswordForm";
 import { toast } from "sonner";
 import Swal from "sweetalert2";
 import { useEffect, useState } from "react";
-import { getKokoroCacheInfo, KOKORO_VOICES } from "../../lib/ttsRocks";
+import {
+  getKokoroCacheInfo,
+  isTtsBusy,
+  KOKORO_VOICES,
+} from "../../lib/ttsRocks";
 
 export default function SettingsPage({
   data,
@@ -27,6 +31,7 @@ export default function SettingsPage({
   handleImport,
   resetData,
   exportBackup: exportBackup2,
+  importingBackup = false,
   speak,
   preloadTTS,
   ttsStatus,
@@ -36,6 +41,8 @@ export default function SettingsPage({
   onPasswordChanged,
 }) {
   const [cacheInfo, setCacheInfo] = useState(null);
+  const [backupBusy, setBackupBusy] = useState(false);
+  const ttsBusy = isTtsBusy(ttsStatus);
   useEffect(() => {
     getKokoroCacheInfo().then(setCacheInfo);
   }, [ttsStatus?.phase]);
@@ -65,10 +72,13 @@ export default function SettingsPage({
         if (!choice.isConfirmed) return;
         includeAudio = choice.value === "yes";
       }
+      setBackupBusy(true);
       await exportBackup2(data, includeAudio);
       toast.success("Backup akun berhasil dibuat.");
     } catch (e) {
       toast.error(e.message || "Ekspor gagal.");
+    } finally {
+      setBackupBusy(false);
     }
   }
   return (
@@ -150,8 +160,17 @@ export default function SettingsPage({
                         "Hello! It is lovely to practice English with you today.",
                       )
                     }
+                    disabled={ttsBusy}
                   >
-                    <Play size={14} fill="currentColor" /> Listen sample
+                    {ttsBusy ? (
+                      <>
+                        <span className="spinner" /> Menyiapkan…
+                      </>
+                    ) : (
+                      <>
+                        <Play size={14} fill="currentColor" /> Listen sample
+                      </>
+                    )}
                   </button>
                 </div>
                 <label className="field-label">COMPUTE MODE</label>
@@ -185,18 +204,14 @@ export default function SettingsPage({
                   <button
                     className="outline-btn"
                     onClick={preloadTTS}
-                    disabled={[
-                      "initialize",
-                      "download",
-                      "cache",
-                      "load-model",
-                    ].includes(ttsStatus?.phase)}
+                    disabled={ttsBusy}
                   >
-                    {["initialize", "download", "cache", "load-model"].includes(
-                      ttsStatus?.phase,
-                    ) ? (
+                    {ttsBusy ? (
                       <>
-                        <span className="spinner" /> Menyiapkan model…
+                        <span className="spinner" />
+                        {ttsStatus?.phase === "speaking"
+                          ? "Memutar audio…"
+                          : "Menyiapkan model…"}
                       </>
                     ) : (
                       <>
@@ -205,7 +220,11 @@ export default function SettingsPage({
                     )}
                   </button>
                 </div>
-                <p className="tts-status" role="status">
+                <p
+                  className={`tts-status ${ttsBusy ? "tts-status-loading" : ""}`}
+                  role="status"
+                >
+                  {ttsBusy && <span className="processing-status-spinner" />}
                   {ttsStatus?.message ||
                     "Model dimuat otomatis saat suara pertama kali diputar."}
                 </p>
@@ -241,8 +260,17 @@ export default function SettingsPage({
                         "Hello! It is lovely to practice English with you today.",
                       )
                     }
+                    disabled={ttsBusy}
                   >
-                    <Play size={14} fill="currentColor" /> Listen sample
+                    {ttsBusy ? (
+                      <>
+                        <span className="spinner" /> Menyiapkan…
+                      </>
+                    ) : (
+                      <>
+                        <Play size={14} fill="currentColor" /> Listen sample
+                      </>
+                    )}
                   </button>
                 </div>
                 <div className="info-box">
@@ -314,14 +342,35 @@ export default function SettingsPage({
               file audio pilihanmu. Impor akan mengganti progres akun ini.
             </p>
             <div className="backup-actions">
-              <button className="btn-primary" onClick={makeBackup}>
-                <ArrowDownToLine size={16} /> Ekspor backup ZIP
+              <button
+                className="btn-primary"
+                onClick={makeBackup}
+                disabled={backupBusy || importingBackup}
+              >
+                {backupBusy ? (
+                  <>
+                    <span className="spinner" /> Membuat backup…
+                  </>
+                ) : (
+                  <>
+                    <ArrowDownToLine size={16} /> Ekspor backup ZIP
+                  </>
+                )}
               </button>
               <button
                 className="outline-btn"
                 onClick={() => fileInput.current?.click()}
+                disabled={backupBusy || importingBackup}
               >
-                <Upload size={16} /> Impor backup
+                {importingBackup ? (
+                  <>
+                    <span className="spinner" /> Mengimpor…
+                  </>
+                ) : (
+                  <>
+                    <Upload size={16} /> Impor backup
+                  </>
+                )}
               </button>
             </div>
           </section>

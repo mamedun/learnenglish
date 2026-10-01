@@ -37,9 +37,10 @@ import PasswordForm from "../features/auth/PasswordForm";
 import HomePage from "../features/dashboard/HomePage";
 import ModuleLoading from "../components/ModuleLoading";
 import ModuleErrorBoundary from "../components/ModuleErrorBoundary";
+import ProcessingStatus from "../components/ProcessingStatus";
 import { LEVEL_ICONS } from "../features/learning/learningIcons";
 import { convertRecordingToWav } from "../lib/audio";
-import { preloadKokoro, speakKokoro } from "../lib/ttsRocks";
+import { isTtsBusy, preloadKokoro, speakKokoro } from "../lib/ttsRocks";
 
 const AdminPage = lazy(() => import("../features/admin/AdminPage"));
 const ListeningPage = lazy(() => import("../features/listening/ListeningPage"));
@@ -81,6 +82,10 @@ function App() {
   const [turns, setTurns] = useState([]);
   const [recording, setRecording] = useState(false);
   const [processing, setProcessing] = useState(false);
+  const [processingMessage, setProcessingMessage] = useState("");
+  const [operationStatus, setOperationStatus] = useState("");
+  const [loadingRecordingId, setLoadingRecordingId] = useState(null);
+  const [importingBackup, setImportingBackup] = useState(false);
   const [permission, setPermission] = useState("idle");
   const [devices, setDevices] = useState([]);
   const [deviceId, setDeviceId] = useState("");
@@ -92,8 +97,10 @@ function App() {
   const [liveSeconds, setLiveSeconds] = useState(0);
   const [liveLines, setLiveLines] = useState([]);
   const [liveStatus, setLiveStatus] = useState("Ready");
+  const [liveLoading, setLiveLoading] = useState(false);
   const [liveAssessment, setLiveAssessment] = useState(null);
   const liveWsRef = useRef(null);
+  const ttsRequestIdRef = useRef(0);
   const liveContextRef = useRef(null);
   const liveStreamRef = useRef(null);
   const liveSourceRef = useRef(null);
@@ -112,6 +119,7 @@ function App() {
     [curriculum],
   );
   const activeUnit = allUnits.find((u) => u.id === activeUnitId) || allUnits[0];
+  const ttsBusy = isTtsBusy(ttsStatus);
 
   async function loadAccount(account, current = () => true) {
     if (!current()) return;
@@ -353,6 +361,7 @@ function App() {
     setShowLessonList(false);
   };
   async function requestMic() {
+    setPermission("requesting");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: deviceId
@@ -430,6 +439,11 @@ function App() {
     }
 
     setProcessing(true);
+    setProcessingMessage(
+      useServerAudio
+        ? "Menunggu persetujuan pengiriman audio…"
+        : "Mengirim transkrip ke tutor AI…",
+    );
     let replyObj = null;
     let audioResult = null;
     let saveThisAudio = Boolean(sessionSaveAudio);
@@ -445,6 +459,7 @@ function App() {
           confirmButtonColor: "#315c45",
         });
         if (!consent.isConfirmed) return;
+        setProcessingMessage("Menyiapkan rekaman untuk dikirim…");
 
         const audioForAI =
           appConfig.ai_provider === "free"
@@ -471,16 +486,21 @@ function App() {
           audioForAI,
           `${crypto.randomUUID()}.${audioExtension}`,
         );
+        setProcessingMessage(
+          "Mengirim audio untuk transkripsi dan feedback AI…",
+        );
         const response = await apiFetch("assess-audio", {
           method: "POST",
           body: form,
         });
+        setProcessingMessage("Menerima transkrip dan feedback AI…");
         const payload = await response.json();
         if (!response.ok)
           throw new Error(payload.error || "Evaluasi audio AI gagal.");
         audioResult = payload.result;
         replyObj = audioResult;
       } else {
+        setProcessingMessage("Mengirim transkrip ke tutor AI…");
         const response = await apiFetch("chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -508,6 +528,7 @@ function App() {
               .map((turn) => ({ user: turn.userText, assistant: turn.reply })),
           }),
         });
+        setProcessingMessage("Menyiapkan feedback tutor…");
         const payload = await response.json();
         if (!response.ok)
           throw new Error(payload.error || "Tutor AI belum tersedia.");
@@ -546,6 +567,7 @@ function App() {
 
       let audioId = null;
       if (saveThisAudio && useServerAudio && audioBlob) {
+        setProcessingMessage("Mengunggah rekaman untuk disimpan ke akun…");
         const form = new FormData();
         form.append(
           "audio",
@@ -606,6 +628,7 @@ function App() {
       toast.error(error.message || "Jawaban belum dapat diproses.");
     } finally {
       setProcessing(false);
+      setProcessingMessage("");
     }
   }
   function finishUnit() {
@@ -631,7 +654,7 @@ function App() {
     }
     nav("home");
   }
-  function speakWithBrowser(text) {
+  function speakWithBrowser(text, requestId) {
     const synth = window.speechSynthesis;
     if (!synth) throw new Error("Text-to-speech tidak didukung browser ini.");
     synth.cancel();
@@ -646,15 +669,47 @@ function App() {
     utterance.lang = voice?.lang || "en-US";
     utterance.rate = 0.88;
     if (voice) utterance.voice = voice;
+    setTtsStatus({
+      phase: "speaking",
+      message: "Menyiapkan suara Browser Native…",
+    });
+    utterance.onstart = () => {
+      if (requestId === ttsRequestIdRef.current)
+        setTtsStatus({
+          phase: "speaking",
+          message: "Membacakan dengan Browser Native…",
+        });
+    };
+    utterance.onend = () => {
+      if (requestId === ttsRequestIdRef.current)
+        setTtsStatus({ phase: "ready", message: "Browser Native siap." });
+    };
+    utterance.onerror = (event) => {
+      if (requestId !== ttsRequestIdRef.current) return;
+      if (event.error === "canceled" || event.error === "interrupted") {
+        setTtsStatus({
+          phase: "ready",
+          message: "Pemutaran suara dihentikan.",
+        });
+        return;
+      }
+      setTtsStatus({
+        phase: "error",
+        message: "Browser Native gagal membacakan teks.",
+      });
+      toast.error("Browser Native gagal membacakan teks.");
+    };
     synth.speak(utterance);
   }
 
   async function speak(text) {
     if (!text) return;
+    const requestId = ++ttsRequestIdRef.current;
     if ((data.settings.tts || "kokoro") === "native") {
       try {
-        speakWithBrowser(text);
+        speakWithBrowser(text, requestId);
       } catch (error) {
+        setTtsStatus({ phase: "error", message: error.message });
         toast.error(error.message || "Browser TTS gagal diputar.");
       }
       return;
@@ -666,9 +721,12 @@ function App() {
         voice: data.settings.voice || "af_heart",
         compute: data.settings.ttsCompute || "auto",
         speed: 0.88,
-        onStatus: setTtsStatus,
+        onStatus: (status) => {
+          if (requestId === ttsRequestIdRef.current) setTtsStatus(status);
+        },
       });
     } catch (error) {
+      if (requestId !== ttsRequestIdRef.current) return;
       setTtsStatus({
         phase: "error",
         message: error.message || "Kokoro gagal dimuat.",
@@ -678,7 +736,7 @@ function App() {
           "Kokoro belum tersedia. Memakai Browser Native untuk kali ini.",
         );
         try {
-          speakWithBrowser(text);
+          speakWithBrowser(text, requestId);
         } catch {
           // The original Kokoro error is the useful one to report.
           toast.error(error.message || "Gagal memutar suara.");
@@ -729,6 +787,7 @@ function App() {
     setElapsed(0);
   }
   async function playRecording(id) {
+    setLoadingRecordingId(id);
     try {
       const response = await apiFetch(`audio/${encodeURIComponent(id)}`);
       if (!response.ok)
@@ -739,6 +798,20 @@ function App() {
       await new Audio(audioUrlRef.current).play();
     } catch (e) {
       toast.error(e.message || "Audio gagal diputar.");
+    } finally {
+      setLoadingRecordingId(null);
+    }
+  }
+  async function runBackupExport(snapshot, includeAudio) {
+    setOperationStatus(
+      includeAudio
+        ? "Mengunduh rekaman untuk dimasukkan ke backup…"
+        : "Membuat backup ZIP…",
+    );
+    try {
+      await exportBackup(snapshot, includeAudio);
+    } finally {
+      setOperationStatus("");
     }
   }
   async function handleImport(file) {
@@ -754,7 +827,10 @@ function App() {
         confirmButtonColor: "#315c45",
       });
       if (res.isConfirmed) {
+        setImportingBackup(true);
+        setOperationStatus("Menunggu sinkronisasi progres…");
         await saveChain.current.catch(() => {});
+        setOperationStatus("Mengimpor backup ke akun…");
         const imported = await importBackup(file);
         setData(imported);
         toast.success("Backup berhasil diimpor ke akun server.");
@@ -762,6 +838,8 @@ function App() {
     } catch (e) {
       toast.error(e.message || "File backup tidak valid.");
     } finally {
+      setImportingBackup(false);
+      setOperationStatus("");
       if (fileInput.current) fileInput.current.value = "";
     }
   }
@@ -775,18 +853,20 @@ function App() {
       cancelButtonText: "Batal",
       confirmButtonColor: "#d33",
     });
-    if (res.isConfirmed) {
-      try {
-        await saveChain.current.catch(() => {});
-        await deleteAllRecordings();
-      } catch (error) {
-        toast.error(error.message || "Gagal menghapus progres.");
-        return;
-      }
+    if (!res.isConfirmed) return;
+    setOperationStatus("Menunggu sinkronisasi progres…");
+    try {
+      await saveChain.current.catch(() => {});
+      setOperationStatus("Menghapus rekaman dan progres akun…");
+      await deleteAllRecordings();
       const fresh = structuredClone(initialData);
       setData(fresh);
       setTurns([]);
       toast.success("Data akun di server sudah dihapus.");
+    } catch (error) {
+      toast.error(error.message || "Gagal menghapus progres.");
+    } finally {
+      setOperationStatus("");
     }
   }
   const voices =
@@ -851,11 +931,12 @@ function App() {
         confirmButtonColor: "#315c45",
       });
       if (!consent.isConfirmed) return;
+      setLiveLoading(true);
       setLiveAssessment(null);
       setLiveLines([]);
       liveTranscriptRef.current = "";
       setLiveSeconds(0);
-      setLiveStatus("Meminta akses mikrofon\u2026");
+      setLiveStatus("Meminta akses mikrofon…");
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
@@ -864,7 +945,7 @@ function App() {
         },
       });
       liveStreamRef.current = stream;
-      setLiveStatus("Meminta token sementara\u2026");
+      setLiveStatus("Meminta token sementara…");
       const tokenResp = await apiFetch("live-token", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -884,7 +965,7 @@ function App() {
         `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContentConstrained?access_token=${encodeURIComponent(tokenData.token)}`,
       );
       liveWsRef.current = ws;
-      setLiveStatus("Connecting to Gemini Live\u2026");
+      setLiveStatus("Menghubungkan ke Gemini Live…");
       ws.onopen = () => {
         ws.send(
           JSON.stringify({
@@ -905,6 +986,7 @@ function App() {
           if (msg.setupComplete) {
             setLiveStatus("Connected \xB7 speaking");
             setLiveOn(true);
+            setLiveLoading(false);
             const src = ctx.createMediaStreamSource(stream);
             const proc = ctx.createScriptProcessor(4096, 1, 1);
             const mute = ctx.createGain();
@@ -949,6 +1031,7 @@ function App() {
         } catch {}
       };
       ws.onerror = () => {
+        setLiveLoading(false);
         setLiveStatus("Connection error");
         toast.error(
           "Koneksi Gemini Live gagal. Periksa model dan konfigurasi admin.",
@@ -957,11 +1040,13 @@ function App() {
       };
       ws.onclose = () => {
         if (liveWsRef.current === ws) {
+          setLiveLoading(false);
           setLiveStatus("Disconnected");
           void endLive();
         }
       };
     } catch (e) {
+      setLiveLoading(false);
       setLiveStatus("Unavailable");
       liveStreamRef.current?.getTracks().forEach((t) => t.stop());
       liveStreamRef.current = null;
@@ -979,6 +1064,8 @@ function App() {
     }
   }
   async function endLive() {
+    setLiveLoading(true);
+    setLiveStatus("Mengakhiri sesi Live…");
     liveProcessorRef.current?.disconnect();
     liveProcessorRef.current = null;
     liveSourceRef.current?.disconnect();
@@ -998,13 +1085,14 @@ function App() {
     liveContextRef.current = null;
     if (ctx) await ctx.close().catch(() => {});
     setLiveOn(false);
-    setLiveStatus("Session ended");
     const transcript2 = liveTranscriptRef.current.trim().slice(0, 12e3);
     if (!transcript2) {
+      setLiveStatus("Sesi berakhir");
+      setLiveLoading(false);
       toast.info("Sesi ditutup. Belum ada transkrip untuk dinilai.");
       return;
     }
-    setLiveStatus("Preparing session feedback\u2026");
+    setLiveStatus("Mengirim transkrip untuk feedback sesi…");
     try {
       const r = await apiFetch("live-assessment", {
         method: "POST",
@@ -1014,6 +1102,7 @@ function App() {
           level: activeUnit.level,
         }),
       });
+      setLiveStatus("Menerima feedback sesi…");
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || "Feedback gagal dibuat.");
       setLiveAssessment(j.assessment);
@@ -1022,6 +1111,8 @@ function App() {
     } catch (e) {
       setLiveStatus("Session ended \xB7 feedback unavailable");
       toast.error(e.message || "Transkrip sesi tidak dapat dinilai.");
+    } finally {
+      setLiveLoading(false);
     }
   }
   async function authenticate(mode, payload) {
@@ -1260,6 +1351,53 @@ function App() {
           </div>
         )}
         <div className="page-content">
+          {processing ? (
+            <ProcessingStatus
+              message={processingMessage || "Memproses jawaban…"}
+              detail="Permintaan sedang diproses. Koneksi lambat bisa membutuhkan waktu lebih lama."
+              className="processing-status-global"
+            />
+          ) : ttsBusy ? (
+            <ProcessingStatus
+              message={ttsStatus.message || "Menyiapkan audio…"}
+              progress={ttsStatus.progress}
+              detail={
+                ttsStatus.phase === "download"
+                  ? "Unduhan awal model sekitar 82 MB. Model akan tersimpan di perangkat untuk pemutaran berikutnya."
+                  : ttsStatus.phase === "load-model" ||
+                      ttsStatus.phase === "cache-hit"
+                    ? "Model sedang dimuat di perangkat sebelum suara mulai diputar."
+                    : ttsStatus.phase === "speaking"
+                      ? "Suara sedang dibuat dan diputar di perangkat."
+                      : "Menyiapkan mesin suara. Proses pertama kali bisa memerlukan waktu."
+              }
+              className="processing-status-global"
+            />
+          ) : liveLoading ? (
+            <ProcessingStatus
+              message={liveStatus || "Menghubungkan ke Gemini Live…"}
+              detail="Menyiapkan mikrofon, koneksi, atau feedback sesi."
+              className="processing-status-global"
+            />
+          ) : loadingRecordingId ? (
+            <ProcessingStatus
+              message="Memuat rekaman audio…"
+              detail="Audio sedang diambil dari akunmu."
+              className="processing-status-global"
+            />
+          ) : permission === "requesting" ? (
+            <ProcessingStatus
+              message="Meminta akses mikrofon…"
+              detail="Pilih Izinkan pada dialog browser jika diminta."
+              className="processing-status-global"
+            />
+          ) : operationStatus ? (
+            <ProcessingStatus
+              message={operationStatus}
+              detail="Menunggu proses selesai; jangan tutup halaman ini."
+              className="processing-status-global"
+            />
+          ) : null}
           <ModuleErrorBoundary module={page}>
             <Suspense fallback={<ModuleLoading label={pageTitle} />}>
               {page === "home" && (
@@ -1288,6 +1426,7 @@ function App() {
                   data={data}
                   setData={setData}
                   speak={speak}
+                  ttsStatus={ttsStatus}
                   speechInputMode={appConfig.speech_input_mode}
                   aiProvider={appConfig.ai_provider}
                 />
@@ -1302,6 +1441,7 @@ function App() {
                   setTranscript={setTranscript}
                   recording={recording}
                   processing={processing}
+                  processingMessage={processingMessage}
                   permission={permission}
                   devices={devices}
                   deviceId={deviceId}
@@ -1324,7 +1464,9 @@ function App() {
                   submitTurn={submitTurn}
                   finishUnit={finishUnit}
                   speak={speak}
+                  ttsStatus={ttsStatus}
                   playRecording={playRecording}
+                  loadingRecordingId={loadingRecordingId}
                   completed={completed}
                   sessionSaveAudio={sessionSaveAudio}
                   speechInputMode={appConfig.speech_input_mode}
@@ -1337,6 +1479,7 @@ function App() {
                   liveSeconds={liveSeconds}
                   liveLines={liveLines}
                   liveStatus={liveStatus}
+                  liveLoading={liveLoading}
                   liveAssessment={liveAssessment}
                   beginLive={beginLive}
                   endLive={endLive}
@@ -1363,7 +1506,8 @@ function App() {
                   voices={voices}
                   fileInput={fileInput}
                   resetData={resetData}
-                  exportBackup={exportBackup}
+                  exportBackup={runBackupExport}
+                  importingBackup={importingBackup}
                   speak={speak}
                   preloadTTS={preloadTTS}
                   ttsStatus={ttsStatus}

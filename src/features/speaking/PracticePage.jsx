@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatTime } from "../../lib/formatTime";
+import { isTtsBusy } from "../../lib/ttsRocks";
 import { useSpeechRecognition } from "../../hooks/useSpeechRecognition";
 
 function PrepTimer({ unit }) {
@@ -81,6 +82,7 @@ export default function PracticePage(p) {
     setTranscript,
     recording,
     processing,
+    processingMessage,
     permission,
     devices,
     deviceId,
@@ -95,7 +97,9 @@ export default function PracticePage(p) {
     submitTurn,
     finishUnit,
     speak,
+    ttsStatus,
     playRecording,
+    loadingRecordingId,
     completed,
     speechInputMode = "live_transcribe",
     resetRecording,
@@ -104,6 +108,7 @@ export default function PracticePage(p) {
   const recognizer = useSpeechRecognition({ language: "en-US" });
   const [showPrompt, setShowPrompt] = useState(false);
   const transcribing = liveTranscription && recognizer.listening;
+  const ttsBusy = isTtsBusy(ttsStatus);
   useEffect(() => {
     setShowPrompt(false);
     recognizer.reset();
@@ -262,9 +267,14 @@ export default function PracticePage(p) {
             <button
               className="round-play"
               onClick={() => speak(unit.prompt)}
-              aria-label="Dengarkan contoh"
+              aria-label={ttsBusy ? "Menyiapkan audio" : "Dengarkan contoh"}
+              disabled={ttsBusy}
             >
-              <Volume2 size={17} />
+              {ttsBusy ? (
+                <span className="spinner round-play-spinner" />
+              ) : (
+                <Volume2 size={17} />
+              )}
             </button>
           </div>
           <div className="ielts-task-meta">
@@ -312,15 +322,23 @@ export default function PracticePage(p) {
                   }
                 }}
                 disabled={
-                  processing || (liveTranscription && !recognizer.supported)
+                  processing ||
+                  permission === "requesting" ||
+                  (liveTranscription && !recognizer.supported)
                 }
                 aria-label={
-                  recording || transcribing
-                    ? "Hentikan mikrofon"
-                    : "Mulai bicara"
+                  permission === "requesting"
+                    ? "Meminta akses mikrofon"
+                    : recording || transcribing
+                      ? "Hentikan mikrofon"
+                      : "Mulai bicara"
                 }
               >
-                <Mic size={26} />
+                {permission === "requesting" && !liveTranscription ? (
+                  <span className="spinner mic-main-spinner" />
+                ) : (
+                  <Mic size={26} />
+                )}
               </button>
             </div>
             {recording || transcribing ? (
@@ -357,16 +375,20 @@ export default function PracticePage(p) {
             ) : (
               <>
                 <b className="recording-label">
-                  {liveTranscription
-                    ? "Ketuk untuk mulai bicara"
-                    : "Ketuk untuk mulai merekam"}
+                  {permission === "requesting" && !liveTranscription
+                    ? "Meminta akses mikrofon…"
+                    : liveTranscription
+                      ? "Ketuk untuk mulai bicara"
+                      : "Ketuk untuk mulai merekam"}
                 </b>
                 <span className="record-hint">
-                  {liveTranscription
-                    ? recognizer.supported
-                      ? "Transkrip muncul langsung dan tidak dapat diedit"
-                      : "Transkripsi langsung tidak didukung browser ini"
-                    : "Audio baru dikirim setelah kamu menyetujui proses AI"}
+                  {permission === "requesting" && !liveTranscription
+                    ? "Pilih Izinkan pada dialog browser jika diminta"
+                    : liveTranscription
+                      ? recognizer.supported
+                        ? "Transkrip muncul langsung dan tidak dapat diedit"
+                        : "Transkripsi langsung tidak didukung browser ini"
+                      : "Audio baru dikirim setelah kamu menyetujui proses AI"}
                 </span>
               </>
             )}
@@ -385,18 +407,25 @@ export default function PracticePage(p) {
               <div className="mic-controls">
                 <button
                   onClick={requestMic}
+                  disabled={permission === "requesting" || processing}
                   className={
                     permission === "granted"
                       ? "mic-control granted"
                       : "mic-control"
                   }
                 >
-                  <Mic size={14} />
+                  {permission === "requesting" ? (
+                    <span className="spinner" />
+                  ) : (
+                    <Mic size={14} />
+                  )}
                   {permission === "granted"
                     ? "Mikrofon siap"
                     : permission === "denied"
                       ? "Izin ditolak"
-                      : "Pilih mikrofon"}
+                      : permission === "requesting"
+                        ? "Meminta izin…"
+                        : "Pilih mikrofon"}
                 </button>
                 {devices.length > 0 && (
                   <select
@@ -476,7 +505,10 @@ export default function PracticePage(p) {
             >
               {processing ? (
                 <>
-                  <span className="spinner" /> Menganalisis...
+                  <span className="spinner" />
+                  {liveTranscription
+                    ? "Mengirim transkrip…"
+                    : "Memproses audio…"}
                 </>
               ) : (
                 <>
@@ -525,16 +557,34 @@ export default function PracticePage(p) {
                       <button
                         className="audio-mini"
                         onClick={() => playRecording(t.audioId)}
+                        disabled={Boolean(loadingRecordingId)}
                       >
-                        <Play size={12} /> Dengarkan
+                        {loadingRecordingId === t.audioId ? (
+                          <span className="spinner" />
+                        ) : (
+                          <Play size={12} />
+                        )}
+                        {loadingRecordingId === t.audioId
+                          ? "Memuat audio…"
+                          : "Dengarkan"}
                       </button>
                     )}
                   </div>
                   <div className="bubble coach-bubble">
                     <small>
                       MAYA{" "}
-                      <button onClick={() => speak(t.reply)}>
-                        <Volume2 size={13} />
+                      <button
+                        onClick={() => speak(t.reply)}
+                        disabled={ttsBusy}
+                        aria-label={
+                          ttsBusy ? "Menyiapkan audio" : "Bacakan balasan"
+                        }
+                      >
+                        {ttsBusy ? (
+                          <span className="spinner" />
+                        ) : (
+                          <Volume2 size={13} />
+                        )}
                       </button>
                     </small>
                     {t.reply}

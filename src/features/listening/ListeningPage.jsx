@@ -12,6 +12,7 @@ import {
 import { toast } from "sonner";
 import { apiJson } from "../../api";
 import { awardXP } from "../../gamification";
+import { isTtsBusy } from "../../lib/ttsRocks";
 import ListeningSpeakingTask from "./ListeningSpeakingTask";
 
 export default function ListeningPage({
@@ -21,6 +22,7 @@ export default function ListeningPage({
   data,
   setData,
   speak,
+  ttsStatus,
   speechInputMode = "live_transcribe",
   aiProvider = "clario",
 }) {
@@ -44,6 +46,7 @@ export default function ListeningPage({
   const done = data.listeningCompleted || [];
   const speechPassed = (data.speakingCompleted || []).includes(active?.id);
   const speechScore = Number(data.speakingScores?.[active?.id] || 0);
+  const ttsBusy = isTtsBusy(ttsStatus);
   const doneCount = allLessons.filter((x) => done.includes(x.id)).length;
   const next = allLessons.find((l) => !done.includes(l.id)) || allLessons[0];
   const keyFor = (question) => `${active.id}:${question.id}`;
@@ -243,8 +246,19 @@ export default function ListeningPage({
               <b>Ready to listen?</b>
               <small>Original script · {active.level} · TTS perangkat</small>
             </div>
-            <button className="btn-primary" onClick={play}>
-              <Play size={17} fill="currentColor" /> Putar audio
+            <button className="btn-primary" onClick={play} disabled={ttsBusy}>
+              {ttsBusy ? (
+                <>
+                  <span className="spinner" />
+                  {ttsStatus?.phase === "speaking"
+                    ? "Sedang membaca…"
+                    : "Menyiapkan audio…"}
+                </>
+              ) : (
+                <>
+                  <Play size={17} fill="currentColor" /> Putar audio
+                </>
+              )}
             </button>
           </div>
           <button
@@ -303,7 +317,9 @@ export default function ListeningPage({
                       onClick={() => check(q)}
                     >
                       {checking === key ? (
-                        "Memeriksa..."
+                        <>
+                          <span className="spinner" /> Memeriksa...
+                        </>
                       ) : (
                         <>
                           Periksa jawaban <ArrowRight size={15} />
@@ -348,6 +364,7 @@ export default function ListeningPage({
           <ListeningSpeakingTask
             lesson={active}
             speak={speak}
+            ttsStatus={ttsStatus}
             speechInputMode={speechInputMode}
             aiProvider={aiProvider}
             passed={speechPassed}

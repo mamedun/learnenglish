@@ -1062,7 +1062,6 @@
   }
 }
 
-
 /* Hidden prompt, Kokoro cache status, and global admin/user management. */
 .visible-practice-prompt {
   padding: 9px 11px;
@@ -1206,7 +1205,7 @@
   padding: 9px 8px;
   color: #8b879a;
   font-size: 10px;
-  letter-spacing: .08em;
+  letter-spacing: 0.08em;
 }
 .admin-users-table td {
   padding: 10px 8px;
@@ -1304,4 +1303,140 @@
   .free-token-options {
     grid-template-columns: 1fr;
   }
+}
+
+.processing-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 15px;
+  border: 1px solid #d8e9dc;
+  border-radius: 13px;
+  background: linear-gradient(110deg, #f5fbf6, #ffffff);
+  color: #315c45;
+  box-shadow: 0 5px 16px #183b2410;
+}
+.processing-status.is-compact {
+  padding: 10px 12px;
+  border-radius: 11px;
+  box-shadow: none;
+}
+.processing-status-global {
+  position: sticky;
+  top: 8px;
+  z-index: 8;
+  margin: 0 0 14px;
+}
+.processing-status-spinner {
+  display: block;
+  flex: 0 0 auto;
+  width: 19px;
+  height: 19px;
+  border: 2.5px solid #d8e9dc;
+  border-top-color: #34734b;
+  border-radius: 50%;
+  animation: spin 0.75s linear infinite;
+}
+.processing-status-copy {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: 4px;
+}
+.processing-status-copy strong {
+  color: #315c45;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.processing-status-copy small {
+  color: #728477;
+  font-size: 11px;
+  line-height: 1.45;
+}
+.processing-status-progress {
+  width: min(100%, 380px);
+  height: 5px;
+  margin-top: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e1ece3;
+}
+.processing-status-progress > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #4b8b60;
+  transition: width 180ms ease;
+}
+.shadowing-processing-status {
+  margin: 0 0 13px;
+}
+.mic-main .mic-main-spinner {
+  width: 22px;
+  height: 22px;
+  border: 2.5px solid #ffffff55;
+  border-top-color: white;
+}
+.round-play:disabled,
+.audio-player-card .btn-primary:disabled {
+  cursor: wait;
+  opacity: 0.78;
+}
+.round-play .round-play-spinner {
+  width: 15px;
+  height: 15px;
+  border-color: #dfe9e1;
+  border-top-color: #54745b;
+}
+.tts-status-loading {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #466b51;
+}
+.tts-status-loading .processing-status-spinner {
+  width: 14px;
+  height: 14px;
+  border-width: 2px;
+}
+@media (max-width: 600px) {
+  .processing-status-global {
+    top: 4px;
+    padding: 10px 12px;
+  }
+  .processing-status-copy strong {
+    font-size: 12px;
+  }
+}
+.outline-btn .spinner,
+.text-button .spinner,
+.check-answer .spinner,
+.mic-control .spinner,
+.audio-mini .spinner,
+.sample-btn .spinner,
+.settings-card .outline-btn .spinner,
+.coach-bubble button .spinner {
+  border-color: #d8e5da;
+  border-top-color: #315c45;
+}
+.audio-player-card .btn-primary .spinner {
+  border-color: #8f7d54;
+  border-top-color: #38285f;
+}
+.btn-end .spinner {
+  border-color: #f2ccc7;
+  border-top-color: #be5f53;
+}
+.coach-bubble button .spinner {
+  width: 12px;
+  height: 12px;
+}
+.audio-mini .spinner {
+  width: 11px;
+  height: 11px;
+}
+.check-answer .spinner {
+  width: 12px;
+  height: 12px;
 }

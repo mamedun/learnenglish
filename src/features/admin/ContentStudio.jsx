@@ -716,7 +716,9 @@ export default function ContentStudio({ onCatalogChange }) {
               <div className="studio-actions">
                 <button className="btn-primary" disabled={busy}>
                   {busy ? (
-                    "Menyimpan..."
+                    <>
+                      <span className="spinner" /> Menyimpan...
+                    </>
                   ) : (
                     <>
                       <Check size={17} /> Simpan ke database

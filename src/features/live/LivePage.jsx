@@ -12,10 +12,20 @@ export default function LivePage({
   liveSeconds,
   liveLines,
   liveStatus,
+  liveLoading = false,
   liveAssessment,
   beginLive,
   endLive,
 }) {
+  const loadingLabel = liveStatus.toLowerCase().includes("feedback")
+    ? "Menyiapkan feedback…"
+    : liveStatus.toLowerCase().includes("mengakhiri")
+      ? "Mengakhiri sesi…"
+      : liveStatus.toLowerCase().includes("token")
+        ? "Mengamankan sesi…"
+        : liveStatus.toLowerCase().includes("mikrofon")
+          ? "Meminta mikrofon…"
+          : "Menghubungkan…";
   return (
     <div className="live-page">
       <div className="live-heading">
@@ -67,8 +77,13 @@ export default function LivePage({
         <button
           className={liveOn ? "btn-end" : "btn-live-start"}
           onClick={liveOn ? endLive : beginLive}
+          disabled={liveLoading}
         >
-          {liveOn ? (
+          {liveLoading ? (
+            <>
+              <span className="spinner" /> {loadingLabel}
+            </>
+          ) : liveOn ? (
             <>
               <Pause size={17} /> Akhiri sesi
             </>

@@ -13,7 +13,9 @@ import { toast } from "sonner";
 import { apiFetch } from "../../api";
 import { convertRecordingToWav } from "../../lib/audio";
 import { compareSpokenText } from "../../lib/speechSimilarity";
+import { isTtsBusy } from "../../lib/ttsRocks";
 import { useSpeechRecognition } from "../../hooks/useSpeechRecognition";
+import ProcessingStatus from "../../components/ProcessingStatus";
 import "./ListeningSpeakingTask.css";
 
 export default function ListeningSpeakingTask({
@@ -21,6 +23,7 @@ export default function ListeningSpeakingTask({
   speechInputMode = "live_transcribe",
   aiProvider = "clario",
   speak,
+  ttsStatus,
   passed,
   passedScore = 0,
   onPass,
@@ -29,7 +32,9 @@ export default function ListeningSpeakingTask({
   const recognition = useSpeechRecognition({ language: "en-US" });
   const [open, setOpen] = useState(false);
   const [recording, setRecording] = useState(false);
+  const [requestingMic, setRequestingMic] = useState(false);
   const [processing, setProcessing] = useState(false);
+  const [processingMessage, setProcessingMessage] = useState("");
   const [audioBlob, setAudioBlob] = useState(null);
   const [aiTranscript, setAiTranscript] = useState("");
   const [checked, setChecked] = useState(null);
@@ -38,6 +43,7 @@ export default function ListeningSpeakingTask({
   const chunksRef = useRef([]);
   const answer = liveMode ? recognition.transcript : aiTranscript;
   const preview = answer ? compareSpokenText(lesson.script, answer) : null;
+  const ttsBusy = isTtsBusy(ttsStatus);
 
   useEffect(() => {
     setOpen(false);
@@ -106,6 +112,7 @@ export default function ListeningSpeakingTask({
       );
       return;
     }
+    setRequestingMic(true);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -152,6 +159,8 @@ export default function ListeningSpeakingTask({
           ? "Izin mikrofon ditolak. Izinkan mikrofon di browser."
           : "Mikrofon tidak dapat digunakan. Periksa perangkat dan izin browser.",
       );
+    } finally {
+      setRequestingMic(false);
     }
   }
 
@@ -199,6 +208,7 @@ export default function ListeningSpeakingTask({
     if (!consent.isConfirmed) return;
 
     setProcessing(true);
+    setProcessingMessage("Menyiapkan rekaman untuk dikirim…");
     try {
       const audioForAI =
         aiProvider === "free"
@@ -225,10 +235,12 @@ export default function ListeningSpeakingTask({
         audioForAI,
         `read-aloud-${lesson.id}.${audioExtension}`,
       );
+      setProcessingMessage("Mengirim audio untuk transkripsi…");
       const response = await apiFetch("assess-audio", {
         method: "POST",
         body: form,
       });
+      setProcessingMessage("Menerima transkrip dari AI…");
       const payload = await response.json();
       if (!response.ok)
         throw new Error(payload.error || "AI gagal mentranskripsikan audio.");
@@ -251,6 +263,7 @@ export default function ListeningSpeakingTask({
       toast.error(error.message || "Rekaman belum dapat diproses.");
     } finally {
       setProcessing(false);
+      setProcessingMessage("");
     }
   }
 
@@ -283,8 +296,23 @@ export default function ListeningSpeakingTask({
       {open && (
         <div className="shadowing-body">
           <div className="shadowing-passage">{lesson.script}</div>
-          <button className="text-button" onClick={() => speak(lesson.script)}>
-            <Volume2 size={15} /> Dengarkan paragraf
+          <button
+            className="text-button"
+            onClick={() => speak(lesson.script)}
+            disabled={ttsBusy}
+          >
+            {ttsBusy ? (
+              <>
+                <span className="spinner" />
+                {ttsStatus?.phase === "speaking"
+                  ? "Sedang membacakan…"
+                  : "Menyiapkan audio…"}
+              </>
+            ) : (
+              <>
+                <Volume2 size={15} /> Dengarkan paragraf
+              </>
+            )}
           </button>
           <div className="shadowing-controls">
             {liveMode ? (
@@ -325,10 +353,20 @@ export default function ListeningSpeakingTask({
                 <button
                   className={`mic-control ${recording ? "granted" : ""}`}
                   onClick={recording ? stopAudioRecording : startAudioRecording}
-                  disabled={processing}
+                  disabled={processing || requestingMic}
                 >
-                  {recording ? <Pause size={15} /> : <Mic size={15} />}
-                  {recording ? "Selesai merekam" : "Mulai merekam"}
+                  {requestingMic ? (
+                    <span className="spinner" />
+                  ) : recording ? (
+                    <Pause size={15} />
+                  ) : (
+                    <Mic size={15} />
+                  )}
+                  {recording
+                    ? "Selesai merekam"
+                    : requestingMic
+                      ? "Meminta akses…"
+                      : "Mulai merekam"}
                 </button>
                 <button
                   className="outline-btn"
@@ -348,13 +386,29 @@ export default function ListeningSpeakingTask({
                 <button
                   className="text-button"
                   onClick={resetAttempt}
-                  disabled={processing}
+                  disabled={processing || requestingMic}
                 >
                   <RotateCcw size={14} /> Reset / rekam ulang
                 </button>
               </>
             )}
           </div>
+          {requestingMic && (
+            <ProcessingStatus
+              message="Meminta akses mikrofon…"
+              detail="Pilih Izinkan pada dialog browser jika diminta."
+              compact
+              className="shadowing-processing-status"
+            />
+          )}
+          {processing && (
+            <ProcessingStatus
+              message={processingMessage || "Memproses audio…"}
+              detail="Audio sedang dikirim dan dianalisis. Koneksi lambat bisa membutuhkan waktu."
+              compact
+              className="shadowing-processing-status"
+            />
+          )}
           {liveMode ? (
             <div className="transcript-area shadowing-transcript">
               <div className="transcript-label">
