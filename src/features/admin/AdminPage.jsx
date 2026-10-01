@@ -51,6 +51,7 @@ export default function AdminPage({
     free_ttl_min: 30,
     free_sub: "api-client",
     free_token_mode: "auto",
+    free_browser_debug: false,
     gemini_live_model: "",
   });
   const [models, setModels] = useState([]);
@@ -521,9 +522,11 @@ export default function AdminPage({
                       id="free-token-mode"
                       className="text-field"
                       value={settings.free_token_mode || "auto"}
-                      onChange={(event) =>
-                        change("free_token_mode", event.target.value)
-                      }
+                      onChange={(event) => {
+                        change("free_token_mode", event.target.value);
+                        if (event.target.value === "manual")
+                          change("free_browser_debug", false);
+                      }}
                     >
                       <option value="auto">Auto · JWT HS256 di server</option>
                       <option value="manual">Manual token</option>
@@ -569,6 +572,52 @@ export default function AdminPage({
                       node /chat.
                     </span>
                   </div>
+                  <div className="free-browser-debug-setting">
+                    <div>
+                      <b>Debug request langsung dari browser</b>
+                      <small>
+                        Hanya sesi Admin; menampilkan respons mentah Free API
+                        untuk diagnosis, tanpa menyimpan hasil lesson.
+                      </small>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-label="Debug Free API langsung dari browser untuk Admin"
+                      aria-checked={Boolean(settings.free_browser_debug)}
+                      className="free-browser-debug-switch"
+                      disabled={
+                        settings.free_token_mode === "manual" &&
+                        !settings.free_browser_debug
+                      }
+                      onClick={() =>
+                        change(
+                          "free_browser_debug",
+                          !settings.free_browser_debug,
+                        )
+                      }
+                    >
+                      <span />
+                    </button>
+                  </div>
+                  {settings.free_token_mode === "manual" && (
+                    <small className="field-hint">
+                      Direct browser debug hanya memakai Auto JWT sementara;
+                      manual token tidak pernah dibagikan ke browser.
+                    </small>
+                  )}
+                  {settings.free_browser_debug && (
+                    <p className="admin-provider-warning free-browser-debug-warning">
+                      Saat Admin menjalankan assessment AI audio, PHP hanya
+                      menyiapkan prompt dan Bearer JWT sementara. Browser lalu
+                      mengirim audio langsung ke node Free. API key X-API-Key
+                      terlihat di DevTools; JWT otomatis berlaku 5 menit. Debug
+                      hanya mendukung token mode Auto, bukan token manual. Siswa
+                      tetap memakai jalur PHP. Matikan setelah pengujian. Jika
+                      provider tidak mengizinkan CORS untuk situs ini, browser
+                      akan memblokir request.
+                    </p>
+                  )}
                 </div>
               )}
               <div className="admin-divider" />

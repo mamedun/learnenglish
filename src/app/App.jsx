@@ -94,6 +94,7 @@ function App() {
     speech_scoring_mode: "local",
     speech_similarity_threshold: 90,
     ai_provider: "clario",
+    free_browser_debug: false,
   });
   const [ttsStatus, setTtsStatus] = useState({
     phase: "idle",
@@ -168,6 +169,7 @@ function App() {
           speech_scoring_mode: "local",
           speech_similarity_threshold: 90,
           ai_provider: "clario",
+          free_browser_debug: false,
         },
       })),
     ]);
@@ -180,6 +182,9 @@ function App() {
       speech_similarity_threshold:
         Number(config.settings?.speech_similarity_threshold) || 90,
       ai_provider: config.settings?.ai_provider || "clario",
+      free_browser_debug:
+        account?.role === "admin" &&
+        config.settings?.free_browser_debug === true,
     });
     const savedSettings = (progress.progress || {}).settings || {};
     const settings = { ...initialData.settings, ...savedSettings };
@@ -587,6 +592,8 @@ function App() {
               appConfig.speech_similarity_threshold,
           ) || 90,
         ai_provider: settings.ai_provider,
+        free_browser_debug:
+          user?.role === "admin" && settings.free_browser_debug === true,
       };
       setAppConfig((previous) => ({
         ...previous,
@@ -594,6 +601,7 @@ function App() {
         speech_scoring_mode: currentConfig.speech_scoring_mode,
         speech_similarity_threshold: currentConfig.speech_similarity_threshold,
         ai_provider: currentConfig.ai_provider,
+        free_browser_debug: currentConfig.free_browser_debug,
       }));
     } catch (error) {
       stopBeforeSubmit(
@@ -633,7 +641,12 @@ function App() {
       if (useServerAudio) {
         const consent = await Swal.fire({
           title: "Kirim audio untuk diproses AI?",
-          text: "Rekaman akan dikirim satu kali ke server AI yang dipilih admin untuk transkripsi dan feedback. Audio tidak disimpan oleh endpoint ini. Penyimpanan arsip audio (jika dipilih) adalah persetujuan terpisah.",
+          text:
+            currentConfig.ai_provider === "free" &&
+            currentConfig.free_browser_debug &&
+            user?.role === "admin"
+              ? "Rekaman akan dikirim satu kali langsung dari browser Admin ke node Free untuk diagnosis. Debug ini tidak menyimpan hasil maupun arsip audio ke akun atau server PHP."
+              : "Rekaman akan dikirim satu kali ke server AI yang dipilih admin untuk transkripsi dan feedback. Audio tidak disimpan oleh endpoint ini. Penyimpanan arsip audio (jika dipilih) adalah persetujuan terpisah.",
           icon: "info",
           showCancelButton: true,
           confirmButtonText: "Setuju & kirim audio",
@@ -658,6 +671,96 @@ function App() {
               : audioMime === "audio/wav"
                 ? "wav"
                 : "webm";
+
+        if (
+          currentConfig.ai_provider === "free" &&
+          currentConfig.free_browser_debug &&
+          user?.role === "admin"
+        ) {
+          const debugConsent = await Swal.fire({
+            title: "Jalankan debug Free API dari browser?",
+            text: "Browser Admin akan menerima API key X-API-Key dan Bearer JWT sementara. Key terlihat di DevTools/Network. Audio dikirim langsung ke node Free, bukan ke PHP. Hasil mentah hanya untuk diagnosis dan tidak disimpan.",
+            icon: "warning",
+            showCancelButton: true,
+            confirmButtonText: "Kirim langsung",
+            cancelButtonText: "Batal",
+            confirmButtonColor: "#9b5b16",
+          });
+          if (!debugConsent.isConfirmed) return;
+
+          setProcessingMessage("Meminta prompt dan token debug dari PHP…");
+          const debugSetupResponse = await apiFetch("free-audio-debug-config", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              consent: true,
+              task_mode: "response",
+              level: activeUnit.level,
+              task: activeUnit.prompt,
+            }),
+          });
+          const debugSetup = await debugSetupResponse.json();
+          if (!debugSetupResponse.ok)
+            throw new Error(
+              debugSetup.error || "Konfigurasi debug Free API gagal dibuat.",
+            );
+
+          const directForm = new FormData();
+          directForm.append("prompt", debugSetup.prompt);
+          directForm.append("audio", audioForAI, `audio.${audioExtension}`);
+          setProcessingMessage(
+            `Mengirim rekaman langsung ke ${debugSetup.node_host || "Free API"}…`,
+          );
+          let directResponse;
+          try {
+            directResponse = await fetch(debugSetup.url, {
+              method: "POST",
+              headers: debugSetup.headers,
+              body: directForm,
+            });
+          } catch (error) {
+            await Swal.fire({
+              title: "Browser tidak menerima respons Free API",
+              text: `${error?.message || "Network request failed."} Kemungkinan penyebabnya CORS/preflight pada node provider; browser tidak mengizinkan halaman membaca respons. Tidak ada fallback ke PHP pada mode debug ini.`,
+              icon: "warning",
+              confirmButtonText: "Tutup",
+            });
+            return;
+          }
+
+          const directBody = await directResponse.text();
+          let responseBody = directBody;
+          try {
+            responseBody = JSON.stringify(JSON.parse(directBody), null, 2);
+          } catch {
+            // Keep non-JSON bodies visible for gateway/CORS/API diagnostics.
+          }
+          const responseLimit = 12000;
+          const diagnostic = {
+            http_status: directResponse.status,
+            ok: directResponse.ok,
+            node: debugSetup.node_host,
+            token_expires_at: debugSetup.token_expires_at,
+            content_type: directResponse.headers.get("content-type") || "",
+            body_truncated: responseBody.length > responseLimit,
+            body: responseBody.slice(0, responseLimit),
+          };
+          const diagnosticText = JSON.stringify(diagnostic, null, 2);
+          console.info(
+            "Free API direct browser diagnostic response",
+            diagnostic,
+          );
+          await Swal.fire({
+            title: `Free API direct response · HTTP ${directResponse.status}`,
+            input: "textarea",
+            inputValue: diagnosticText,
+            inputAttributes: { readonly: true, rows: 20, spellcheck: "false" },
+            width: 900,
+            confirmButtonText: "Tutup",
+          });
+          return;
+        }
+
         const form = new FormData();
         form.append("consent", "1");
         form.append("task_mode", "response");

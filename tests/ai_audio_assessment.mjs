@@ -16,6 +16,13 @@ assert.match(submitTurn, /settings\?\.ai_provider/);
 assert.match(submitTurn, /speech_input_mode: settings\.speech_input_mode/);
 assert.match(submitTurn, /currentConfig\.speech_input_mode/);
 assert.match(submitTurn, /currentConfig\.ai_provider === "free"/);
+assert.match(submitTurn, /currentConfig\.free_browser_debug/);
+assert.match(submitTurn, /user\?\.role === "admin"/);
+assert.match(submitTurn, /fetch\(debugSetup\.url/);
+assert.match(submitTurn, /headers: debugSetup\.headers/);
+assert.match(submitTurn, /body: directForm/);
+assert.match(submitTurn, /consent: true/);
+assert.match(submitTurn, /debugSetup\.token_expires_at/);
 assert.match(submitTurn, /await Swal\.fire\(/);
 assert.match(submitTurn, /consent\.isConfirmed/);
 assert.match(submitTurn, /payload\?\.detail/);
@@ -62,6 +69,42 @@ const admin = await readFile(
 assert.match(admin, /berlaku hanya untuk latihan read-aloud/i);
 assert.match(admin, /Gemini Live tetap memakai Gemini/);
 assert.match(admin, /AI\s+Lesson terbuka memakai provider global/);
+assert.match(admin, /role="switch"/);
+assert.match(admin, /API key X-API-Key/);
+assert.match(admin, /CORS/);
+const debugStart = api.indexOf(
+  "if($action==='free-audio-debug-config'&&$method==='POST')",
+);
+const debugEnd = api.indexOf(
+  "if($action==='admin/users'&&$method==='GET')",
+  debugStart,
+);
+assert.notEqual(debugStart, -1);
+assert.notEqual(debugEnd, -1);
+const debugRoute = api.slice(debugStart, debugEnd);
+assert.match(debugRoute, /require_admin\(\)/);
+assert.match(debugRoute, /free_browser_debug/);
+assert.match(debugRoute, /\['provider'\]!=='free'/);
+assert.match(debugRoute, /\['free_token_mode'\]!=='auto'/);
+assert.match(debugRoute, /\['consent'\]\?\?false\)!==true/);
+assert.match(debugRoute, /\['free_ttl_min'\]=5/);
+assert.match(debugRoute, /'Authorization'=>'Bearer '\.\$token/);
+assert.match(debugRoute, /'X-API-Key'=>\$config\['free_api_key'\]/);
+assert.match(debugRoute, /free_audio_assessment_prompt\(/);
+assert.doesNotMatch(debugRoute, /'free_jwt_secret'\s*=>/);
+assert.match(api, /'free_browser_debug'=>\$u\['role'\]==='admin'/);
+assert.match(
+  api,
+  /put_setting\('free_browser_debug',\(\$provider==='free'&&\$freeBrowserDebug\)\?'1':'0'\)/,
+);
+assert.match(
+  api,
+  /if\(\$freeBrowserDebug&&\$provider==='free'&&\$freeTokenMode!=='auto'\)/,
+);
+assert.match(
+  api,
+  /if\(\$freeBrowserDebug&&\$provider==='free'&&\$freeTokenMode!=='auto'\)/,
+);
 const clarioTextBranch = api.slice(
   api.indexOf("$model=$cfg['model'];", chatStart),
   audioStart,
