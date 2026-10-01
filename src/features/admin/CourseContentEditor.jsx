@@ -1,5 +1,5 @@
 import { Plus, Trash2 } from "lucide-react";
-import { KOKORO_VOICES } from "../../lib/ttsRocks";
+import { KOKORO_ADMIN_VOICES } from "../../lib/ttsRocks";
 import DialogueEditor from "./DialogueEditor";
 
 function Field({
@@ -49,7 +49,7 @@ function Field({
 }
 
 function VoiceField({ value, onChange, disabled }) {
-  const knownVoice = KOKORO_VOICES.some((voice) => voice.id === value);
+  const knownVoice = KOKORO_ADMIN_VOICES.some((voice) => voice.id === value);
   return (
     <label className="course-schema-field">
       <span>Prioritas voice tunggal</span>
@@ -61,15 +61,16 @@ function VoiceField({ value, onChange, disabled }) {
         {!knownVoice && value && (
           <option value={value}>{value} · legacy</option>
         )}
-        {KOKORO_VOICES.map((voice) => (
+        {KOKORO_ADMIN_VOICES.map((voice) => (
           <option key={voice.id} value={voice.id}>
             {voice.name} · {voice.accent}
           </option>
         ))}
       </select>
       <small>
-        Prioritas untuk memilih file cache single-speaker. Jika tidak tersedia,
-        lesson memakai Browser Native.
+        Materi tanpa dialog menyimpan satu file memakai voice ini. Dialog dengan
+        beberapa speaker mengabaikan prioritas ini dan menyimpan satu audio
+        gabungan; cache belum tersedia berarti memakai Browser Native.
       </small>
     </label>
   );

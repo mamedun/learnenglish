@@ -121,6 +121,23 @@ function tts_cache_default_voice(PDO $pdo, string $type, string $id, ?array $cou
         : 'af_heart';
 }
 
+function tts_cache_expected_voice(PDO $pdo, string $type, string $id, ?array $courseContent, array $segments): string
+{
+    return count($segments) >= 2
+        ? 'multi'
+        : tts_cache_default_voice($pdo, $type, $id, $courseContent);
+}
+
+function tts_cache_remove_other_entries(PDO $pdo, string $type, string $id, string $keepKey): array
+{
+    $query = $pdo->prepare('SELECT cache_key,file_path,file_size FROM shared_tts_cache WHERE content_type=? AND content_id=? AND cache_key<>?');
+    $query->execute([$type, $id, $keepKey]);
+    $rows = $query->fetchAll();
+    $delete = $pdo->prepare('DELETE FROM shared_tts_cache WHERE cache_key=?');
+    foreach ($rows as $row) $delete->execute([$row['cache_key']]);
+    return $rows;
+}
+
 function tts_cache_content_is_published(PDO $pdo, string $type, string $id): bool
 {
     if ($type === 'speaking') {
@@ -169,39 +186,30 @@ function tts_cache_get_audio(array $user): never
         respond(['error' => 'Materi audio tidak ditemukan.'], 404);
     if (!hash_equals($currentRevision, $revision))
         respond(['error' => 'Cache materi sudah usang.'], 404);
-    if ($voice === 'multi' && count($segments) < 2)
-        respond(['error' => 'Materi ini belum memiliki dialog multi-speaker.'], 404);
+    $expectedVoice = tts_cache_expected_voice($pdo, $type, $id, $courseContent, $segments);
+    if ($voice !== 'auto' && $voice !== $expectedVoice)
+        respond(['error' => 'Materi hanya menyediakan cache untuk voice prioritas atau dialog gabungan yang sesuai.'], 404);
 
-    $voiceCandidates = [$voice];
-    if ($voice === 'auto') {
-        $voiceCandidates = [];
-        if (count($segments) >= 2) $voiceCandidates[] = 'multi';
-        $voiceCandidates[] = tts_cache_default_voice($pdo, $type, $id, $courseContent);
-        foreach (catalog_tts_voice_ids() as $candidateVoice) $voiceCandidates[] = $candidateVoice;
-        $voiceCandidates = array_values(array_unique($voiceCandidates));
+    $key = tts_cache_key($type, $cacheId, $revision, $expectedVoice);
+    $pdo->exec('BEGIN IMMEDIATE');
+    try {
+        $staleRows = tts_cache_remove_other_entries($pdo, $type, $cacheId, $key);
+        $pdo->exec('COMMIT');
+    } catch (Throwable $error) {
+        try { $pdo->exec('ROLLBACK'); } catch (Throwable $ignored) {}
+        throw $error;
     }
+    foreach ($staleRows as $staleRow) tts_cache_remove_file((string) $staleRow['file_path']);
+
     $query = $pdo->prepare('SELECT file_path,file_size FROM shared_tts_cache WHERE cache_key=?');
-    $asset = null;
-    $key = null;
-    $selectedVoice = null;
-    foreach ($voiceCandidates as $candidateVoice) {
-        if ($candidateVoice === 'multi' && count($segments) < 2) continue;
-        $candidateKey = tts_cache_key($type, $cacheId, $revision, $candidateVoice);
-        $query->execute([$candidateKey]);
-        $candidateAsset = $query->fetch();
-        if (!$candidateAsset) continue;
-        if (!is_file((string) $candidateAsset['file_path'])) {
-            $pdo->prepare('DELETE FROM shared_tts_cache WHERE cache_key=?')->execute([$candidateKey]);
-            continue;
-        }
-        $asset = $candidateAsset;
-        $key = $candidateKey;
-        $selectedVoice = $candidateVoice;
-        break;
-    }
-    if (!$asset || !$key || !$selectedVoice)
+    $query->execute([$key]);
+    $asset = $query->fetch();
+    if (!$asset) respond(['error' => 'Audio belum tersedia di shared cache.'], 404);
+    if (!is_file((string) $asset['file_path'])) {
+        $pdo->prepare('DELETE FROM shared_tts_cache WHERE cache_key=?')->execute([$key]);
         respond(['error' => 'Audio belum tersedia di shared cache.'], 404);
-
+    }
+    $selectedVoice = $expectedVoice;
     $pdo->prepare('UPDATE shared_tts_cache SET last_accessed_at=? WHERE cache_key=?')->execute([gmdate('c'), $key]);
     header('Content-Type: audio/wav');
     header('Content-Length: ' . (string) filesize((string) $asset['file_path']));
@@ -235,11 +243,13 @@ function tts_cache_upload(array $user): never
 
     $pdo = db();
     $cacheId = $id;
+    $courseContent = null;
     if ($courseId !== '') {
         $modality = $type === 'speaking' ? 'ai_lesson' : 'listening';
         $context = courseware_request_context($pdo,$user,['course_id'=>$courseId,'unit_id'=>$id],$modality,false);
+        $courseContent = (array) ($context['unit']['content'] ?? []);
         $currentRevision = courseware_tts_revision($pdo,$courseId,$type,$id);
-        $segments = (array)($context['unit']['content']['ttsSegments'] ?? []);
+        $segments = (array)($courseContent['ttsSegments'] ?? []);
         $cacheId = $courseId . ':' . $id;
     } else {
         $currentRevision = catalog_tts_revision($pdo, $type, $id);
@@ -250,8 +260,9 @@ function tts_cache_upload(array $user): never
     if ($currentRevision === null) respond(['error' => 'Materi audio tidak ditemukan.'], 404);
     if (!hash_equals($currentRevision, $revision))
         respond(['error' => 'Materi berubah saat audio dibuat. Muat ulang materi lalu coba lagi.'], 409);
-    if ($voice === 'multi' && count($segments) < 2)
-        respond(['error' => 'Materi ini belum memiliki dialog multi-speaker.'], 422);
+    $expectedVoice = tts_cache_expected_voice($pdo, $type, $id, $courseContent, $segments);
+    if ($voice !== $expectedVoice)
+        respond(['error' => 'Cache hanya menerima voice prioritas untuk materi tunggal atau satu audio gabungan untuk dialog.'], 422);
 
     if (!isset($_FILES['audio']) || (int) ($_FILES['audio']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
         respond(['error' => 'File audio tidak diterima. Periksa batas unggah server.'], 422);
@@ -287,6 +298,11 @@ function tts_cache_upload(array $user): never
         $existingSize = (int) ($existingQuery->fetchColumn() ?: 0);
         $total = (int) $pdo->query('SELECT COALESCE(SUM(file_size),0) FROM shared_tts_cache')->fetchColumn();
         $total -= $existingSize;
+        $staleRows = tts_cache_remove_other_entries($pdo, $type, $cacheId, $key);
+        foreach ($staleRows as $staleRow) {
+            $evictedPaths[] = (string) $staleRow['file_path'];
+            $total -= (int) $staleRow['file_size'];
+        }
         $remaining = $total + $size - tts_cache_limit_bytes();
         if ($remaining > 0) {
             $lru = $pdo->prepare('SELECT cache_key,file_path,file_size FROM shared_tts_cache WHERE cache_key<>? ORDER BY last_accessed_at ASC,created_at ASC');

@@ -1,5 +1,5 @@
 import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react";
-import { KOKORO_VOICES } from "../../lib/ttsRocks";
+import { KOKORO_ADMIN_VOICES } from "../../lib/ttsRocks";
 
 export default function DialogueEditor({
   segments = [],
@@ -30,7 +30,7 @@ export default function DialogueEditor({
     }
     const previousVoice = turns.at(-1)?.voice;
     const nextVoice =
-      KOKORO_VOICES.find((voice) => voice.id !== previousVoice)?.id ||
+      KOKORO_ADMIN_VOICES.find((voice) => voice.id !== previousVoice)?.id ||
       defaultVoice;
     onChange([
       ...turns,
@@ -51,8 +51,9 @@ export default function DialogueEditor({
         <div>
           <b>Dialog multi-speaker · {turns.length} giliran</b>
           <small>
-            Opsional. Tambahkan sedikitnya dua giliran untuk memakai dialog
-            multi-speaker; urutannya menjadi satu audio dengan jeda singkat.
+            Opsional. Tambahkan sedikitnya dua giliran untuk memakai satu cache
+            audio gabungan multi-speaker; urutannya menjadi satu audio dengan
+            jeda singkat.
           </small>
         </div>
         <button
@@ -119,7 +120,7 @@ export default function DialogueEditor({
                 value={turn.voice || defaultVoice}
                 onChange={(event) => update(index, "voice", event.target.value)}
               >
-                {KOKORO_VOICES.map((voice) => (
+                {KOKORO_ADMIN_VOICES.map((voice) => (
                   <option key={voice.id} value={voice.id}>
                     {voice.name} · {voice.accent}
                   </option>

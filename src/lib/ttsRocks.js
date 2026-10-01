@@ -27,11 +27,44 @@ export function isTtsBusy(status) {
   return BUSY_TTS_PHASES.has(status?.phase);
 }
 
+// Learners can choose from this curated set; Admin can author content with
+// every English voice shipped by the Kokoro 82M model below.
 export const KOKORO_VOICES = [
   { id: "af_heart", name: "Heart", accent: "American · feminine" },
   { id: "am_puck", name: "Puck", accent: "American · masculine" },
   { id: "bf_emma", name: "Emma", accent: "British · feminine" },
   { id: "bm_george", name: "George", accent: "British · masculine" },
+];
+
+export const KOKORO_ADMIN_VOICES = [
+  { id: "af_heart", name: "Heart", accent: "American · feminine" },
+  { id: "af_alloy", name: "Alloy", accent: "American · feminine" },
+  { id: "af_aoede", name: "Aoede", accent: "American · feminine" },
+  { id: "af_bella", name: "Bella", accent: "American · feminine" },
+  { id: "af_jessica", name: "Jessica", accent: "American · feminine" },
+  { id: "af_kore", name: "Kore", accent: "American · feminine" },
+  { id: "af_nicole", name: "Nicole", accent: "American · feminine" },
+  { id: "af_nova", name: "Nova", accent: "American · feminine" },
+  { id: "af_river", name: "River", accent: "American · feminine" },
+  { id: "af_sarah", name: "Sarah", accent: "American · feminine" },
+  { id: "af_sky", name: "Sky", accent: "American · feminine" },
+  { id: "am_adam", name: "Adam", accent: "American · masculine" },
+  { id: "am_echo", name: "Echo", accent: "American · masculine" },
+  { id: "am_eric", name: "Eric", accent: "American · masculine" },
+  { id: "am_fenrir", name: "Fenrir", accent: "American · masculine" },
+  { id: "am_liam", name: "Liam", accent: "American · masculine" },
+  { id: "am_michael", name: "Michael", accent: "American · masculine" },
+  { id: "am_onyx", name: "Onyx", accent: "American · masculine" },
+  { id: "am_puck", name: "Puck", accent: "American · masculine" },
+  { id: "am_santa", name: "Santa", accent: "American · masculine" },
+  { id: "bf_alice", name: "Alice", accent: "British · feminine" },
+  { id: "bf_emma", name: "Emma", accent: "British · feminine" },
+  { id: "bf_isabella", name: "Isabella", accent: "British · feminine" },
+  { id: "bf_lily", name: "Lily", accent: "British · feminine" },
+  { id: "bm_daniel", name: "Daniel", accent: "British · masculine" },
+  { id: "bm_fable", name: "Fable", accent: "British · masculine" },
+  { id: "bm_george", name: "George", accent: "British · masculine" },
+  { id: "bm_lewis", name: "Lewis", accent: "British · masculine" },
 ];
 
 function emitStatus(onStatus, status) {
@@ -523,7 +556,7 @@ function getGeneratedSampleRate(result) {
 }
 
 function assertVoice(voice) {
-  if (!KOKORO_VOICES.some((item) => item.id === voice))
+  if (!KOKORO_ADMIN_VOICES.some((item) => item.id === voice))
     throw new Error("Model suara Kokoro tidak didukung.");
 }
 

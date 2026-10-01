@@ -94,6 +94,7 @@ const unitTemplate = (modality, index, categoryId) => ({
             objective: "",
             part: "",
             imageContext: "",
+            defaultVoice: "af_heart",
             ttsSegments: [],
           }
         : {
@@ -377,6 +378,8 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
     !selectedUnit?.ttsRevision ||
     !savedUnit ||
     contentDraft[audioSourceField] !== savedUnit.content?.[audioSourceField] ||
+    (contentDraft.defaultVoice || "af_heart") !==
+      (savedUnit.content?.defaultVoice || "af_heart") ||
     JSON.stringify(draftSegments) !== JSON.stringify(savedSegments);
   function patchContent(patch) {
     if (contentParseError) {
@@ -1669,6 +1672,8 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
                               }
                               item={{
                                 ...selectedUnit,
+                                defaultVoice:
+                                  contentDraft.defaultVoice || "af_heart",
                                 courseId: selectedUnit.courseId || selectedId,
                               }}
                               sourceText={

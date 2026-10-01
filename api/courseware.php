@@ -581,6 +581,7 @@ function courseware_units_for_modality(PDO $pdo, string $courseId, string $modal
                 (string) $row['id'],
                 (string) ($content['prompt'] ?? ''),
                 is_array($content['ttsSegments'] ?? null) ? $content['ttsSegments'] : [],
+                is_string($content['defaultVoice'] ?? null) ? $content['defaultVoice'] : 'af_heart',
             );
         } elseif ($modality === 'listening') {
             $unit['ttsRevision'] = courseware_tts_revision_value(
@@ -589,6 +590,7 @@ function courseware_units_for_modality(PDO $pdo, string $courseId, string $modal
                 (string) $row['id'],
                 (string) ($content['script'] ?? ''),
                 is_array($content['ttsSegments'] ?? null) ? $content['ttsSegments'] : [],
+                is_string($content['defaultVoice'] ?? null) ? $content['defaultVoice'] : 'af_heart',
             );
         }
         $units[] = $unit;
@@ -621,10 +623,11 @@ function courseware_admin_course_data(PDO $pdo, string $courseId): array
     return ['course' => $public, 'modules' => $modules];
 }
 
-function courseware_tts_revision_value(string $courseId, string $type, string $unitId, string $text, array $segments): string
+function courseware_tts_revision_value(string $courseId, string $type, string $unitId, string $text, array $segments, string $defaultVoice = 'af_heart'): string
 {
     $canonicalSegments = json_encode(array_is_list($segments) ? $segments : [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE) ?: '[]';
-    return hash('sha256', "speakup-tts-v1\n$type\n$courseId:$unitId\n$text\n$canonicalSegments");
+    if (!in_array($defaultVoice, catalog_tts_voice_ids(), true)) $defaultVoice = 'af_heart';
+    return hash('sha256', "speakup-tts-v2\n$type\n$courseId:$unitId\n$text\n$defaultVoice\n$canonicalSegments");
 }
 
 function courseware_tts_revision(PDO $pdo, string $courseId, string $type, string $unitId): ?string
@@ -636,7 +639,8 @@ function courseware_tts_revision(PDO $pdo, string $courseId, string $type, strin
     $content = $row['content'] ?? [];
     $text = (string)($content[$type === 'speaking' ? 'prompt' : 'script'] ?? '');
     $segments = is_array($content['ttsSegments'] ?? null) ? $content['ttsSegments'] : [];
-    return courseware_tts_revision_value($courseId,$type,$unitId,$text,$segments);
+    $defaultVoice = is_string($content['defaultVoice'] ?? null) ? $content['defaultVoice'] : 'af_heart';
+    return courseware_tts_revision_value($courseId,$type,$unitId,$text,$segments,$defaultVoice);
 }
 
 function courseware_legacy_catalog(array $course, array $modules): array
@@ -658,7 +662,7 @@ function courseware_legacy_catalog(array $course, array $modules): array
             'title' => $unit['title'], 'subtitle' => $unit['subtitle'], 'masterPrompt' => $unit['masterPrompt'],
             'image' => app_public_asset_url($unit['mediaUrl'] ?: ($content['image'] ?? '')), 'sortOrder' => $unit['sortOrder'],
             'published' => $unit['published'],
-            'ttsRevision' => courseware_tts_revision_value($unit['courseId'],'speaking',$unit['id'],(string)($content['prompt']??''),(array)($content['ttsSegments']??[])),
+            'ttsRevision' => courseware_tts_revision_value($unit['courseId'],'speaking',$unit['id'],(string)($content['prompt']??''),(array)($content['ttsSegments']??[]),is_string($content['defaultVoice']??null)?$content['defaultVoice']:'af_heart'),
         ]);
     }
     $listening = [];
@@ -670,7 +674,7 @@ function courseware_legacy_catalog(array $course, array $modules): array
             'script' => (string) ($content['script'] ?? ''), 'image' => app_public_asset_url($unit['mediaUrl'] ?: ($content['image'] ?? '')),
             'sortOrder' => $unit['sortOrder'], 'published' => $unit['published'],
             'questions' => is_array($content['questions'] ?? null) ? $content['questions'] : [],
-            'ttsRevision' => courseware_tts_revision_value($unit['courseId'],'listening',$unit['id'],(string)($content['script']??''),(array)($content['ttsSegments']??[])),
+            'ttsRevision' => courseware_tts_revision_value($unit['courseId'],'listening',$unit['id'],(string)($content['script']??''),(array)($content['ttsSegments']??[]),is_string($content['defaultVoice']??null)?$content['defaultVoice']:'af_heart'),
         ]);
     }
     $liveTopics = [];
@@ -900,10 +904,18 @@ function courseware_normalize_content_payload(string $modality, array $input): a
         } elseif ($modality === 'ai_lesson') {
             if (trim((string) ($content['prompt'] ?? '')) === '' || courseware_strlen((string) $content['prompt']) > 6000)
                 respond(['error' => 'AI Lesson memerlukan prompt atau cue card (maksimal 6.000 karakter).'], 422);
-            if (isset($content['ttsSegments']) && !is_array($content['ttsSegments'])) respond(['error' => 'Dialog multi-speaker tidak valid.'], 422);
         } else {
             foreach (['teacherRole','learnerRole','situation','opening'] as $key)
                 if (courseware_strlen((string) ($content[$key] ?? '')) > 2000) respond(['error' => 'Instruksi Live terlalu panjang.'], 422);
+        }
+        if (in_array($modality, ['listening', 'ai_lesson'], true)) {
+            $defaultVoice = $content['defaultVoice'] ?? 'af_heart';
+            if (!is_string($defaultVoice)) respond(['error' => 'Model suara default tidak valid.'], 422);
+            $defaultVoice = trim($defaultVoice) ?: 'af_heart';
+            if (!in_array($defaultVoice, catalog_tts_voice_ids(), true))
+                respond(['error' => 'Model suara default tidak didukung.'], 422);
+            $content['defaultVoice'] = $defaultVoice;
+            $content['ttsSegments'] = catalog_tts_segments($content);
         }
         $normalizedUnits[$id] = [
             'id' => $id, 'categoryId' => $categoryId, 'title' => $title, 'subtitle' => $subtitle,
@@ -941,6 +953,7 @@ function courseware_save_content(PDO $pdo, string $courseId, string $modality, a
                 $unitId,
                 (string) ($oldContent[$textField] ?? ''),
                 is_array($oldContent['ttsSegments'] ?? null) ? $oldContent['ttsSegments'] : [],
+                is_string($oldContent['defaultVoice'] ?? null) ? $oldContent['defaultVoice'] : 'af_heart',
             );
         }
         $newRevisions = [];
@@ -952,6 +965,7 @@ function courseware_save_content(PDO $pdo, string $courseId, string $modality, a
                 $unit['id'],
                 (string) ($content[$textField] ?? ''),
                 is_array($content['ttsSegments'] ?? null) ? $content['ttsSegments'] : [],
+                (string) ($content['defaultVoice'] ?? 'af_heart'),
             );
         }
         // Also sweep cache records orphaned by saves made before this invalidation

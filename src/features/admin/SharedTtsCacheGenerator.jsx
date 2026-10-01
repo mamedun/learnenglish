@@ -4,7 +4,6 @@ import { toast } from "sonner";
 import {
   generateKokoroAudio,
   generateKokoroCompositeAudio,
-  KOKORO_VOICES,
 } from "../../lib/ttsRocks";
 import { saveSharedTtsAudio } from "../../lib/ttsCache";
 
@@ -36,35 +35,39 @@ export default function SharedTtsCacheGenerator({
       ttsRevision: item.ttsRevision,
       ...(item.courseId ? { courseId: item.courseId } : {}),
     };
-    const jobs = KOKORO_VOICES.map((voice) => ({
-      key: voice.id,
-      label: voice.name,
-      generate: (onStatus) =>
-        generateKokoroAudio(String(sourceText).trim(), {
-          voice: voice.id,
-          compute: "auto",
-          speed: 0.88,
-          onStatus,
-        }),
-    }));
-    if (hasMultiSpeaker) {
-      jobs.push({
-        key: "multi",
-        label: "Dialog multi-speaker",
-        generate: (onStatus) =>
-          generateKokoroCompositeAudio(validSegments, {
-            compute: "auto",
-            speed: 0.88,
-            pauseMs: 280,
-            onStatus,
-          }),
-      });
-    }
+    const priorityVoice = item.defaultVoice || "af_heart";
+    const jobs = hasMultiSpeaker
+      ? [
+          {
+            key: "multi",
+            label: "Dialog multi-speaker",
+            generate: (onStatus) =>
+              generateKokoroCompositeAudio(validSegments, {
+                compute: "auto",
+                speed: 0.88,
+                pauseMs: 280,
+                onStatus,
+              }),
+          },
+        ]
+      : [
+          {
+            key: priorityVoice,
+            label: `Voice prioritas · ${priorityVoice}`,
+            generate: (onStatus) =>
+              generateKokoroAudio(String(sourceText).trim(), {
+                voice: priorityVoice,
+                compute: "auto",
+                speed: 0.88,
+                onStatus,
+              }),
+          },
+        ];
 
     setGenerating(true);
     onGeneratingChange(true);
     setStatus(
-      `Menjalankan batch ${jobs.length} audio; engine Kokoro memproses bergiliran…`,
+      `Membuat satu file audio${hasMultiSpeaker ? " gabungan multi-speaker" : ` dengan voice ${priorityVoice}`}…`,
     );
     const onModelStatus = (job) => (modelStatus) => {
       if (modelStatus?.message)
@@ -115,8 +118,8 @@ export default function SharedTtsCacheGenerator({
         );
         toast.success(
           hasMultiSpeaker
-            ? "Empat voice tunggal dan audio dialog multi-speaker tersimpan."
-            : "Empat voice tunggal tersimpan di shared cache.",
+            ? "Satu audio gabungan multi-speaker tersimpan di shared cache."
+            : `Satu audio dengan voice ${priorityVoice} tersimpan di shared cache.`,
         );
       }
     } catch (error) {
@@ -135,12 +138,10 @@ export default function SharedTtsCacheGenerator({
           <AudioLines size={16} /> Shared audio cache
         </b>
         <small>
-          Membuat empat voice tunggal dalam satu batch; engine memproses
-          bergiliran agar tetap stabil
           {hasMultiSpeaker
-            ? " bersama satu audio dialog multi-speaker."
-            : "."}{" "}
-          Generate ulang mengganti file lama.
+            ? "Dialog dengan beberapa speaker dibuat sebagai satu audio gabungan; prioritas voice tunggal diabaikan."
+            : `Materi ini menyimpan satu audio dengan voice prioritas ${item?.defaultVoice || "af_heart"}.`}{" "}
+          Generate ulang mengganti audio cache lama.
         </small>
       </div>
       <button
@@ -155,13 +156,14 @@ export default function SharedTtsCacheGenerator({
           </>
         ) : (
           <>
-            <AudioLines size={15} /> Generate batch audio
+            <AudioLines size={15} /> Generate satu audio
           </>
         )}
       </button>
       {sourceChanged && item?.id && (
         <p className="studio-cache-hint">
-          Simpan perubahan prompt/naskah atau giliran dialog terlebih dahulu.
+          Simpan perubahan prompt/cue card, naskah, prioritas voice, atau
+          giliran dialog terlebih dahulu.
         </p>
       )}
       {!item?.id && (

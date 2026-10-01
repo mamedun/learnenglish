@@ -99,7 +99,14 @@ function catalog_install(PDO $pdo): void
 
 function catalog_tts_voice_ids(): array
 {
-    return ['af_heart', 'am_puck', 'bf_emma', 'bm_george'];
+    return [
+        'af_heart', 'af_alloy', 'af_aoede', 'af_bella', 'af_jessica', 'af_kore',
+        'af_nicole', 'af_nova', 'af_river', 'af_sarah', 'af_sky',
+        'am_adam', 'am_echo', 'am_eric', 'am_fenrir', 'am_liam', 'am_michael',
+        'am_onyx', 'am_puck', 'am_santa',
+        'bf_alice', 'bf_emma', 'bf_isabella', 'bf_lily',
+        'bm_daniel', 'bm_fable', 'bm_george', 'bm_lewis',
+    ];
 }
 
 function catalog_tts_segments(array $input): array
@@ -126,29 +133,36 @@ function catalog_tts_segments(array $input): array
     return $segments;
 }
 
-function catalog_tts_revision_value(string $type, string $id, string $text, string $segmentsJson): string
+function catalog_tts_revision_value(string $type, string $id, string $text, string $segmentsJson, string $defaultVoice = 'af_heart'): string
 {
     $segments = json_decode($segmentsJson, true);
     $canonicalSegments = json_encode(
         is_array($segments) && array_is_list($segments) ? $segments : [],
         JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE
     ) ?: '[]';
-    return hash('sha256', "speakup-tts-v1\n$type\n$id\n$text\n$canonicalSegments");
+    if (!in_array($defaultVoice, catalog_tts_voice_ids(), true)) $defaultVoice = 'af_heart';
+    return hash('sha256', "speakup-tts-v2\n$type\n$id\n$text\n$defaultVoice\n$canonicalSegments");
 }
 
 function catalog_tts_revision(PDO $pdo, string $type, string $id): ?string
 {
     if ($type === 'speaking') {
-        $q = $pdo->prepare('SELECT prompt AS source_text, tts_segments_json FROM speaking_units WHERE id=?');
+        $q = $pdo->prepare('SELECT prompt AS source_text, tts_segments_json, default_voice FROM speaking_units WHERE id=?');
     } elseif ($type === 'listening') {
-        $q = $pdo->prepare('SELECT script AS source_text, tts_segments_json FROM listening_lessons WHERE id=?');
+        $q = $pdo->prepare('SELECT script AS source_text, tts_segments_json, default_voice FROM listening_lessons WHERE id=?');
     } else {
         return null;
     }
     $q->execute([$id]);
     $row = $q->fetch();
     if (!$row) return null;
-    return catalog_tts_revision_value($type, $id, (string) $row['source_text'], (string) ($row['tts_segments_json'] ?? '[]'));
+    return catalog_tts_revision_value(
+        $type,
+        $id,
+        (string) $row['source_text'],
+        (string) ($row['tts_segments_json'] ?? '[]'),
+        (string) ($row['default_voice'] ?? 'af_heart'),
+    );
 }
 
 function catalog_data(PDO $pdo, bool $admin = false): array
@@ -165,6 +179,8 @@ function catalog_data(PDO $pdo, bool $admin = false): array
     $units = $pdo->query("SELECT * FROM speaking_units $visibility ORDER BY level_id, sort_order, id")->fetchAll();
     foreach ($units as $u) {
         if (!isset($levels[$u['level_id']])) continue;
+        $defaultVoice = in_array($u['default_voice'] ?? '', catalog_tts_voice_ids(), true)
+            ? $u['default_voice'] : 'af_heart';
         $item = [
             'id' => $u['id'], 'level' => $u['level_id'], 'title' => $u['title'],
             'subtitle' => $u['subtitle'], 'emoji' => $u['emoji'],
@@ -174,11 +190,10 @@ function catalog_data(PDO $pdo, bool $admin = false): array
             'prepSeconds' => (int) $u['prep_seconds'], 'responseSeconds' => (int) $u['response_seconds'],
             'image' => app_public_asset_url($u['image']), 'imageContext' => $u['image_context'],
             'sortOrder' => (int) $u['sort_order'],
-            'defaultVoice' => in_array($u['default_voice'] ?? '', catalog_tts_voice_ids(), true)
-                ? $u['default_voice'] : 'af_heart',
+            'defaultVoice' => $defaultVoice,
             'ttsSegments' => json_decode($u['tts_segments_json'] ?? '[]', true) ?: [],
             'ttsRevision' => catalog_tts_revision_value(
-                'speaking', (string) $u['id'], (string) $u['prompt'], (string) ($u['tts_segments_json'] ?? '[]')
+                'speaking', (string) $u['id'], (string) $u['prompt'], (string) ($u['tts_segments_json'] ?? '[]'), $defaultVoice
             ),
         ];
         if ($admin) $item['published'] = (bool) $u['published'];
@@ -187,15 +202,16 @@ function catalog_data(PDO $pdo, bool $admin = false): array
     $listening = [];
     $lessonRows = $pdo->query("SELECT * FROM listening_lessons $visibility ORDER BY level_id, sort_order, id")->fetchAll();
     foreach ($lessonRows as $l) {
+        $defaultVoice = in_array($l['default_voice'] ?? '', catalog_tts_voice_ids(), true)
+            ? $l['default_voice'] : 'af_heart';
         $listening[$l['id']] = [
             'id' => $l['id'], 'level' => $l['level_id'], 'title' => $l['title'],
             'objective' => $l['objective'], 'script' => $l['script'], 'image' => app_public_asset_url($l['image']),
             'sortOrder' => (int) $l['sort_order'], 'questions' => [],
-            'defaultVoice' => in_array($l['default_voice'] ?? '', catalog_tts_voice_ids(), true)
-                ? $l['default_voice'] : 'af_heart',
+            'defaultVoice' => $defaultVoice,
             'ttsSegments' => json_decode($l['tts_segments_json'] ?? '[]', true) ?: [],
             'ttsRevision' => catalog_tts_revision_value(
-                'listening', (string) $l['id'], (string) $l['script'], (string) ($l['tts_segments_json'] ?? '[]')
+                'listening', (string) $l['id'], (string) $l['script'], (string) ($l['tts_segments_json'] ?? '[]'), $defaultVoice
             ),
         ];
         if ($admin) $listening[$l['id']]['published'] = (bool) $l['published'];

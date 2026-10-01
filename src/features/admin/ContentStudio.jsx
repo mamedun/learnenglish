@@ -13,7 +13,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { apiJson } from "../../api";
-import { KOKORO_VOICES } from "../../lib/ttsRocks";
+import { KOKORO_ADMIN_VOICES } from "../../lib/ttsRocks";
 import ModuleLoading from "../../components/ModuleLoading";
 import DialogueEditor from "./DialogueEditor";
 import SharedTtsCacheGenerator from "./SharedTtsCacheGenerator";
@@ -168,6 +168,8 @@ export default function ContentStudio({ onCatalogChange }) {
     draft?.type !== "level" &&
     (!persistedItem ||
       editing?.[audioSourceField] !== persistedItem?.[audioSourceField] ||
+      (editing?.defaultVoice || "af_heart") !==
+        (persistedItem?.defaultVoice || "af_heart") ||
       JSON.stringify(editing?.ttsSegments || []) !==
         JSON.stringify(persistedItem?.ttsSegments || []));
   const create = () =>
@@ -501,22 +503,23 @@ export default function ContentStudio({ onCatalogChange }) {
                     required
                   />
                   <label className="studio-field">
-                    <span>Default voice · audio cache priority</span>
+                    <span>Default voice · prioritas cache satu-suara</span>
                     <select
                       value={editing.defaultVoice || "af_heart"}
                       onChange={(event) =>
                         change("defaultVoice", event.target.value)
                       }
                     >
-                      {KOKORO_VOICES.map((voice) => (
+                      {KOKORO_ADMIN_VOICES.map((voice) => (
                         <option key={voice.id} value={voice.id}>
                           {voice.name} · {voice.accent} ({voice.id})
                         </option>
                       ))}
                     </select>
                     <small>
-                      Voice ini menjadi prioritas saat memilih cache satu-suara;
-                      dialog multi-speaker memakai voice pada tiap giliran.
+                      Dipakai untuk materi tanpa dialog multi-speaker. Jika ada
+                      sedikitnya dua giliran, dibuat satu audio gabungan memakai
+                      voice tiap speaker dan prioritas ini diabaikan.
                     </small>
                   </label>
                   {draft.type === "unit" ? (

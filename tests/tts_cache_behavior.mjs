@@ -3,6 +3,8 @@ import { readFile } from "node:fs/promises";
 import {
   collectStreamedSamples,
   getGeneratedSamples,
+  KOKORO_ADMIN_VOICES,
+  KOKORO_VOICES,
 } from "../src/lib/ttsRocks.js";
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
@@ -12,6 +14,8 @@ const [
   generator,
   legacyStudio,
   courseStudio,
+  courseContentEditor,
+  dialogueEditor,
   cacheApi,
   courseware,
   catalog,
@@ -22,6 +26,8 @@ const [
   read("src/features/admin/SharedTtsCacheGenerator.jsx"),
   read("src/features/admin/ContentStudio.jsx"),
   read("src/features/admin/CourseStudio.jsx"),
+  read("src/features/admin/CourseContentEditor.jsx"),
+  read("src/features/admin/DialogueEditor.jsx"),
   read("api/tts_cache.php"),
   read("api/courseware.php"),
   read("api/catalog.php"),
@@ -38,6 +44,21 @@ assert.deepEqual(
   expectedWaveform,
 );
 assert.deepEqual(getGeneratedSamples(expectedWaveform), expectedWaveform);
+assert.deepEqual(
+  KOKORO_VOICES.map((voice) => voice.id),
+  ["af_heart", "am_puck", "bf_emma", "bm_george"],
+);
+assert.equal(KOKORO_ADMIN_VOICES.length, 28);
+assert.ok(KOKORO_ADMIN_VOICES.some((voice) => voice.id === "af_bella"));
+assert.ok(KOKORO_ADMIN_VOICES.some((voice) => voice.id === "bm_lewis"));
+const serverVoiceList = catalog.match(
+  /function catalog_tts_voice_ids\(\): array\s*\{([\s\S]*?)\n\}/,
+)?.[1];
+assert.ok(serverVoiceList, "the API must expose its supported Kokoro voices");
+assert.deepEqual(
+  [...serverVoiceList.matchAll(/'([a-z_]+)'/g)].map((match) => match[1]),
+  KOKORO_ADMIN_VOICES.map((voice) => voice.id),
+);
 assert.deepEqual(
   getGeneratedSamples({
     audio: { audio: new Float32Array(0), data: expectedWaveform },
@@ -115,31 +136,51 @@ assert.match(
   /Materi Listening dan AI Lesson selalu memeriksa shared audio/,
 );
 
-assert.match(generator, /KOKORO_VOICES\.map/);
+assert.doesNotMatch(generator, /KOKORO_VOICES\.map/);
+assert.match(generator, /const jobs = hasMultiSpeaker\s+\?\s+\[/);
+assert.match(generator, /key: "multi"/);
+assert.match(generator, /key: priorityVoice/);
 assert.match(generator, /Promise\.allSettled/);
-assert.match(generator, /engine Kokoro memproses bergiliran/);
-assert.match(generator, /generateKokoroCompositeAudio/);
+assert.match(generator, /generateKokoroCompositeAudio\(validSegments/);
+assert.match(generator, /generateKokoroAudio\(String\(sourceText\)\.trim\(\)/);
 assert.match(ttsRocks, /serializeKokoroInference/);
 assert.match(ttsRocks, /new TTS\.TextSplitterStream\(\)/);
 assert.match(ttsRocks, /kokoroTtsInstance\.stream\(splitter/);
 assert.match(ttsRocks, /audio\?\.toBlob/);
 assert.match(ttsRocks, /decodeAudioData/);
 assert.doesNotMatch(ttsRocks, /kokoroTtsInstance\.generate/);
-assert.match(generator, /Generate ulang mengganti file lama/);
+assert.match(generator, /Generate ulang mengganti audio cache lama/);
 assert.match(legacyStudio, /<SharedTtsCacheGenerator/);
 assert.match(courseStudio, /<SharedTtsCacheGenerator/);
+assert.match(legacyStudio, /KOKORO_ADMIN_VOICES\.map/);
+assert.match(courseContentEditor, /KOKORO_ADMIN_VOICES\.map/);
+assert.match(dialogueEditor, /KOKORO_ADMIN_VOICES\.map/);
 assert.match(courseStudio, /audioSourceChanged/);
+assert.match(courseStudio, /contentDraft\.defaultVoice/);
+assert.match(legacyStudio, /editing\?\.defaultVoice/);
+assert.match(
+  courseware,
+  /speakup-tts-v2\\n\$type\\n\$courseId:\$unitId\\n\$text\\n\$defaultVoice/,
+);
+assert.match(
+  catalog,
+  /speakup-tts-v2\\n\$type\\n\$id\\n\$text\\n\$defaultVoice/,
+);
 assert.match(
   courseStudio,
   /modules: \{ \.\.\.\(current\.modules \|\| \{\}\), \[modality\]: imported \}/,
 );
 
 assert.match(cacheApi, /\$voice !== 'auto'/);
-assert.match(
-  cacheApi,
-  /if \(count\(\$segments\) >= 2\) \$voiceCandidates\[\] = 'multi'/,
-);
+assert.match(cacheApi, /function tts_cache_expected_voice/);
+assert.match(cacheApi, /count\(\$segments\) >= 2\s+\?\s+'multi'/);
+assert.match(cacheApi, /tts_cache_remove_other_entries/);
+assert.match(cacheApi, /if \(\$voice !== \$expectedVoice\)/);
 assert.match(cacheApi, /tts_cache_default_voice/);
+assert.doesNotMatch(
+  cacheApi,
+  /foreach \(catalog_tts_voice_ids\(\) as \$candidateVoice\)/,
+);
 assert.match(cacheApi, /function tts_cache_delete_course/);
 assert.match(courseware, /courseware_tts_revision_value/);
 assert.match(
