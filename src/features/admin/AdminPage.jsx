@@ -96,6 +96,8 @@ export default function AdminPage({
       setSettings(s.settings);
       const selectedProvider = s.settings?.ai_provider || "";
       setModelsProvider(selectedProvider === "free" ? "" : selectedProvider);
+      // The settings form does not depend on the remote model catalog.
+      setReady(true);
       if (selectedProvider && selectedProvider !== "free") {
         const catalog = await apiJson("models").catch(() => ({}));
         if (catalog.provider && catalog.provider !== selectedProvider) {
@@ -117,7 +119,6 @@ export default function AdminPage({
       } else {
         setModels([]);
       }
-      setReady(true);
     } catch (error) {
       setSettingsError(error.message || "Gagal memuat pengaturan admin.");
     }

@@ -1033,9 +1033,14 @@ function courseware_export_modality(PDO $pdo, string $courseId, string $modality
 
 function courseware_log_usage(PDO $pdo, int $userId, ?string $courseId, string $modality, ?string $unitId, string $operation, string $provider, int $diamonds, int $transcriptChars = 0, int $audioBytes = 0, int $durationSeconds = 0, string $status = 'completed'): void
 {
-    $pdo->prepare('INSERT INTO course_usage_events(user_id,course_id,modality,unit_id,operation,provider,diamond_cost,transcript_chars,audio_bytes,duration_seconds,status,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)')->execute([
-        $userId,$courseId,$modality,$unitId,$operation,substr($provider,0,40),max(0,$diamonds),max(0,$transcriptChars),max(0,$audioBytes),max(0,$durationSeconds),substr($status,0,24),gmdate('c'),
-    ]);
+    try {
+        $pdo->prepare('INSERT INTO course_usage_events(user_id,course_id,modality,unit_id,operation,provider,diamond_cost,transcript_chars,audio_bytes,duration_seconds,status,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)')->execute([
+            $userId,$courseId,$modality,$unitId,$operation,substr($provider,0,40),max(0,$diamonds),max(0,$transcriptChars),max(0,$audioBytes),max(0,$durationSeconds),substr($status,0,24),gmdate('c'),
+        ]);
+    } catch (Throwable $error) {
+        // Usage telemetry must never discard an otherwise successful assessment.
+        error_log('SpeakUp course usage telemetry write failed: ' . get_class($error));
+    }
 }
 
 function courseware_list_admin_usage(PDO $pdo, array $filters): array

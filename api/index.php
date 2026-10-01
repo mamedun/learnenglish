@@ -530,9 +530,16 @@ function provider_request(string $path,?array $body=null,int $timeout=25):array{
     }
     if($c['api_key']==='')return ['status'=>503,'body'=>'','error'=>'Admin belum mengatur API key Clario.'];
     $headers=['Authorization: Bearer '.$c['api_key'],'Content-Type: application/json'];
-    $r=http_json($c['base_url'].$path,$headers,$body,$timeout);
-    if(($r['status']===403||$r['status']===0)&&$c['fallback_url']!==$c['base_url'])
-        $r=http_json($c['fallback_url'].$path,$headers,$body,$timeout);
+    $requestStarted=microtime(true);
+    $firstTimeout=$c['fallback_url']!==$c['base_url']?max(1,(int)floor($timeout/2)):$timeout;
+    $r=http_json($c['base_url'].$path,$headers,$body,$firstTimeout);
+    if(($r['status']===403||$r['status']===0)&&$c['fallback_url']!==$c['base_url']){
+        // Treat the configured timeout as a budget for both endpoints combined;
+        // two sequential 70-second attempts can outlive PHP-FPM and Cloudflare.
+        $remainingTimeout=max(0,$timeout-(int)ceil(microtime(true)-$requestStarted));
+        if($remainingTimeout>0)
+            $r=http_json($c['fallback_url'].$path,$headers,$body,$remainingTimeout);
+    }
     return $r;
 }
 function ensure_upload_dir(int $uid):string{$root=cfg('UPLOADS_DIR')?:__DIR__.'/uploads';$dir=rtrim($root,'/\\').'/'.$uid;if(!is_dir($dir)&&!mkdir($dir,0700,true)&&!is_dir($dir))respond(['error'=>'Folder upload tidak dapat dibuat.'],500);$deny=rtrim($root,'/\\').'/.htaccess';if(!is_file($deny))@file_put_contents($deny,"Options -Indexes\nRequire all denied\n");return $dir;}
@@ -1228,6 +1235,7 @@ respond(['result'=>$result,'usage'=>$provider['usage']??null,'diamonds'=>$diamon
 }
 if($action==='assess-audio'&&$method==='POST'){
     origin_check();
+    if(function_exists('set_time_limit'))@set_time_limit(90);
     $mode=(string)($_POST['task_mode']??'response');
     if(!in_array($mode,['response','read_aloud','read_aloud_direct'],true))respond(['error'=>'Jenis tugas audio tidak valid.'],422);    $policy=courseware_policy();
     $audioDiamondCost=match($mode){'read_aloud'=>$policy['cost_listening_transcribe'],'read_aloud_direct'=>$policy['cost_listening_direct_audio'],default=>$policy['cost_ai_lesson_audio']};
@@ -1255,7 +1263,8 @@ if($action==='assess-audio'&&$method==='POST'){
         $prompt=free_audio_assessment_prompt($mode,$level,$task)."\nCourse-specific instructions:\n".$coursePrompt;
         $ext=match($freeMimeMap[$mime]){'audio/mp4'=>'m4a','audio/ogg'=>'ogg','audio/wav'=>'wav',default=>'webm'};
         $walletReservation=courseware_wallet_reserve($u,$audioDiamondCost,$audioWalletKind,$audioWalletNote);
-        $freeResponse=free_request($prompt,$file['tmp_name'],$freeMimeMap[$mime],'audio.'.$ext,70);
+        $freeTimeout=($mode==='read_aloud'&&$config['speech_scoring_mode']==='ai')?55:70;
+        $freeResponse=free_request($prompt,$file['tmp_name'],$freeMimeMap[$mime],'audio.'.$ext,$freeTimeout);
         $parsed=parse_free_response($freeResponse);
         if(!$parsed['ok']){
             $diagnostics=free_response_diagnostics($freeResponse);
