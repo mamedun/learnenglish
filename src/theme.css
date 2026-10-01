@@ -1197,7 +1197,7 @@ img {
 }
 .listening-visual img {
   border-radius: 16px;
-  max-height: 315px;
+  max-height: unset;
 }
 .listening-visual figcaption {
   color: #87829d;
