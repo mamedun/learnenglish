@@ -29,6 +29,7 @@ export default function ListeningPage({
   speechScoringMode = "local",
   speechSimilarityThreshold = 90,
   aiProvider = "clario",
+  unlimitedDiamonds = false,
   onDiamondsChanged = () => {},
 }) {
   const speechThreshold = normalizeSpeechThreshold(speechSimilarityThreshold);
@@ -398,6 +399,7 @@ export default function ListeningPage({
             speechScoringMode={speechScoringMode}
             speechSimilarityThreshold={speechThreshold}
             aiProvider={aiProvider}
+            unlimitedDiamonds={unlimitedDiamonds}
             passed={speechPassed}
             passedScore={speechScore}
             savedTranscript={data.speakingTranscripts?.[active.id] || ""}

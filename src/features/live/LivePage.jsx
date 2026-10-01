@@ -17,6 +17,7 @@ export default function LivePage({
   liveAssessment,
   liveAssessmentFailed = false,
   diamonds = 0,
+  unlimitedAccess = false,
   liveTopicId,
   liveTopic,
   onLiveTopicChange = () => {},
@@ -129,8 +130,9 @@ export default function LivePage({
             <span className="status-dot" /> Browser → Gemini direct
           </span>
           <span>
-            10 diamonds / 5 min · max 10 min · balance{" "}
-            {Number(diamonds).toLocaleString("id-ID")}
+            {unlimitedAccess
+              ? "Admin unlimited access · no diamonds used · max 10 min"
+              : `10 diamonds / 5 min · max 10 min · balance ${Number(diamonds).toLocaleString("id-ID")}`}
           </span>
         </div>
       </div>

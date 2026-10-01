@@ -3,6 +3,8 @@ import {
   canCompletePracticeLesson,
   findNextPracticeLesson,
   getPracticeLessonProgress,
+  isPracticeTurnPassed,
+  passedPracticeTurnCount,
   practicePoints,
 } from "../src/features/speaking/lessonProgress.js";
 
@@ -24,6 +26,29 @@ assert.equal(
 );
 assert.equal(practicePoints([{ similarityPercent: 89 }], 89), 25);
 assert.equal(practicePoints([{ pointsEarned: 25 }, { pointsEarned: 0 }]), 25);
+
+const failedAttempt = {
+  id: "slot-1",
+  slot: 1,
+  stars: 3,
+  passed: false,
+  pointsEarned: 0,
+};
+const passedRetry = {
+  ...failedAttempt,
+  stars: 4,
+  passed: true,
+  pointsEarned: 25,
+};
+assert.equal(isPracticeTurnPassed(failedAttempt), false);
+assert.equal(isPracticeTurnPassed(passedRetry), true);
+assert.equal(passedPracticeTurnCount([failedAttempt]), 0);
+assert.equal(passedPracticeTurnCount([failedAttempt, passedRetry]), 1);
+assert.equal(practicePoints([failedAttempt, passedRetry]), 25);
+assert.equal(
+  canCompletePracticeLesson(1, practicePoints([failedAttempt, passedRetry])),
+  false,
+);
 
 const initial = getPracticeLessonProgress();
 assert.equal(initial.percentage, 0);
@@ -74,5 +99,5 @@ assert.equal(findNextPracticeLesson(lessons, "three"), null);
 assert.equal(findNextPracticeLesson(lessons, "missing"), null);
 
 console.log(
-  "PASS: AI Lesson requires four conversations and 100 points; good-turn scoring and unlimited extra turns are supported.",
+  "PASS: AI Lesson counts four passed conversation slots and 100 points; failed retries do not inflate completion progress.",
 );

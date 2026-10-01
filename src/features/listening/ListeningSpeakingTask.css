@@ -63,6 +63,28 @@
 .shadowing-body > .text-button {
   justify-self: start;
 }
+.listening-direct-mode-picker {
+  display: grid;
+  justify-items: start;
+  gap: 4px;
+  padding: 11px 13px;
+  border: 1px solid #dceae1;
+  border-radius: 12px;
+  background: #f4f9f5;
+}
+.listening-direct-mode-toggle {
+  color: #37694a;
+  font-weight: 800;
+}
+.listening-direct-mode-toggle.active {
+  color: #295f3e;
+}
+.listening-direct-mode-picker small {
+  max-width: 640px;
+  color: #718276;
+  font-size: 11px;
+  line-height: 1.5;
+}
 .shadowing-controls {
   display: flex;
   align-items: center;

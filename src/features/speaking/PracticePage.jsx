@@ -29,7 +29,10 @@ import Swal from "sweetalert2";
 import { formatTime } from "../../lib/formatTime";
 import {
   canCompletePracticeLesson,
+  findNextPracticeLesson,
   getPracticeLessonProgress,
+  isPracticeTurnPassed,
+  passedPracticeTurnCount,
   practicePoints,
 } from "./lessonProgress";
 import { isTtsBusy } from "../../lib/ttsRocks";
@@ -115,6 +118,7 @@ export default function PracticePage(p) {
     completed,
     clearHistory,
     diamonds = 0,
+    unlimitedDiamonds = false,
     similarityThreshold = 90,
     resetRecording,
   } = p;
@@ -133,11 +137,25 @@ export default function PracticePage(p) {
   const responseCaptured = liveTranscription
     ? Boolean(stripTranscriptSourceLabel(transcript)) && !transcribing
     : Boolean(audioBlob);
+  const passedTurnCount = passedPracticeTurnCount(turns, similarityThreshold);
+  const lastTurn = turns.at(-1);
+  const retryPending = Boolean(
+    lastTurn && !isPracticeTurnPassed(lastTurn, similarityThreshold),
+  );
   const goodPoints = practicePoints(turns, similarityThreshold);
+  const responseCost = responseMode === "audio" ? 5 : 2;
+  const responseCostLabel = unlimitedDiamonds
+    ? "Gratis · Admin unlimited"
+    : `${responseCost} diamond`;
+  const nextLesson = findNextPracticeLesson(allUnits, unit.id);
+  const canFinishLesson = canCompletePracticeLesson(
+    passedTurnCount,
+    goodPoints,
+  );
   const lessonProgress = getPracticeLessonProgress({
     scenarioComplete,
     responseCaptured,
-    feedbackCount: turns.length,
+    feedbackCount: passedTurnCount,
     goodPoints,
     completed: Boolean(completed?.has?.(unit.id)),
   });
@@ -155,15 +173,23 @@ export default function PracticePage(p) {
     setScenarioComplete(Boolean(completed?.has?.(unit.id)));
   }, [unit.id]);
   const previousTurnCount = useRef(turns.length);
+  const previousLastTurn = useRef(turns.at(-1));
   useEffect(() => {
-    if (turns.length > previousTurnCount.current) {
-      // Clear Web Speech API's internal transcript as well as App state so a retry
-      // never submits the previous answer a second time.
+    const latestTurn = turns.at(-1);
+    const appendedTurn = turns.length > previousTurnCount.current;
+    const replacedTurn =
+      turns.length === previousTurnCount.current &&
+      latestTurn &&
+      latestTurn !== previousLastTurn.current;
+    if (appendedTurn || replacedTurn) {
+      // Clear Web Speech API's internal transcript as well as App state after
+      // both a new slot and a failed-slot replacement.
       recognizer.reset();
       p.setTranscript("");
     }
     previousTurnCount.current = turns.length;
-  }, [turns.length, recognizer.reset, p.setTranscript]);
+    previousLastTurn.current = latestTurn;
+  }, [turns, recognizer.reset, p.setTranscript]);
   useEffect(() => {
     if (liveTranscription) p.setTranscript(recognizer.transcript);
   }, [recognizer.transcript, liveTranscription, p.setTranscript]);
@@ -387,8 +413,12 @@ export default function PracticePage(p) {
         <div className="answer-card">
           <div className="answer-head">
             <div>
-              <div className="eyebrow">GILIRANMU</div>
-              <h3>Jawab dengan suaramu</h3>
+              <div className="eyebrow">
+                {retryPending ? "ULANGI TOPIK YANG SAMA" : "GILIRANMU"}
+              </div>
+              <h3>
+                {retryPending ? "Coba jawabanmu lagi" : "Jawab dengan suaramu"}
+              </h3>
             </div>
             <span className="privacy-mini">
               <ShieldCheck size={14} />
@@ -397,6 +427,13 @@ export default function PracticePage(p) {
                 : "Audio dikirim hanya setelah persetujuan"}
             </span>
           </div>
+          {retryPending && (
+            <div className="practice-retry-note" role="status">
+              Nilai belum mencapai 4/5. Rekam jawaban suara untuk pertanyaan
+              yang sama; kartu feedback ini akan diganti dan slot percakapan
+              baru hanya dihitung setelah lulus.
+            </div>
+          )}
           <div
             className="practice-response-modes"
             role="group"
@@ -415,7 +452,15 @@ export default function PracticePage(p) {
                 Speech-to-text browser · AI menilai kosakata & grammar
               </small>
               <strong>
-                <Gem size={14} /> 2 diamond
+                {unlimitedDiamonds ? (
+                  <>
+                    <ShieldCheck size={14} /> Gratis · Admin
+                  </>
+                ) : (
+                  <>
+                    <Gem size={14} /> 2 diamond
+                  </>
+                )}
               </strong>
             </button>
             <button
@@ -431,13 +476,22 @@ export default function PracticePage(p) {
                 Transkripsi AI + penilaian keempat kriteria speaking
               </small>
               <strong>
-                <Gem size={14} /> 5 diamond
+                {unlimitedDiamonds ? (
+                  <>
+                    <ShieldCheck size={14} /> Gratis · Admin
+                  </>
+                ) : (
+                  <>
+                    <Gem size={14} /> 5 diamond
+                  </>
+                )}
               </strong>
             </button>
           </div>
           <div className="practice-wallet-hint">
-            Saldo {Number(diamonds).toLocaleString("id-ID")} diamond · Tidak ada
-            mode AI Lesson gratis.
+            {unlimitedDiamonds
+              ? "Akses Admin unlimited · saldo diamond tidak digunakan."
+              : `Saldo ${Number(diamonds).toLocaleString("id-ID")} diamond · tidak ada mode AI Lesson gratis.`}
           </div>
           <div className="mic-stage">
             <div
@@ -616,7 +670,8 @@ export default function PracticePage(p) {
                   onClick={() => chooseResponseMode("audio")}
                   disabled={processing || recording || transcribing}
                 >
-                  Pilih evaluasi audio AI · 5 diamond
+                  Pilih evaluasi audio AI ·{" "}
+                  {unlimitedDiamonds ? "gratis Admin" : "5 diamond"}
                 </button>
                 <small>
                   Audio hanya dikirim setelah kamu menekan Kirim jawaban dan
@@ -670,13 +725,17 @@ export default function PracticePage(p) {
           <div className="answer-actions">
             <span>
               <ShieldCheck size={15} />
-              {liveTranscription
-                ? "Transkrip saja dikirim ke AI · 2 diamond"
-                : p.sessionSaveAudio === null
-                  ? "arsip audio ditanyakan terpisah · 5 diamond"
-                  : p.sessionSaveAudio
-                    ? "arsip audio disimpan di akun server · 5 diamond"
-                    : "audio tidak diarsipkan · 5 diamond"}
+              {unlimitedDiamonds
+                ? liveTranscription
+                  ? "Akses Admin unlimited · hanya transkrip yang dikirim ke AI"
+                  : "Akses Admin unlimited · rekaman dikirim setelah persetujuan"
+                : liveTranscription
+                  ? "Transkrip saja dikirim ke AI · 2 diamond"
+                  : p.sessionSaveAudio === null
+                    ? "arsip audio ditanyakan terpisah · 5 diamond"
+                    : p.sessionSaveAudio
+                      ? "arsip audio disimpan di akun server · 5 diamond"
+                      : "audio tidak diarsipkan · 5 diamond"}
             </span>
             <button
               className="btn-primary"
@@ -696,8 +755,7 @@ export default function PracticePage(p) {
                 </>
               ) : (
                 <>
-                  Kirim jawaban · {responseMode === "audio" ? 5 : 2} diamond{" "}
-                  <ArrowRight size={16} />
+                  Kirim jawaban · {responseCostLabel} <ArrowRight size={16} />
                 </>
               )}
             </button>
@@ -714,7 +772,7 @@ export default function PracticePage(p) {
               </div>
               <div className="feedback-heading-actions">
                 <span className="session-count">
-                  {turns.length} percakapan · {goodPoints}/100 poin
+                  {passedTurnCount} percakapan lulus · {goodPoints}/100 poin
                 </span>
                 <button
                   className="text-button clear-lesson-history"
@@ -729,20 +787,50 @@ export default function PracticePage(p) {
               <div>
                 <b>{goodPoints} / 100 poin</b>
                 <small>
-                  Setiap percakapan bagus memberi 25 poin. Skor AI minimal 4/5
-                  dihitung bagus.
+                  Setiap percakapan lulus memberi 25 poin. Skor AI minimal 4/5
+                  dihitung lulus.
                 </small>
               </div>
               <div className="lesson-points-meter">
                 <i style={{ width: `${Math.min(100, goodPoints)}%` }} />
               </div>
-              <span>{turns.length} / 4 percakapan minimum</span>
+              <span>{passedTurnCount} / 4 percakapan lulus</span>
+            </div>
+            <div className="finish-row finish-row-top">
+              <div>
+                <b>
+                  {canFinishLesson
+                    ? nextLesson
+                      ? "Siap lanjut ke lesson berikutnya"
+                      : "Lesson siap diselesaikan"
+                    : "Lanjutkan percakapan untuk menyelesaikan"}
+                </b>
+                <small>
+                  Perlu minimal 4 percakapan lulus dan 100 poin. Kamu tetap bisa
+                  terus berlatih setelah mencapai target.
+                </small>
+              </div>
+              <button
+                className="btn-primary"
+                onClick={finishUnit}
+                disabled={!canFinishLesson}
+              >
+                {nextLesson ? "Next Lesson" : "Selesaikan Lesson"}{" "}
+                {nextLesson ? <ArrowRight size={16} /> : <Check size={16} />}
+              </button>
             </div>
             {[...turns].reverse().map((t, i) => (
               <div className="feedback-card" key={t.id}>
                 <div className="feedback-top">
-                  <span>JAWABAN {turns.length - i}</span>
+                  <span>SLOT {Number(t.slot) || turns.length - i}</span>
                   <div className="feedback-turn-meta">
+                    <span
+                      className={`practice-turn-status ${isPracticeTurnPassed(t, similarityThreshold) ? "passed" : "retry"}`}
+                    >
+                      {isPracticeTurnPassed(t, similarityThreshold)
+                        ? "LULUS"
+                        : "ULANGI TOPIK"}
+                    </span>
                     <span
                       className={`turn-points ${Number(t.pointsEarned ?? (Number(t.stars) >= 4 ? 25 : 0)) > 0 ? "earned" : ""}`}
                     >
@@ -866,26 +954,6 @@ export default function PracticePage(p) {
                 </div>
               </div>
             ))}
-            <div className="finish-row">
-              <div>
-                <b>
-                  {canCompletePracticeLesson(turns.length, goodPoints)
-                    ? "Lesson siap diselesaikan"
-                    : "Lanjutkan percakapan untuk menyelesaikan"}
-                </b>
-                <small>
-                  Perlu minimal 4 percakapan dan 100 poin. Kamu tetap bisa terus
-                  berlatih setelah mencapai 100 poin.
-                </small>
-              </div>
-              <button
-                className="btn-primary"
-                onClick={finishUnit}
-                disabled={!canCompletePracticeLesson(turns.length, goodPoints)}
-              >
-                Selesaikan lesson <Check size={16} />
-              </button>
-            </div>
           </div>
         )}
       </div>

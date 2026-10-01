@@ -219,9 +219,16 @@ export default function ShopPage({ user, onBalanceChange = () => {} }) {
             <Wallet size={17} /> SALDO SAAT INI
           </span>
           <strong>
-            <Gem size={23} /> {balance.toLocaleString("id-ID")}
+            <Gem size={23} />{" "}
+            {user?.unlimited_diamonds
+              ? "Unlimited"
+              : balance.toLocaleString("id-ID")}
           </strong>
-          <small>Diamond akun SpeakUp</small>
+          <small>
+            {user?.unlimited_diamonds
+              ? "Akses Admin · saldo tidak dikurangi untuk fitur AI"
+              : "Diamond akun SpeakUp"}
+          </small>
         </div>
       </section>
 

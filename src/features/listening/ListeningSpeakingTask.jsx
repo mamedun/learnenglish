@@ -36,6 +36,7 @@ export default function ListeningSpeakingTask({
   passed,
   passedScore = 0,
   savedTranscript = "",
+  unlimitedDiamonds = false,
   onPass,
   onAttempt,
   onDiamondsChanged,
@@ -43,6 +44,7 @@ export default function ListeningSpeakingTask({
   const liveMode = speechInputMode !== "ai_audio";
   const recognition = useSpeechRecognition({ language: "en-US" });
   const [open, setOpen] = useState(false);
+  const [directAudioMode, setDirectAudioMode] = useState(false);
   const [recording, setRecording] = useState(false);
   const [requestingMic, setRequestingMic] = useState(false);
   const [processing, setProcessing] = useState(false);
@@ -56,12 +58,27 @@ export default function ListeningSpeakingTask({
   const similarityThreshold = normalizeSpeechThreshold(
     speechSimilarityThreshold,
   );
-  const answer = liveMode ? recognition.transcript : aiTranscript;
+  const liveInput = liveMode && !directAudioMode;
+  const answer = liveInput ? recognition.transcript : aiTranscript;
   const preview = answer
     ? compareSpokenText(lesson.script, answer, similarityThreshold)
     : null;
-  const aiScoring = speechScoringMode === "ai";
+  const aiScoring = directAudioMode || speechScoringMode === "ai";
   const displayedScore = aiScoring ? checked : (checked ?? preview);
+  const diamondCost = directAudioMode
+    ? 3
+    : liveInput
+      ? speechScoringMode === "ai"
+        ? 1
+        : 0
+      : speechScoringMode === "ai"
+        ? 2
+        : 1;
+  const costLabel = unlimitedDiamonds
+    ? "Gratis · Admin unlimited"
+    : diamondCost === 0
+      ? "Gratis"
+      : `${diamondCost} diamond${diamondCost === 1 ? "" : "s"}`;
   const savedTranscriptText =
     typeof savedTranscript === "string"
       ? savedTranscript
@@ -70,6 +87,7 @@ export default function ListeningSpeakingTask({
 
   useEffect(() => {
     setOpen(false);
+    setDirectAudioMode(false);
     resetAttempt();
     return () => {
       streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -109,6 +127,17 @@ export default function ListeningSpeakingTask({
     setAudioBlob(null);
     setAiTranscript("");
     setChecked(null);
+  }
+
+  function chooseDirectAudioMode(enabled) {
+    if (enabled === directAudioMode) return;
+    if (recording || processing || requestingMic || recognition.listening)
+      return;
+    recognition.reset();
+    setAudioBlob(null);
+    setAiTranscript("");
+    setChecked(null);
+    setDirectAudioMode(enabled);
   }
 
   function startLiveTranscription() {
@@ -267,8 +296,12 @@ export default function ListeningSpeakingTask({
       return;
     }
     const consent = await Swal.fire({
-      title: "Kirim rekaman untuk transkripsi AI?",
-      text: "Audio dikirim satu kali ke server AI yang dipilih admin untuk membuat transkrip. Audio tidak disimpan oleh proses evaluasi ini.",
+      title: directAudioMode
+        ? "Kirim rekaman untuk penilaian suara langsung?"
+        : "Kirim rekaman untuk transkripsi AI?",
+      text: directAudioMode
+        ? "Audio akan dikirim langsung ke server AI yang dipilih admin untuk dinilai terhadap naskah. Browser tidak membuat transkrip terlebih dahulu. Audio tidak disimpan oleh proses evaluasi ini."
+        : "Audio dikirim satu kali ke server AI yang dipilih admin untuk membuat transkrip. Audio tidak disimpan oleh proses evaluasi ini.",
       icon: "info",
       showCancelButton: true,
       confirmButtonText: "Setuju & proses audio",
@@ -297,7 +330,10 @@ export default function ListeningSpeakingTask({
               : "webm";
       const form = new FormData();
       form.append("consent", "1");
-      form.append("task_mode", "read_aloud");
+      form.append(
+        "task_mode",
+        directAudioMode ? "read_aloud_direct" : "read_aloud",
+      );
       form.append("level", lesson.level);
       form.append("task", lesson.script);
       form.append(
@@ -306,15 +342,21 @@ export default function ListeningSpeakingTask({
         `read-aloud-${lesson.id}.${audioExtension}`,
       );
       setProcessingMessage(
-        speechScoringMode === "ai"
-          ? "Mengirim audio untuk transkripsi dan penilaian AI…"
-          : "Mengirim audio untuk transkripsi…",
+        directAudioMode
+          ? "Mengirim audio langsung ke AI untuk dinilai…"
+          : speechScoringMode === "ai"
+            ? "Mengirim audio untuk transkripsi dan penilaian AI…"
+            : "Mengirim audio untuk transkripsi…",
       );
       const response = await apiFetch("assess-audio", {
         method: "POST",
         body: form,
       });
-      setProcessingMessage("Menerima transkrip dari AI…");
+      setProcessingMessage(
+        directAudioMode
+          ? "Menerima skor AI dan hasil audio…"
+          : "Menerima transkrip dari AI…",
+      );
       const payload = await response.json();
       if (Number.isFinite(Number(payload.diamonds)))
         onDiamondsChanged?.(Number(payload.diamonds));
@@ -323,9 +365,14 @@ export default function ListeningSpeakingTask({
       const text = String(payload.result?.transcript || "").trim();
       if (!text) throw new Error("Server AI tidak menghasilkan transkrip.");
       setAiTranscript(text);
-      onAttempt?.(null, text, speechScoringMode === "ai" ? "ai" : "local");
+      const evaluationMethod = directAudioMode
+        ? "ai_direct"
+        : speechScoringMode === "ai"
+          ? "ai"
+          : "local";
+      onAttempt?.(null, text, evaluationMethod);
       let result;
-      if (speechScoringMode === "ai") {
+      if (directAudioMode || speechScoringMode === "ai") {
         const percent = Number(payload.result?.percent);
         if (!Number.isFinite(percent) || percent < 0 || percent > 100)
           throw new Error(
@@ -339,11 +386,7 @@ export default function ListeningSpeakingTask({
         result = compareSpokenText(lesson.script, text, similarityThreshold);
       }
       setChecked(result);
-      onAttempt?.(
-        result.percent,
-        text,
-        speechScoringMode === "ai" ? "ai" : "local",
-      );
+      onAttempt?.(result.percent, text, evaluationMethod);
       if (result.passed) {
         onPass?.(result.percent, text);
         toast.success(
@@ -373,11 +416,15 @@ export default function ListeningSpeakingTask({
           <p>
             Dengarkan contoh, baca nyaring, lalu ulangi sampai kata-katanya
             minimal {similarityThreshold}% sesuai.{" "}
-            {speechScoringMode === "ai"
-              ? `Pencocokan AI memakai 1 diamond${liveMode ? " per percakapan; audio tidak dikirim." : " per pencocokan; transkripsi audio juga memakai 1 diamond."}`
-              : liveMode
-                ? "Pencocokan lokal gratis; audio tidak dikirim."
-                : "Pencocokan lokal gratis; transkripsi audio AI memakai 1 diamond."}
+            {directAudioMode
+              ? unlimitedDiamonds
+                ? "AI menilai rekaman langsung; akses Admin tidak memakai diamond."
+                : "AI menilai audio langsung tanpa transkripsi browser terlebih dahulu · 3 diamond per penilaian."
+              : speechScoringMode === "ai"
+                ? `Pencocokan AI memakai ${unlimitedDiamonds ? "akses Admin tanpa diamond" : "1 diamond"}${liveInput ? "; audio tidak dikirim." : "; transkripsi audio juga memakai 1 diamond."}`
+                : liveInput
+                  ? "Pencocokan lokal gratis; audio tidak dikirim."
+                  : `Pencocokan lokal gratis; transkripsi audio AI memakai ${unlimitedDiamonds ? "akses Admin tanpa diamond" : "1 diamond"}.`}
           </p>
         </div>
         {passed && (
@@ -414,7 +461,33 @@ export default function ListeningSpeakingTask({
               </>
             )}
           </button>
-          {liveMode && recognition.braveDetected && (
+          <div className="listening-direct-mode-picker">
+            <button
+              type="button"
+              className={`text-button listening-direct-mode-toggle ${directAudioMode ? "active" : ""}`}
+              aria-pressed={directAudioMode}
+              onClick={() => chooseDirectAudioMode(!directAudioMode)}
+              disabled={
+                processing ||
+                recording ||
+                requestingMic ||
+                recognition.listening
+              }
+            >
+              <AudioLines size={15} />
+              {directAudioMode
+                ? "Mode penilaian suara langsung aktif · "
+                : "Coba penilaian suara langsung · "}
+              {unlimitedDiamonds ? "gratis untuk Admin" : "3 diamond"}
+            </button>
+            {directAudioMode && (
+              <small>
+                Rekaman dikirim ke server AI untuk dinilai langsung. Browser
+                tidak mentranskripsikan audio sebelum pengiriman.
+              </small>
+            )}
+          </div>
+          {liveInput && recognition.braveDetected && (
             <div className="speech-browser-warning" role="note">
               <b>Google Chrome diperlukan untuk live transcription.</b>
               Brave dapat menampilkan tombol Web Speech tetapi tidak mencapai
@@ -423,7 +496,7 @@ export default function ListeningSpeakingTask({
             </div>
           )}
           <div className="shadowing-controls">
-            {liveMode ? (
+            {liveInput ? (
               <>
                 <button
                   className={`mic-control ${recognition.listening ? "granted" : ""}`}
@@ -457,7 +530,7 @@ export default function ListeningSpeakingTask({
                   ) : (
                     <>
                       {aiScoring
-                        ? "Nilai dengan AI · 1 diamond"
+                        ? `Nilai dengan AI · ${unlimitedDiamonds ? "gratis untuk Admin" : "1 diamond"}`
                         : "Periksa gratis"}{" "}
                       <Check size={15} />
                     </>
@@ -502,9 +575,11 @@ export default function ListeningSpeakingTask({
                     </>
                   ) : (
                     <>
-                      {speechScoringMode === "ai"
-                        ? "Transkripsikan + AI match · 2 diamond"
-                        : "Transkripsikan · 1 diamond"}{" "}
+                      {directAudioMode
+                        ? `Nilai audio langsung · ${costLabel}`
+                        : speechScoringMode === "ai"
+                          ? `Transkripsikan + AI match · ${unlimitedDiamonds ? "gratis untuk Admin" : "2 diamond"}`
+                          : `Transkripsikan · ${unlimitedDiamonds ? "gratis untuk Admin" : "1 diamond"}`}{" "}
                       <Check size={15} />
                     </>
                   )}
@@ -531,15 +606,17 @@ export default function ListeningSpeakingTask({
             <ProcessingStatus
               message={processingMessage || "Memproses audio…"}
               detail={
-                liveMode
+                liveInput
                   ? "Hanya teks naskah dan transkrip yang dibandingkan; audio tidak dikirim."
-                  : "Audio sedang dikirim dan dianalisis. Koneksi lambat bisa membutuhkan waktu."
+                  : directAudioMode
+                    ? "Audio dikirim langsung ke provider AI setelah persetujuan; browser tidak mentranskripsikannya terlebih dahulu."
+                    : "Audio sedang dikirim dan dianalisis. Koneksi lambat bisa membutuhkan waktu."
               }
               compact
               className="shadowing-processing-status"
             />
           )}
-          {liveMode ? (
+          {liveInput ? (
             <div className="transcript-area shadowing-transcript">
               <div className="transcript-label">
                 <span>TRANSKRIP LANGSUNG · READ-ONLY</span>
@@ -557,9 +634,11 @@ export default function ListeningSpeakingTask({
                 }
               />
               <div className="transcript-foot">
-                {aiScoring
-                  ? "Naskah dan transkrip teks dinilai AI; audio tidak dikirim."
-                  : "Punctuation diabaikan saat menghitung kecocokan."}
+                {directAudioMode
+                  ? "Audio dinilai langsung oleh server AI; browser tidak membuat transkrip sebelum pengiriman."
+                  : speechScoringMode === "ai"
+                    ? "Naskah dan transkrip teks dinilai AI; audio tidak dikirim."
+                    : "Punctuation diabaikan saat menghitung kecocokan."}
               </div>
             </div>
           ) : aiTranscript ? (
@@ -572,8 +651,9 @@ export default function ListeningSpeakingTask({
             </div>
           ) : (
             <p className="shadowing-privacy">
-              Audio belum dikirim. Pengiriman hanya terjadi setelah kamu menekan
-              tombol transkripsi dan menyetujuinya.
+              {directAudioMode
+                ? "Audio belum dikirim. Penilaian langsung dimulai hanya setelah kamu menekan tombol nilai dan menyetujui pengiriman."
+                : "Audio belum dikirim. Pengiriman hanya terjadi setelah kamu menekan tombol transkripsi dan menyetujuinya."}
             </p>
           )}
           {savedTranscriptText &&

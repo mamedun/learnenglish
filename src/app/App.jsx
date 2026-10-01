@@ -26,6 +26,8 @@ import { apiFetch, apiJson, apiUrl, refreshSession } from "../api";
 import {
   canCompletePracticeLesson,
   findNextPracticeLesson,
+  isPracticeTurnPassed,
+  passedPracticeTurnCount,
   practicePoints,
 } from "../features/speaking/lessonProgress";
 import { useAuthStore } from "../store/authStore";
@@ -1095,9 +1097,30 @@ function App() {
         Math.min(5, Number(assessment.practice_stars ?? 3)),
       );
       const pointsEarned = practiceStars >= 4 ? 25 : 0;
+      const failedTurnToRetry = turns.at(-1);
+      const replacingFailedTurn = Boolean(
+        failedTurnToRetry &&
+        !isPracticeTurnPassed(
+          failedTurnToRetry,
+          currentConfig.speech_similarity_threshold,
+        ),
+      );
+      const retrySlot = replacingFailedTurn ? failedTurnToRetry : null;
+      const slot = retrySlot
+        ? Number(retrySlot.slot) ||
+          passedPracticeTurnCount(
+            turns.slice(0, -1),
+            currentConfig.speech_similarity_threshold,
+          ) + 1
+        : passedPracticeTurnCount(
+            turns,
+            currentConfig.speech_similarity_threshold,
+          ) + 1;
       const item = {
-        id: crypto.randomUUID(),
-        prompt: activeUnit.prompt,
+        id: retrySlot?.id || crypto.randomUUID(),
+        slot,
+        passed: practiceStars >= 4,
+        prompt: retrySlot?.prompt || activeUnit.prompt,
         userText: spokenText,
         transcriptionSource: useServerAudio ? "ai" : "live",
         reply: assistantReply,
@@ -1117,21 +1140,45 @@ function App() {
         context: criteria.fluency_coherence?.band ?? null,
         pronunciation: criteria.pronunciation?.band ?? null,
       };
-      setTurns((previous) => [...previous, item]);
+      if (retrySlot?.audioId)
+        void apiJson(`audio/${retrySlot.audioId}`, { method: "DELETE" }).catch(
+          () => {},
+        );
+      setTurns((previous) => {
+        if (retrySlot && previous.at(-1)?.id === retrySlot.id)
+          return [...previous.slice(0, -1), item];
+        return [...previous, item];
+      });
       setData((previous) => {
         const sessions = [...previous.sessions];
-        const lastIndex = sessions.length - 1;
-        if (sessions[lastIndex]?.unitId === activeUnit.id) {
-          sessions[lastIndex] = {
-            ...sessions[lastIndex],
-            turns: [...(sessions[lastIndex].turns || []), item],
-          };
-        } else {
-          sessions.push({
-            id: crypto.randomUUID(),
-            unitId: activeUnit.id,
-            turns: [item],
-          });
+        let replaced = false;
+        if (retrySlot) {
+          for (let index = sessions.length - 1; index >= 0; index -= 1) {
+            if (sessions[index]?.unitId !== activeUnit.id) continue;
+            const storedTurns = sessions[index].turns || [];
+            if (storedTurns.at(-1)?.id !== retrySlot.id) continue;
+            sessions[index] = {
+              ...sessions[index],
+              turns: [...storedTurns.slice(0, -1), item],
+            };
+            replaced = true;
+            break;
+          }
+        }
+        if (!replaced) {
+          const lastIndex = sessions.length - 1;
+          if (sessions[lastIndex]?.unitId === activeUnit.id) {
+            sessions[lastIndex] = {
+              ...sessions[lastIndex],
+              turns: [...(sessions[lastIndex].turns || []), item],
+            };
+          } else {
+            sessions.push({
+              id: crypto.randomUUID(),
+              unitId: activeUnit.id,
+              turns: [item],
+            });
+          }
         }
         const earned =
           item.pointsEarned > 0
@@ -1188,12 +1235,16 @@ function App() {
       toast.success("Riwayat lesson dan arsip audio tersimpan telah dihapus.");
   }
   function finishUnit() {
+    const passedCount = passedPracticeTurnCount(
+      turns,
+      appConfig.speech_similarity_threshold,
+    );
     const points = practicePoints(turns, appConfig.speech_similarity_threshold);
-    if (!canCompletePracticeLesson(turns.length, points)) {
-      const remainingTurns = Math.max(0, 4 - turns.length);
+    if (!canCompletePracticeLesson(passedCount, points)) {
+      const remainingTurns = Math.max(0, 4 - passedCount);
       const remainingPoints = Math.max(0, 100 - points);
       toast.info(
-        `Butuh minimal 4 percakapan dan 100 poin untuk selesai. Saat ini ${turns.length} percakapan · ${points}/100 poin${remainingTurns ? ` · ${remainingTurns} percakapan lagi` : ""}${remainingPoints ? ` · ${remainingPoints} poin lagi` : ""}.`,
+        `Butuh minimal 4 percakapan lulus dan 100 poin untuk selesai. Saat ini ${passedCount} percakapan lulus · ${points}/100 poin${remainingTurns ? ` · ${remainingTurns} percakapan lulus lagi` : ""}${remainingPoints ? ` · ${remainingPoints} poin lagi` : ""}.`,
       );
       return;
     }
@@ -1810,7 +1861,10 @@ Because this is live audio, comment on pronunciation or word stress only when a 
     try {
       const consent = await Swal.fire({
         title: "Izinkan Live Lesson?",
-        text: "Audio mikrofon dikirim langsung dari browser ke Gemini dan tidak diarsipkan oleh SpeakUp. Setelah sesi, hanya transkrip dikirim ke provider global Admin untuk feedback. Sistem mencadangkan 10 diamond per blok 5 menit, menagih 2 diamond per menit yang dimulai, dan membatasi sesi hingga 10 menit.",
+        text:
+          user?.role === "admin"
+            ? "Audio mikrofon dikirim langsung dari browser ke Gemini dan tidak diarsipkan oleh SpeakUp. Setelah sesi, hanya transkrip dikirim ke provider global Admin untuk feedback. Akun Admin memiliki akses tanpa batas dan tidak memakai diamond; sesi tetap dibatasi hingga 10 menit."
+            : "Audio mikrofon dikirim langsung dari browser ke Gemini dan tidak diarsipkan oleh SpeakUp. Setelah sesi, hanya transkrip dikirim ke provider global Admin untuk feedback. Sistem mencadangkan 10 diamond per blok 5 menit, menagih 2 diamond per menit yang dimulai, dan membatasi sesi hingga 10 menit.",
         icon: "info",
         showCancelButton: true,
         confirmButtonText: "Setuju & lanjutkan",
@@ -2408,9 +2462,19 @@ Because this is live audio, comment on pronunciation or word stress only when a 
           <span>
             <Gem size={16} /> SALDO DIAMOND
           </span>
-          <b>{Number(user.diamonds || 0).toLocaleString("id-ID")}</b>
+          <b>
+            {user?.unlimited_diamonds
+              ? "Unlimited"
+              : Number(user.diamonds || 0).toLocaleString("id-ID")}
+          </b>
           <small>
-            Isi saldo di Toko Diamond <ChevronRight size={13} />
+            {user?.unlimited_diamonds ? (
+              "Admin · tanpa pengurangan saldo"
+            ) : (
+              <>
+                Isi saldo di Toko Diamond <ChevronRight size={13} />
+              </>
+            )}
           </small>
         </button>
         <div className="sidebar-bottom">
@@ -2446,11 +2510,21 @@ Because this is live audio, comment on pronunciation or word stress only when a 
             <button
               className="diamond-pill"
               onClick={() => nav("shop")}
-              title="Buka Toko Diamond"
-              aria-label={`Saldo ${Number(user.diamonds || 0)} diamond, buka Toko Diamond`}
+              title={
+                user?.unlimited_diamonds
+                  ? "Akses Admin unlimited · saldo tidak berkurang"
+                  : "Buka Toko Diamond"
+              }
+              aria-label={
+                user?.unlimited_diamonds
+                  ? "Akses Admin unlimited; fitur AI tidak memakai diamond"
+                  : `Saldo ${Number(user.diamonds || 0)} diamond, buka Toko Diamond`
+              }
             >
               <Gem size={16} />{" "}
-              {Number(user.diamonds || 0).toLocaleString("id-ID")}
+              {user?.unlimited_diamonds
+                ? "∞"
+                : Number(user.diamonds || 0).toLocaleString("id-ID")}
             </button>
             <span className="xp-pill">
               <Zap size={16} /> {data.xp} XP
@@ -2557,6 +2631,7 @@ Because this is live audio, comment on pronunciation or word stress only when a 
                     appConfig.speech_similarity_threshold
                   }
                   aiProvider={appConfig.ai_provider}
+                  unlimitedDiamonds={user?.unlimited_diamonds}
                   onDiamondsChanged={applyDiamondBalance}
                 />
               )}
@@ -2611,6 +2686,7 @@ Because this is live audio, comment on pronunciation or word stress only when a 
                   completed={completed}
                   clearHistory={clearPracticeHistory}
                   diamonds={user.diamonds}
+                  unlimitedDiamonds={user?.unlimited_diamonds}
                   similarityThreshold={appConfig.speech_similarity_threshold}
                   sessionSaveAudio={sessionSaveAudio}
                   resetRecording={resetRecording}
@@ -2626,6 +2702,7 @@ Because this is live audio, comment on pronunciation or word stress only when a 
                   liveAssessment={liveAssessment}
                   liveAssessmentFailed={liveAssessmentFailed}
                   diamonds={user.diamonds}
+                  unlimitedAccess={user?.unlimited_diamonds}
                   liveTopicId={liveTopicId}
                   liveTopic={activeLiveTopic}
                   onLiveTopicChange={setLiveTopicId}

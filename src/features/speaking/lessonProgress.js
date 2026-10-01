@@ -2,16 +2,32 @@ export const PRACTICE_COMPLETION_MIN_TURNS = 4;
 export const PRACTICE_COMPLETION_MIN_POINTS = 100;
 export const GOOD_CONVERSATION_POINTS = 25;
 
+export function isPracticeTurnPassed(turn, similarityThreshold = 90) {
+  if (typeof turn?.passed === "boolean") return turn.passed;
+  const stars = Number(turn?.stars);
+  if (Number.isFinite(stars) && stars > 0) return stars >= 4;
+  const similarity = Number(turn?.similarityPercent);
+  if (Number.isFinite(similarity) && similarity > 0)
+    return similarity >= Number(similarityThreshold);
+  // Preserve older progress snapshots that only recorded the earned points.
+  return Number(turn?.pointsEarned) > 0;
+}
+
+export function passedPracticeTurnCount(turns = [], similarityThreshold = 90) {
+  if (!Array.isArray(turns)) return 0;
+  return turns.filter((turn) => isPracticeTurnPassed(turn, similarityThreshold))
+    .length;
+}
+
 export function practicePoints(turns = [], similarityThreshold = 90) {
   if (!Array.isArray(turns)) return 0;
   return turns.reduce((total, turn) => {
-    const stars = Number(turn?.stars) || 0;
-    const similarity = Number(turn?.similarityPercent) || 0;
+    if (!isPracticeTurnPassed(turn, similarityThreshold)) return total;
+    const recorded = Number(turn?.pointsEarned);
     const earned =
-      Number(turn?.pointsEarned) ||
-      (stars >= 4 || similarity >= Number(similarityThreshold)
-        ? GOOD_CONVERSATION_POINTS
-        : 0);
+      Number.isFinite(recorded) && recorded > 0
+        ? recorded
+        : GOOD_CONVERSATION_POINTS;
     return total + Math.max(0, Math.min(GOOD_CONVERSATION_POINTS, earned));
   }, 0);
 }
@@ -38,7 +54,7 @@ export function findNextPracticeLesson(lessons, currentLessonId) {
 export const PRACTICE_PROGRESS_STEPS = [
   "Dengarkan skenario",
   "Pilih metode jawaban",
-  "Kirim minimal empat percakapan",
+  "Kirim minimal empat percakapan yang lulus",
   "Kumpulkan 100 poin",
 ];
 

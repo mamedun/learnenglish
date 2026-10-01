@@ -2118,7 +2118,10 @@ img {
     padding: 6px 8px;
   }
   .topbar .icon-btn {
-    display: none;
+    display: grid;
+    flex: none;
+    width: 34px;
+    height: 34px;
   }
   .page-content {
     padding: 23px 16px 80px;

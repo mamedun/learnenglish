@@ -35,7 +35,11 @@ assert.ok(
     submitTurn.indexOf('apiFetch("assess-audio"'),
   "audio consent must precede upload",
 );
-assert.match(app, /canCompletePracticeLesson\(turns\.length, points\)/);
+assert.match(app, /canCompletePracticeLesson\(passedCount, points\)/);
+assert.match(app, /failedTurnToRetry/);
+assert.match(app, /previous\.slice\(0, -1\), item/);
+assert.match(app, /passed:\s*practiceStars >= 4/);
+assert.match(app, /slot,\s*passed:/);
 assert.match(
   app,
   /practicePoints\(turns, appConfig\.speech_similarity_threshold\)/,
@@ -61,7 +65,15 @@ assert.doesNotMatch(practice, /IELTS Speaking practice estimate/);
 assert.doesNotMatch(practice, /Belum dapat diestimasi/);
 assert.doesNotMatch(practice, /estimatedBand/);
 assert.match(practice, /Audio-dependent · not scored/);
-assert.match(practice, /minimal 4 percakapan dan 100 poin/i);
+assert.match(practice, /minimal 4 percakapan lulus dan 100 poin/i);
+assert.match(practice, /ULANGI TOPIK YANG SAMA/);
+assert.match(practice, /kartu feedback ini akan diganti/);
+assert.match(practice, /passedTurnCount/);
+assert.match(practice, /Next Lesson/);
+assert.ok(
+  practice.indexOf("finish-row finish-row-top") <
+    practice.indexOf("map((t, i)"),
+);
 
 const chatStart = api.indexOf("if($action==='chat'&&$method==='POST')");
 const audioStart = api.indexOf(
@@ -76,14 +88,28 @@ assert.match(
 );
 assert.match(
   api.slice(audioStart, liveTokenStart),
-  /\$mode==='read_aloud'\?1:5/,
+  /\$audioDiamondCost=match\(\$mode\)/,
 );
+assert.match(api.slice(audioStart, liveTokenStart), /'read_aloud_direct'=>3/);
+assert.match(
+  api.slice(audioStart, liveTokenStart),
+  /\$mode==='read_aloud_direct'/,
+);
+assert.match(api, /do not require or rely on a browser-generated transcript/);
 assert.match(
   api.slice(audioStart, liveTokenStart),
   /'audio\/webm'=>'audio\/webm','video\/webm'=>'audio\/webm'/,
 );
 assert.match(api.slice(audioStart, liveTokenStart), /'rating'=>max\(1,min\(5/);
 assert.match(api.slice(audioStart, liveTokenStart), /'status'=>'scored'/);
+assert.match(
+  api.slice(audioStart, liveTokenStart),
+  /For 4 or 5 stars, praise a real strength and end with one short, relevant open question that continues the same conversation/,
+);
+assert.match(
+  api.slice(audioStart, liveTokenStart),
+  /Below 4 stars, give one actionable correction and ask the learner to retry the original prompt/,
+);
 assert.match(api, /\$criteria\[\$key\]=\['rating'=>\$rating===null\?null/);
 assert.match(api, /\$isTextCriterion\?'provisional':'not_scored'/);
 assert.match(api, /Audio-dependent criterion; transcript text is insufficient/);
@@ -108,6 +134,11 @@ assert.match(admin, /payment_whatsapp/);
 assert.match(admin, /AdminPurchasesPanel/);
 assert.match(admin, /AdminUsersPanel/);
 assert.match(audioTask, /expected_text:\s*lesson\.script,\s*transcript/);
+assert.match(audioTask, /read_aloud_direct/);
+assert.match(audioTask, /3 diamond/);
+assert.match(audioTask, /Browser tidak membuat transkrip terlebih dahulu/);
+assert.match(audioTask, /title: directAudioMode/);
+assert.match(audioTask, /unlimitedDiamonds/);
 assert.match(audioTask, /onAttempt\?\.\(\s*result\.percent,\s*text/);
 const audioCheckStart = audioTask.indexOf("async function checkAiAudio()");
 const audioCheckEnd = audioTask.indexOf("\n  return (", audioCheckStart);
@@ -142,5 +173,5 @@ assert.doesNotMatch(debugRoute, /'free_jwt_secret'\s*=>/);
 assert.doesNotMatch(api, /HTTP_USER_AGENT|User-Agent/);
 
 console.log(
-  "PASS: AI Lesson uses per-response diamond modes, four-criterion audio ratings, text-only scoring limits, consent, and point completion; Listening progress persists transcripts and choices.",
+  "PASS: AI Lesson retries failed slots, counts only passes, continues tutor turns, and exposes Next Lesson early; Listening supports consented direct-audio 3-diamond scoring.",
 );

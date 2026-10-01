@@ -126,21 +126,15 @@ def qris_crc16(value):
     return f'{crc:04X}'
 
 
-def qris_tlv(tag, value):
-    return f'{tag}{len(value):02d}{value}'
-
-
 def static_qris():
-    body = ''.join([
-        qris_tlv('00', '01'),
-        qris_tlv('01', '11'),
-        qris_tlv('53', '360'),
-        qris_tlv('58', 'ID'),
-        qris_tlv('59', 'SMOKE'),
-        qris_tlv('60', 'CIMAHI'),
-    ])
-    crc_input = body + '6304'
-    return crc_input + qris_crc16(crc_input)
+    # Exact static merchant QRIS supplied for the dynamic-payment conversion
+    # regression; its nested merchant-account templates must survive intact.
+    return (
+        '00020101021126610014COM.GO-JEK.WWW01189360091432325086690210'
+        'G2325086690303UMI51440014ID.CO.QRIS.WWW0215ID10266052697310303'
+        'UMI5204573453033605802ID5920HexaStudio, Software6013JAKARTA '
+        'BARAT61051153062070703A016304E24E'
+    )
 
 
 def parse_qris(payload):
@@ -195,6 +189,11 @@ for item in [unit for level in admin_catalog['levels'] for unit in level['units'
     assert item['ttsSegments'] == []
     assert len(item['ttsRevision']) == 64
 assert request(admin, 'admin/tts-cache')['cache']['limit_bytes'] == 1024 ** 3
+admin_wallet_before = request(admin, 'me')['user']
+assert admin_wallet_before['unlimited_diamonds'] is True
+admin_ai_probe = request(admin, 'chat', 'POST', {'transcript': 'Hello, tutor.'}, expected=503)
+assert 'error' in admin_ai_probe
+assert request(admin, 'me')['user']['diamonds'] == admin_wallet_before['diamonds']
 published = request(admin, 'catalog')
 assert 'answer' not in published['listening'][0]['questions'][0]
 assert 'explain' not in published['listening'][0]['questions'][0]
@@ -209,6 +208,8 @@ assert request(regular, 'app-config')['settings']['speech_similarity_threshold']
 assert len(request(regular, 'catalog')['listening']) == 18
 read_aloud_probe = request_form(regular, 'assess-audio', {'task_mode': 'read_aloud', 'consent': '1'}, expected=422)
 assert 'Audio evaluasi tidak diterima' in read_aloud_probe['error']
+direct_audio_probe = request_form(regular, 'assess-audio', {'task_mode': 'read_aloud_direct', 'consent': '1'}, expected=422)
+assert 'Audio evaluasi tidak diterima' in direct_audio_probe['error']
 response_probe = request_form(regular, 'assess-audio', {'task_mode': 'response', 'consent': '1'}, expected=422)
 assert 'Audio evaluasi tidak diterima' in response_probe['error']
 assert learner['diamonds'] == 0  # the regular account can use paid AI only after diamonds are added
@@ -366,6 +367,7 @@ assert request(regular, 'catalog')['levels'][0]['label'] == 'Fondasi (smoke edit
 
 # Admin can lock registration and users out, then restore access.
 settings = request(admin, 'admin/settings')['settings']
+merchant_static_qris = static_qris()
 config = {
     'ai_provider': 'clario',
     'speech_input_mode': 'ai_audio',
@@ -375,7 +377,7 @@ config = {
     'clario_fallback_url': settings['clario_fallback_url'],
     'clario_model': settings['clario_model'],
     'gemini_live_model': settings['gemini_live_model'],
-    'payment_qris_payload': static_qris(),
+    'payment_qris_payload': merchant_static_qris,
     'payment_tax_percent': 11,
     'payment_admin_fee': 500,
     'payment_whatsapp': '6281234567890',
@@ -411,7 +413,9 @@ created_at = datetime.fromisoformat(purchase['created_at'])
 expires_at = datetime.fromisoformat(purchase['expires_at'])
 assert 86390 <= (expires_at - created_at).total_seconds() <= 86410
 qris_fields = parse_qris(purchase['qris_payload'])
+static_fields = parse_qris(merchant_static_qris)
 assert qris_fields['01'] == '12' and qris_fields['53'] == '360'
+assert qris_fields['26'] == static_fields['26'] and qris_fields['51'] == static_fields['51']
 assert qris_fields['54'] == f"{purchase['total_amount']:.2f}"
 assert qris_fields['63'] == qris_crc16(purchase['qris_payload'][:-4])
 request(regular, f"shop/purchases/{purchase['id']}/contacted", 'POST', {})
@@ -467,6 +471,14 @@ insufficient_audio = request_form(
     files={'audio': ('smoke.wav', tiny_wav(), 'audio/wav')},
 )
 assert insufficient_audio['required'] == 5 and insufficient_audio['diamonds'] == 0
+insufficient_direct_audio = request_form(
+    regular,
+    'assess-audio',
+    {'task_mode': 'read_aloud_direct', 'consent': '1', 'task': 'Hello world.'},
+    expected=402,
+    files={'audio': ('smoke.wav', tiny_wav(), 'audio/wav')},
+)
+assert insufficient_direct_audio['required'] == 3 and insufficient_direct_audio['diamonds'] == 0
 
 assert request(admin, 'admin/wallet', 'PUT', {'id': learner['id'], 'mode': 'set', 'balance': 10})['diamonds'] == 10
 cancelled_live = request(regular, 'live-billing/start', 'POST', {}, expected=201)
@@ -488,6 +500,15 @@ settled_live = request(regular, 'live-billing/settle', 'POST', {
 assert 2 <= settled_live['charged_diamonds'] <= 4
 assert settled_live['refunded_diamonds'] == 10 - settled_live['charged_diamonds']
 assert settled_live['diamonds'] == 20 - settled_live['charged_diamonds']
+
+admin_live = request(admin, 'live-billing/start', 'POST', {}, expected=201)
+assert admin_live['unlimited_access'] is True and admin_live['diamonds'] == admin_wallet_before['diamonds']
+admin_live_settlement = request(admin, 'live-billing/settle', 'POST', {
+    'session_id': admin_live['session_id'], 'cancel': True,
+})
+assert admin_live_settlement['charged_diamonds'] == 0
+assert admin_live_settlement['refunded_diamonds'] == 0
+assert admin_live_settlement['diamonds'] == admin_wallet_before['diamonds']
 
 # Accept stored/client names from the previous build while presenting only the Free API brand.
 legacy_config = {

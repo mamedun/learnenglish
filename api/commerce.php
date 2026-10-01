@@ -64,6 +64,13 @@ function wallet_balance(int $userId): int
     return $value === false ? 0 : max(0, (int)$value);
 }
 
+function wallet_is_admin(int $userId): bool
+{
+    $query = db()->prepare("SELECT 1 FROM users WHERE id=? AND role='admin'");
+    $query->execute([$userId]);
+    return (bool)$query->fetchColumn();
+}
+
 function wallet_record(PDO $pdo, int $userId, int $delta, string $kind, ?string $referenceId, string $note, int $actorId = 0, string $status = 'posted'): void
 {
     $query = $pdo->prepare('INSERT INTO diamond_transactions(user_id,delta,kind,reference_id,note,status,actor_id,created_at) VALUES(?,?,?,?,?,?,?,?)');
@@ -74,6 +81,9 @@ function wallet_record(PDO $pdo, int $userId, int $delta, string $kind, ?string 
 function wallet_reserve(int $userId, int $amount, string $kind, string $note): int
 {
     if ($amount < 1) throw new InvalidArgumentException('Diamond reservation must be positive.');
+    // The negative user id is a no-charge reservation token. The authoritative
+    // role check stays server-side and wallet_commit resolves it to the balance.
+    if (wallet_is_admin($userId)) return -$userId;
     $pdo = db();
     $pdo->beginTransaction();
     try {
@@ -103,6 +113,7 @@ function wallet_reserve(int $userId, int $amount, string $kind, string $note): i
 
 function wallet_commit(int $transactionId): int
 {
+    if ($transactionId < 0) return wallet_balance(-$transactionId);
     $pdo = db();
     $query = $pdo->prepare("UPDATE diamond_transactions SET status='posted' WHERE id=? AND status='reserved'");
     $query->execute([$transactionId]);
@@ -193,7 +204,7 @@ function qris_build_tlv(array $items): string
         $tag = (string)$item['tag'];
         $value = (string)$item['value'];
         $size = strlen($value);
-        if (!preg_match('/^\\d{2}$/', $tag) || $size > 99) throw new InvalidArgumentException('Field QRIS tidak dapat dikodekan.');
+        if (!preg_match('/^\d{2}$/', $tag) || $size > 99) throw new InvalidArgumentException('Field QRIS tidak dapat dikodekan.');
         $payload .= $tag . str_pad((string)$size, 2, '0', STR_PAD_LEFT) . $value;
     }
     return $payload;
@@ -215,7 +226,7 @@ function qris_crc16(string $payload): string
 
 function qris_dynamic_payload(string $staticPayload, int $amount): string
 {
-    $payload = preg_replace('/\\s+/', '', trim($staticPayload)) ?? '';
+    $payload = preg_replace('/\s+/', '', trim($staticPayload)) ?? '';
     if ($amount < 1 || !str_starts_with($payload, '000201')) throw new InvalidArgumentException('QRIS harus diawali 000201 dan nominal lebih dari nol.');
     $items = qris_parse_tlv($payload);
     if (!$items || end($items)['tag'] !== '63' || end($items)['value'] === '' || strlen(end($items)['value']) !== 4) {
@@ -462,7 +473,7 @@ function approve_diamond_purchase(string $purchaseId, int $adminId): array
             $pdo->rollBack();
             respond(['error'=>'Pembelian telah berubah dan tidak dapat disetujui. Muat ulang daftar pesanan.'],409);
         }
-        $pdo->prepare('UPDATE users SET diamonds=diamonds+? WHERE id=?')->execute([(int)$purchase['diamond_amount'],(int)$purchase['user_id']);
+        $pdo->prepare('UPDATE users SET diamonds=diamonds+? WHERE id=?')->execute([(int)$purchase['diamond_amount'],(int)$purchase['user_id']]);
         wallet_record($pdo,(int)$purchase['user_id'],(int)$purchase['diamond_amount'],'purchase',$purchaseId,'Pembelian diamond disetujui Admin.',$adminId);
         $balance = wallet_balance((int)$purchase['user_id']);
         $pdo->commit();
@@ -501,22 +512,25 @@ function live_billing_recover_stale(int $userId): void
 function live_billing_start(int $userId): array
 {
     live_billing_recover_stale($userId);
+    $unlimited = wallet_is_admin($userId);
     $pdo = db();
     $pdo->beginTransaction();
     try {
-        $debit = $pdo->prepare('UPDATE users SET diamonds=diamonds-10 WHERE id=? AND diamonds>=10');
-        $debit->execute([$userId]);
-        if ($debit->rowCount() !== 1) {
-            $balance = wallet_balance($userId);
-            $pdo->rollBack();
-            respond(['error'=>'Live Lesson memerlukan minimal 10 diamond untuk membuka blok 5 menit.','code'=>'insufficient_diamonds','required'=>10,'diamonds'=>$balance],402);
+        if (!$unlimited) {
+            $debit = $pdo->prepare('UPDATE users SET diamonds=diamonds-10 WHERE id=? AND diamonds>=10');
+            $debit->execute([$userId]);
+            if ($debit->rowCount() !== 1) {
+                $balance = wallet_balance($userId);
+                $pdo->rollBack();
+                respond(['error'=>'Live Lesson memerlukan minimal 10 diamond untuk membuka blok 5 menit.','code'=>'insufficient_diamonds','required'=>10,'diamonds'=>$balance],402);
+            }
         }
         $id = bin2hex(random_bytes(16));
         $pdo->prepare("INSERT INTO live_billing_sessions(id,user_id,reserved_blocks,status,created_at) VALUES(?,?,1,'reserved',?)")->execute([$id,$userId,gmdate('c')]);
-        wallet_record($pdo,$userId,-10,'live_reserve',$id,'Cadangan blok pertama Live Lesson (5 menit).');
+        if (!$unlimited) wallet_record($pdo,$userId,-10,'live_reserve',$id,'Cadangan blok pertama Live Lesson (5 menit).');
         $balance = wallet_balance($userId);
         $pdo->commit();
-        return ['session_id'=>$id,'diamonds'=>$balance,'reserved_blocks'=>1];
+        return ['session_id'=>$id,'diamonds'=>$balance,'reserved_blocks'=>1,'unlimited_access'=>$unlimited];
     } catch (Throwable $error) {
         if ($pdo->inTransaction()) $pdo->rollBack();
         throw $error;
@@ -541,6 +555,7 @@ function live_billing_mark_started(string $sessionId, int $userId): array
 
 function live_billing_reserve_next(string $sessionId, int $userId): array
 {
+    $unlimited = wallet_is_admin($userId);
     $pdo = db();
     $pdo->beginTransaction();
     try {
@@ -560,18 +575,20 @@ function live_billing_reserve_next(string $sessionId, int $userId): array
             $pdo->rollBack();
             respond(['error'=>'Sesi Live sudah mencapai batas 10 menit.'],409);
         }
-        $debit = $pdo->prepare('UPDATE users SET diamonds=diamonds-10 WHERE id=? AND diamonds>=10');
-        $debit->execute([$userId]);
-        if ($debit->rowCount() !== 1) {
-            $balance = wallet_balance($userId);
-            $pdo->rollBack();
-            respond(['error'=>'Saldo tidak cukup untuk blok Live berikutnya. Sesi akan dihentikan.','code'=>'insufficient_diamonds','required'=>10,'diamonds'=>$balance],402);
+        if (!$unlimited) {
+            $debit = $pdo->prepare('UPDATE users SET diamonds=diamonds-10 WHERE id=? AND diamonds>=10');
+            $debit->execute([$userId]);
+            if ($debit->rowCount() !== 1) {
+                $balance = wallet_balance($userId);
+                $pdo->rollBack();
+                respond(['error'=>'Saldo tidak cukup untuk blok Live berikutnya. Sesi akan dihentikan.','code'=>'insufficient_diamonds','required'=>10,'diamonds'=>$balance],402);
+            }
         }
         $pdo->prepare('UPDATE live_billing_sessions SET reserved_blocks=2 WHERE id=? AND user_id=?')->execute([$sessionId,$userId]);
-        wallet_record($pdo,$userId,-10,'live_reserve',$sessionId.':2','Cadangan blok kedua Live Lesson (menit 5–10).');
+        if (!$unlimited) wallet_record($pdo,$userId,-10,'live_reserve',$sessionId.':2','Cadangan blok kedua Live Lesson (menit 5–10).');
         $balance = wallet_balance($userId);
         $pdo->commit();
-        return ['ok'=>true,'diamonds'=>$balance,'reserved_blocks'=>2];
+        return ['ok'=>true,'diamonds'=>$balance,'reserved_blocks'=>2,'unlimited_access'=>$unlimited];
     } catch (Throwable $error) {
         if ($pdo->inTransaction()) $pdo->rollBack();
         throw $error;
@@ -580,6 +597,7 @@ function live_billing_reserve_next(string $sessionId, int $userId): array
 
 function live_billing_settle(string $sessionId, int $userId, bool $cancel = false): array
 {
+    $unlimited = wallet_is_admin($userId);
     $pdo = db();
     $pdo->beginTransaction();
     try {
@@ -593,12 +611,12 @@ function live_billing_settle(string $sessionId, int $userId, bool $cancel = fals
         if ($session['status'] === 'ended') {
             $balance = wallet_balance($userId);
             $pdo->rollBack();
-            return ['ok'=>true,'charged_diamonds'=>(int)$session['charged_diamonds'],'refunded_diamonds'=>(int)$session['refunded_diamonds'],'diamonds'=>$balance];
+            return ['ok'=>true,'charged_diamonds'=>(int)$session['charged_diamonds'],'refunded_diamonds'=>(int)$session['refunded_diamonds'],'diamonds'=>$balance,'unlimited_access'=>$unlimited];
         }
         $reserved = (int)$session['reserved_blocks'] * 10;
         $seconds = $session['started_at'] ? max(0,min(600,time()-(int)$session['started_at'])) : 0;
-        $charged = ($cancel && !$session['started_at']) ? 0 : min($reserved,(int)ceil($seconds/60)*2);
-        $refund = max(0,$reserved-$charged);
+        $charged = $unlimited ? 0 : (($cancel && !$session['started_at']) ? 0 : min($reserved,(int)ceil($seconds/60)*2));
+        $refund = $unlimited ? 0 : max(0,$reserved-$charged);
         if ($refund > 0) {
             $pdo->prepare('UPDATE users SET diamonds=diamonds+? WHERE id=?')->execute([$refund,$userId]);
             wallet_record($pdo,$userId,$refund,'live_refund',$sessionId,'Pengembalian diamond untuk durasi Live yang tidak terpakai.');
@@ -606,7 +624,7 @@ function live_billing_settle(string $sessionId, int $userId, bool $cancel = fals
         $pdo->prepare("UPDATE live_billing_sessions SET status='ended',charged_diamonds=?,refunded_diamonds=?,settled_at=? WHERE id=? AND user_id=?")->execute([$charged,$refund,gmdate('c'),$sessionId,$userId]);
         $balance = wallet_balance($userId);
         $pdo->commit();
-        return ['ok'=>true,'charged_diamonds'=>$charged,'refunded_diamonds'=>$refund,'diamonds'=>$balance];
+        return ['ok'=>true,'charged_diamonds'=>$charged,'refunded_diamonds'=>$refund,'diamonds'=>$balance,'unlimited_access'=>$unlimited];
     } catch (Throwable $error) {
         if ($pdo->inTransaction()) $pdo->rollBack();
         throw $error;
