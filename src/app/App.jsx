@@ -52,6 +52,8 @@ import {
   getGeminiLiveMessageError,
   parseGeminiLiveMessage,
 } from "../lib/geminiLiveProtocol";
+import { mergeLiveTranscriptText } from "../lib/liveTranscript";
+import { stripTranscriptSourceLabel, toPlainText } from "../lib/plainText";
 
 const AdminPage = lazy(() => import("../features/admin/AdminPage"));
 const ListeningPage = lazy(() => import("../features/listening/ListeningPage"));
@@ -121,6 +123,8 @@ function App() {
   const liveSourceRef = useRef(null);
   const liveProcessorRef = useRef(null);
   const liveTranscriptRef = useRef("");
+  const liveTranscriptLinesRef = useRef([]);
+  const liveCurrentSpeakerRef = useRef(null);
   const livePlayheadRef = useRef(0);
   const recorder = useRef(null);
   const streamRef = useRef(null);
@@ -533,7 +537,7 @@ function App() {
   async function submitTurn({ forceAiAudio = false } = {}) {
     const inputMode = appConfig.speech_input_mode || "live_transcribe";
     const useServerAudio = forceAiAudio || inputMode === "ai_audio";
-    const submittedTranscript = transcript.trim();
+    const submittedTranscript = stripTranscriptSourceLabel(transcript);
     if (useServerAudio && !audioBlob) {
       toast.error("Rekam jawaban terlebih dahulu, lalu ketuk selesai merekam.");
       return;
@@ -630,7 +634,10 @@ function App() {
               .filter((session) => session.unitId === activeUnit.id)
               .flatMap((session) => session.turns || [])
               .slice(-6)
-              .map((turn) => ({ user: turn.userText, assistant: turn.reply })),
+              .map((turn) => ({
+                user: stripTranscriptSourceLabel(turn.userText),
+                assistant: toPlainText(turn.reply),
+              })),
           }),
         });
         setProcessingMessage("Menyiapkan feedback tutor…");
@@ -640,9 +647,11 @@ function App() {
         replyObj = payload.result || payload;
       }
 
-      const spokenText = useServerAudio
-        ? String(audioResult?.transcript || "").trim()
-        : submittedTranscript;
+      const spokenText = stripTranscriptSourceLabel(
+        useServerAudio
+          ? String(audioResult?.transcript || "")
+          : submittedTranscript,
+      );
       if (!spokenText || !replyObj) {
         throw new Error(
           "AI belum menghasilkan transkrip. Silakan rekam ulang atau ganti mode input di admin.",
@@ -687,16 +696,23 @@ function App() {
 
       const assessment = replyObj.assessment || {};
       const criteria = assessment.criteria || {};
+      const assistantReply =
+        toPlainText(replyObj.tutor_reply?.text || "") ||
+        "Good job! Tell me more.";
+      const assistantSpeech =
+        toPlainText(replyObj.tutor_reply?.speech_text || assistantReply, {
+          forSpeech: true,
+        }) || toPlainText(assistantReply, { forSpeech: true });
       const item = {
         id: crypto.randomUUID(),
         prompt: activeUnit.prompt,
         userText: spokenText,
         transcriptionSource: useServerAudio ? "ai" : "live",
-        reply: replyObj.tutor_reply?.text || "Good job! Tell me more.",
+        reply: assistantReply,
         stars: Math.max(1, Math.min(5, Number(assessment.practice_stars ?? 4))),
         feedback:
-          assessment.one_focus ||
-          "Jawabanmu sudah menyampaikan maksud dengan baik.",
+          toPlainText(assessment.one_focus || "") ||
+          "Your answer communicated the main idea clearly.",
         createdAt: new Date().toISOString(),
         audioSaved: Boolean(audioId),
         audioId,
@@ -727,8 +743,7 @@ function App() {
       });
       setAudioBlob(null);
       setTranscript("");
-      if (replyObj.tutor_reply?.speech_text)
-        void speak(replyObj.tutor_reply.speech_text);
+      if (assistantSpeech) void speak(assistantSpeech);
     } catch (error) {
       toast.error(error.message || "Jawaban belum dapat diproses.");
     } finally {
@@ -818,6 +833,8 @@ function App() {
     fallbackReason = "",
     onPlaybackComplete,
   ) {
+    const cleanText = toPlainText(text, { forSpeech: true });
+    if (!cleanText) return;
     const synth = window.speechSynthesis;
     if (!synth) throw new Error("Text-to-speech tidak didukung browser ini.");
     synth.cancel();
@@ -828,7 +845,7 @@ function App() {
       synth
         .getVoices()
         .find((item) => item.lang.toLowerCase().startsWith("en"));
-    const utterance = new SpeechSynthesisUtterance(text);
+    const utterance = new SpeechSynthesisUtterance(cleanText);
     utterance.lang = voice?.lang || "en-US";
     utterance.rate = 0.88;
     if (voice) utterance.voice = voice;
@@ -879,7 +896,7 @@ function App() {
   }
 
   async function speak(text, options = {}) {
-    const sourceText = String(text || "").trim();
+    const sourceText = toPlainText(text, { forSpeech: true });
     if (!sourceText) return;
     const requestId = ++ttsRequestIdRef.current;
     stopCurrentSpeech();
@@ -899,9 +916,12 @@ function App() {
           String(turn?.text || "").trim(),
         )
       : [];
-    const spokenText = segments.length
-      ? segments.map((turn) => String(turn.text).trim()).join(" ")
-      : sourceText;
+    const spokenText = toPlainText(
+      segments.length
+        ? segments.map((turn) => String(turn.text).trim()).join(" ")
+        : sourceText,
+      { forSpeech: true },
+    );
     const userVoice = KOKORO_VOICES.some(
       (voice) => voice.id === data.settings.voice,
     )
@@ -1201,8 +1221,43 @@ function App() {
           .getVoices()
           .filter((v) => v.lang.toLowerCase().startsWith("en"))
       : [];
-  const liveInstruction =
-    "You are Maya, a supportive English speaking coach. Conduct an IELTS-inspired practice conversation at the learner\u2019s level. Ask one concise follow-up at a time, encourage elaboration, and keep the conversation natural. This is practice, not an official IELTS test. Do not claim official scores. The session is limited to 20 minutes.";
+  const liveInstruction = `You are Maya, a patient, encouraging English teacher and conversation coach. Help the learner build grammatical accuracy, natural phrasing, vocabulary, and clear pronunciation while keeping the conversation warm and natural.
+
+Speak entirely in English. Keep every spoken answer, correction, and explanation in English; never switch to Indonesian or mix languages. If the learner uses an Indonesian word because they are stuck, gently give its English equivalent and invite them to try it in a sentence.
+
+Listen actively to grammar, sentence structure, word choice, collocations, and unnatural literal translations. Let the learner finish their thought before correcting. When there is a meaningful mistake, quote the learner's actual phrase, give a natural corrected version, and add one brief, simple explanation. For example, gently change “I go to mall yesterday” to “I went to the mall yesterday” and explain the past tense and article, but only when the learner actually makes that kind of mistake. Focus on at most one or two important points at a time. Do not invent mistakes; if the learner's wording is already natural, respond normally. Ask them to repeat a correction when useful, then keep the conversation moving with one concise, open-ended follow-up question.
+
+Because this is a live audio conversation, notice pronunciation or word stress only when a problem is clearly audible. Offer a simple sound or stress hint and invite a retry; never guess or assign a pronunciation score from transcript text. Keep your replies concise, supportive, and suitable for spoken conversation. This is practice, not an official IELTS test; do not claim official scores. The session is limited to 20 minutes. Start with a warm English greeting and ask what topic the learner would like to discuss.`;
+
+  function appendLiveTranscriptChunk(who, chunk) {
+    const incoming = String(chunk ?? "");
+    if (!incoming.trim()) return;
+    const lines = liveTranscriptLinesRef.current;
+    const last = lines.at(-1);
+    let nextLines;
+    if (liveCurrentSpeakerRef.current === who && last?.who === who) {
+      nextLines = [
+        ...lines.slice(0, -1),
+        { ...last, text: mergeLiveTranscriptText(last.text, incoming) },
+      ];
+    } else {
+      nextLines = [...lines, { who, text: incoming.trimStart() }];
+    }
+    liveTranscriptLinesRef.current = nextLines;
+    liveCurrentSpeakerRef.current = who;
+    liveTranscriptRef.current = nextLines
+      .map(
+        (line) => `${line.who === "coach" ? "Maya" : "Learner"}: ${line.text}`,
+      )
+      .join("\n");
+    setLiveLines(nextLines);
+  }
+
+  function finishLiveTranscriptLine(who) {
+    if (who == null || liveCurrentSpeakerRef.current === who)
+      liveCurrentSpeakerRef.current = null;
+  }
+
   function pcmBase64(input, fromRate) {
     const ratio = fromRate / 16e3;
     const length = Math.floor(input.length / ratio);
@@ -1285,7 +1340,7 @@ function App() {
       }
       const consent = await Swal.fire({
         title: "Izinkan Live Lesson?",
-        text: "Audio mikrofon dikirim langsung dari browser ke Gemini selama sesi. Audio tidak diarsipkan oleh SpeakUp. Setelah sesi, transkrip akan dikirim ke AI untuk feedback jika tersedia.",
+        text: "Audio mikrofon dikirim langsung dari browser ke Gemini selama sesi dan tidak diarsipkan oleh SpeakUp. Setelah sesi, hanya transkrip (bukan audio) yang dikirim ke provider AI global pilihan Admin (Clario atau Free API Key) untuk feedback.",
         icon: "info",
         showCancelButton: true,
         confirmButtonText: "Setuju & lanjutkan",
@@ -1296,6 +1351,8 @@ function App() {
       setLiveLoading(true);
       setLiveAssessment(null);
       setLiveLines([]);
+      liveTranscriptLinesRef.current = [];
+      liveCurrentSpeakerRef.current = null;
       liveTranscriptRef.current = "";
       livePlayheadRef.current = 0;
       setLiveSeconds(0);
@@ -1425,16 +1482,15 @@ function App() {
         }
         const c = msg.serverContent;
         if (c) {
-          if (c.inputTranscription?.text) {
-            const text = String(c.inputTranscription.text);
-            liveTranscriptRef.current += `Learner: ${text}\n`;
-            setLiveLines((v) => [...v, { who: "learner", text }]);
-          }
-          if (c.outputTranscription?.text) {
-            const text = String(c.outputTranscription.text);
-            liveTranscriptRef.current += `\nMaya: ${text}`;
-            setLiveLines((v) => [...v, { who: "coach", text }]);
-          }
+          if (c.inputTranscription?.text)
+            appendLiveTranscriptChunk("learner", c.inputTranscription.text);
+          if (c.inputTranscription?.finished)
+            finishLiveTranscriptLine("learner");
+          if (c.outputTranscription?.text)
+            appendLiveTranscriptChunk("coach", c.outputTranscription.text);
+          if (c.outputTranscription?.finished)
+            finishLiveTranscriptLine("coach");
+          if (c.turnComplete) finishLiveTranscriptLine(null);
           for (const part of c.modelTurn?.parts || [])
             if (part.inlineData?.data) playLiveAudio(part.inlineData.data);
         }

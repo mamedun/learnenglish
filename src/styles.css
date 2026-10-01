@@ -1516,6 +1516,7 @@ button:disabled {
 .coach-bubble {
   background: #edf4ec;
   color: #385943;
+  white-space: pre-line;
 }
 .coach-bubble button {
   border: 0;

@@ -26,6 +26,7 @@ import { toast } from "sonner";
 import { formatTime } from "../../lib/formatTime";
 import { getPracticeLessonProgress } from "./lessonProgress";
 import { isTtsBusy } from "../../lib/ttsRocks";
+import { stripTranscriptSourceLabel } from "../../lib/plainText";
 import {
   speechRecognitionErrorMessage,
   useSpeechRecognition,
@@ -121,7 +122,7 @@ export default function PracticePage(p) {
   const liveRecognitionUnavailable =
     liveTranscription && (!recognizer.supported || recognizer.braveDetected);
   const responseCaptured = liveTranscription
-    ? Boolean(transcript.trim()) && !transcribing
+    ? Boolean(stripTranscriptSourceLabel(transcript)) && !transcribing
     : Boolean(audioBlob);
   const lessonProgress = getPracticeLessonProgress({
     scenarioComplete,
@@ -563,11 +564,13 @@ export default function PracticePage(p) {
             <div className="transcript-area">
               <div className="transcript-label">
                 <span>TRANSKRIP JAWABANMU · LANGSUNG</span>
-                <span>{p.transcript.length}/3000</span>
+                <span>
+                  {stripTranscriptSourceLabel(p.transcript).length}/3000
+                </span>
               </div>
               <textarea
                 maxLength={3000}
-                value={p.transcript}
+                value={stripTranscriptSourceLabel(p.transcript)}
                 readOnly
                 aria-label="Transkrip ucapan langsung, hanya baca"
                 placeholder="Transkrip ucapan akan tampil di sini…"
@@ -668,12 +671,7 @@ export default function PracticePage(p) {
                 <div className="feedback-dialog">
                   <div className="bubble learner-bubble">
                     <small>KAMU</small>
-                    <em className="transcript-result-label">
-                      {t.transcriptionSource === "ai"
-                        ? "TRANSKRIP · HASIL AI"
-                        : "TRANSKRIP · LIVE"}
-                    </em>
-                    {t.userText}
+                    {stripTranscriptSourceLabel(t.userText)}
                     {t.audioSaved && (
                       <button
                         className="audio-mini"
