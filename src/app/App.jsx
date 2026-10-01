@@ -672,8 +672,12 @@ function App() {
         });
         setProcessingMessage("Menerima transkrip dan feedback AI…");
         const payload = await response.json();
-        if (!response.ok)
-          throw new Error(payload.error || "Evaluasi audio AI gagal.");
+        if (!response.ok) {
+          const details = [payload?.error, payload?.detail]
+            .filter((value) => typeof value === "string" && value.trim())
+            .map((value) => value.trim().slice(0, 350));
+          throw new Error(details.join(" — ") || "Evaluasi audio AI gagal.");
+        }
         audioResult = payload.result;
         replyObj = audioResult;
       } else {

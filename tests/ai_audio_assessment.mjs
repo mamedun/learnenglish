@@ -18,6 +18,7 @@ assert.match(submitTurn, /currentConfig\.speech_input_mode/);
 assert.match(submitTurn, /currentConfig\.ai_provider === "free"/);
 assert.match(submitTurn, /await Swal\.fire\(/);
 assert.match(submitTurn, /consent\.isConfirmed/);
+assert.match(submitTurn, /payload\?\.detail/);
 assert.ok(
   submitTurn.indexOf("await Swal.fire(") <
     submitTurn.indexOf('apiFetch("assess-audio"'),
@@ -83,6 +84,32 @@ assert.match(freeAudioBranch, /practice_stars/);
 assert.match(freeAudioBranch, /criteria/);
 assert.doesNotMatch(freeAudioBranch, /'practice_stars'\s*=>\s*3/);
 assert.match(freeAudioBranch, /assessment audio terstruktur/);
+assert.match(freeAudioBranch, /free_response_diagnostics/);
+assert.match(freeAudioBranch, /node=%s/);
+const freeRequestStart = api.indexOf("function free_request(");
+const freeDiagnosticsStart = api.indexOf(
+  "function free_response_diagnostics(",
+  freeRequestStart,
+);
+assert.notEqual(freeRequestStart, -1);
+assert.notEqual(freeDiagnosticsStart, -1);
+const freeAdapter = api.slice(freeRequestStart, freeDiagnosticsStart);
+assert.match(freeAdapter, /Authorization: Bearer/);
+assert.match(freeAdapter, /X-API-Key/);
+assert.match(freeAdapter, /http_multipart\(/);
+assert.match(freeAdapter, /node_host/);
+assert.doesNotMatch(freeAdapter, /HTTP_USER_AGENT|User-Agent/);
+assert.match(api, /function free_failure_detail\(/);
+
+const clarioAudioBranch = api.slice(
+  clarioStart,
+  api.indexOf("if($action==='live-token'", clarioStart),
+);
+assert.match(clarioAudioBranch, /type'=>'input_audio'/);
+assert.match(clarioAudioBranch, /inline_image_not_supported/);
+assert.match(clarioAudioBranch, /clario_audio_input_unsupported/);
+assert.match(clarioAudioBranch, /image_url hanya berlaku untuk gambar/);
+assert.match(admin, /endpoint\/model terpilih harus mendukung audio/);
 
 console.log(
   "PASS: AI Lesson confirms current audio mode, requests Free audio assessment, and does not gate completion by stars.",

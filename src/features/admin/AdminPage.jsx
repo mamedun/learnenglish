@@ -608,7 +608,7 @@ export default function AdminPage({
                 <CircleHelp size={15} />
                 <span>
                   {settings.speech_input_mode === "ai_audio"
-                    ? "Audio direkam lokal terlebih dahulu. Setelah user menekan Kirim jawaban, muncul dialog persetujuan untuk setiap pengiriman; hanya sesudah Setuju audio dikirim ke provider AI global. Transkrip dan feedback tampil setelah diproses."
+                    ? "Audio direkam lokal terlebih dahulu. Setelah user menekan Kirim jawaban, muncul dialog persetujuan untuk setiap pengiriman; hanya sesudah Setuju audio dikirim ke provider AI global. Transkrip dan feedback tampil setelah diproses. Clario menerima WAV sebagai input_audio, jadi endpoint/model terpilih harus mendukung audio; Free API Key memakai upload multipart."
                     : "Transkrip browser bersifat read-only. Browser/OS dapat memakai layanan transkripsi vendor; audio tidak dikirim ke server SpeakUp. Beberapa browser, termasuk Brave, dapat gagal menyambung—gunakan Google Chrome untuk live transcription."}
                 </span>
               </div>

@@ -296,7 +296,43 @@ function free_request(string $prompt,?string $filePath=null,string $mime='audio/
     $node=$pool[random_int(0,count($pool)-1)];
     $token=free_auth_token($c);
     $headers=['Authorization: Bearer '.$token,'X-API-Key: '.$c['free_api_key']];
-    return http_multipart($node.'/chat',$headers,['prompt'=>$prompt],$filePath??'', $mime,$filename,$timeout);
+    $started=microtime(true);
+    $response=http_multipart($node.'/chat',$headers,['prompt'=>$prompt],$filePath??'', $mime,$filename,$timeout);
+    $response['node_host']=(string)(parse_url($node,PHP_URL_HOST)?:'');
+    $response['elapsed_ms']=(int)round((microtime(true)-$started)*1000);
+    return $response;
+}
+function free_response_diagnostics(array $response):array{
+    $body=trim((string)($response['body']??''));
+    $decoded=json_decode($body,true);
+    $validJson=json_last_error()===JSON_ERROR_NONE;
+    $payload=is_array($decoded)?$decoded:[];
+    $kind=$body===''?'empty':($validJson?'json':(preg_match('/^<(?:!doctype|html|head|body)\\b/i',$body)?'html':'text'));
+    $error=is_array($payload['error']??null)?$payload['error']:[];
+    $code=$error['code']??($payload['code']??'');
+    $code=is_scalar($code)?(string)$code:'';
+    $code=(string)preg_replace('/[^A-Za-z0-9_.:-]/','',substr($code,0,80));
+    $host=(string)preg_replace('/[^A-Za-z0-9.-]/','',(string)($response['node_host']??''));
+    $transport=(string)preg_replace('/[\\r\\n\\t]+/',' ',trim((string)($response['error']??'')));
+    return [
+        'http_status'=>(int)($response['status']??0),
+        'node_host'=>$host,
+        'elapsed_ms'=>max(0,(int)($response['elapsed_ms']??0)),
+        'response_kind'=>$kind,
+        'error_code'=>$code,
+        'transport'=>substr($transport,0,160)
+    ];
+}
+function free_failure_detail(array $response):string{
+    $diagnostics=free_response_diagnostics($response);
+    $detail='Free API upstream HTTP '.$diagnostics['http_status'];
+    if($diagnostics['node_host']!=='')$detail.=' dari '.$diagnostics['node_host'];
+    if($diagnostics['error_code']!=='')$detail.=' (kode '.$diagnostics['error_code'].')';
+    if($diagnostics['response_kind']==='html')$detail.='; respons berupa HTML, bukan JSON API (kemungkinan gateway/WAF/proxy).';
+    elseif($diagnostics['http_status']===0&&$diagnostics['transport']!=='')$detail.='; transport: '.$diagnostics['transport'];
+    elseif($diagnostics['response_kind']==='empty')$detail.='; respons upstream kosong.';
+    elseif($diagnostics['response_kind']==='text')$detail.='; respons upstream bukan JSON.';
+    return $detail;
 }
 function strip_transcript_source_label(string $text):string{
     $text=(string)preg_replace('~</?(?:em|i|span)\b[^>]*>~iu','',$text);
@@ -313,11 +349,17 @@ function free_response_text($value):string{
 }
 function parse_free_response(array $response):array{
     if($response['status']<200||$response['status']>=300)
-        return ['ok'=>false,'status'=>502,'error'=>'Free API Key gagal memproses request.','detail'=>'HTTP '.$response['status'].'. Periksa kredensial, pool server, dan konektivitas.'];
+        return ['ok'=>false,'status'=>502,'error'=>'Free API Key gagal memproses request.','detail'=>free_failure_detail($response)];
     $payload=json_decode($response['body'],true);
-    if(!is_array($payload))return ['ok'=>false,'status'=>502,'error'=>'Respons Free API Key bukan JSON valid.','detail'=>'Periksa endpoint node dan token yang dikonfigurasi.'];
-    if(array_key_exists('success',$payload)&&$payload['success']===false)
-        return ['ok'=>false,'status'=>502,'error'=>'Free API Key menolak request.','detail'=>'Periksa API key, JWT/token mode, dan status server pool.'];
+    if(!is_array($payload))return ['ok'=>false,'status'=>502,'error'=>'Respons Free API Key bukan JSON valid.','detail'=>free_failure_detail($response)];
+    if(array_key_exists('success',$payload)&&$payload['success']===false){
+        $diagnostics=free_response_diagnostics($response);
+        $detail='Free API Key menolak request';
+        if($diagnostics['node_host']!=='')$detail.=' dari '.$diagnostics['node_host'];
+        if($diagnostics['error_code']!=='')$detail.=' (kode '.$diagnostics['error_code'].')';
+        $detail.='. Periksa API key, JWT/token mode, dan status server pool.';
+        return ['ok'=>false,'status'=>502,'error'=>'Free API Key menolak request.','detail'=>$detail];
+    }
     $data=is_array($payload['data']??null)?$payload['data']:[];
     $result=is_array($payload['result']??null)?$payload['result']:[];
     $replyPayload=$payload;
@@ -835,8 +877,22 @@ PROMPT;
             $prompt.="\nLearner level: ".$level."\nPractice prompt: ".$task;
         }
         $ext=match($freeMimeMap[$mime]){'audio/mp4'=>'m4a','audio/ogg'=>'ogg','audio/wav'=>'wav',default=>'webm'};
-        $parsed=parse_free_response(free_request($prompt,$file['tmp_name'],$freeMimeMap[$mime],'audio.'.$ext,70));
-        if(!$parsed['ok'])respond(['error'=>$parsed['error'],'detail'=>$parsed['detail']??''],(int)$parsed['status']);
+        $freeResponse=free_request($prompt,$file['tmp_name'],$freeMimeMap[$mime],'audio.'.$ext,70);
+        $parsed=parse_free_response($freeResponse);
+        if(!$parsed['ok']){
+            $diagnostics=free_response_diagnostics($freeResponse);
+            error_log(sprintf(
+                'SpeakUp assess-audio upstream failed: provider=free mode=%s http=%d node=%s elapsed_ms=%d response=%s code=%s transport=%s',
+                $mode,
+                $diagnostics['http_status'],
+                $diagnostics['node_host'],
+                $diagnostics['elapsed_ms'],
+                $diagnostics['response_kind'],
+                $diagnostics['error_code'],
+                $diagnostics['transport']
+            ));
+            respond(['error'=>$parsed['error'],'detail'=>$parsed['detail']??''],(int)$parsed['status']);
+        }
 
         if($mode==='read_aloud'){
             $transcript=substr(strip_transcript_source_label(trim((string)$parsed['transcript'])),0,12000);
@@ -927,9 +983,29 @@ PROMPT;
         'temperature'=>0.2,
         'stream'=>false
     ];
+    $clarioStarted=microtime(true);
     $response=provider_request('/chat/completions',$body,70);
-    if($response['status']<200||$response['status']>=300)
-        respond(['error'=>'Provider AI gagal memproses audio.','detail'=>substr($response['body']?:$response['error'],0,500)],$response['status']?:502);
+    if($response['status']<200||$response['status']>=300){
+        $responseBody=(string)($response['body']??'');
+        $providerPayload=json_decode($responseBody,true);
+        $providerError=is_array($providerPayload['error']??null)?$providerPayload['error']:[];
+        $providerCode=is_scalar($providerError['code']??null)?strtolower((string)$providerError['code']):'';
+        $inlineImageUnsupported=$providerCode==='inline_image_not_supported'||stripos($responseBody,'inline_image_not_supported')!==false;
+        error_log(sprintf(
+            'SpeakUp assess-audio upstream failed: provider=clario http=%d elapsed_ms=%d code=%s transport=%s',
+            (int)($response['status']??0),
+            (int)round((microtime(true)-$clarioStarted)*1000),
+            $inlineImageUnsupported?'inline_image_not_supported':'provider_error',
+            substr((string)($response['error']??''),0,120)
+        ));
+        if($inlineImageUnsupported)
+            respond([
+                'error'=>'Clario menolak format audio untuk endpoint atau model yang dipilih.',
+                'detail'=>'Clario mengembalikan inline_image_not_supported untuk WAV input_audio. Petunjuk image_url hanya berlaku untuk gambar, bukan pengganti audio. Jangan kirim ulang payload yang sama; gunakan protokol/model audio yang secara eksplisit didukung Clario.',
+                'code'=>'clario_audio_input_unsupported'
+            ],422);
+        respond(['error'=>'Provider AI gagal memproses audio.','detail'=>substr($responseBody?:$response['error'],0,500)],$response['status']?:502);
+    }
     $provider=json_decode($response['body'],true);
     $content=$provider['choices'][0]['message']['content']??'';
     if(is_array($content))$content=implode('',array_map(fn($part)=>is_array($part)?(string)($part['text']??''):(string)$part,$content));
