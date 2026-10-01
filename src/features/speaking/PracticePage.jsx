@@ -27,6 +27,7 @@ import {
 import { toast } from "sonner";
 import Swal from "sweetalert2";
 import { formatTime } from "../../lib/formatTime";
+import { appAsset } from "../../lib/appPaths";
 import {
   canCompletePracticeLesson,
   findNextPracticeLesson,
@@ -252,15 +253,17 @@ export default function PracticePage(p) {
   const visual =
     unit.image ||
     (unit.part?.includes("Part 2")
-      ? "/learnenglish/images/speaking/speaking-cue-card-practice.jpg"
+      ? appAsset("images/speaking/speaking-cue-card-practice.jpg")
       : null);
   return (
     <div className="practice-layout">
       <div className="practice-main">
         <div className="practice-head">
-          <button className="back-link" onClick={p.onBack}>
-            <ArrowLeft size={16} /> Kembali
-          </button>
+          {p.showBackButton !== false && (
+            <button className="back-link" onClick={p.onBack}>
+              <ArrowLeft size={16} /> Kembali
+            </button>
+          )}
           <div className="practice-title-row">
             <div>
               <div className="eyebrow">

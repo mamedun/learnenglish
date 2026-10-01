@@ -172,7 +172,7 @@ function catalog_data(PDO $pdo, bool $admin = false): array
             'objective' => $u['objective'], 'part' => $u['part'],
             'questionType' => $u['question_type'], 'bandTarget' => $u['band_target'],
             'prepSeconds' => (int) $u['prep_seconds'], 'responseSeconds' => (int) $u['response_seconds'],
-            'image' => $u['image'], 'imageContext' => $u['image_context'],
+            'image' => app_public_asset_url($u['image']), 'imageContext' => $u['image_context'],
             'sortOrder' => (int) $u['sort_order'],
             'defaultVoice' => in_array($u['default_voice'] ?? '', catalog_tts_voice_ids(), true)
                 ? $u['default_voice'] : 'af_heart',
@@ -189,7 +189,7 @@ function catalog_data(PDO $pdo, bool $admin = false): array
     foreach ($lessonRows as $l) {
         $listening[$l['id']] = [
             'id' => $l['id'], 'level' => $l['level_id'], 'title' => $l['title'],
-            'objective' => $l['objective'], 'script' => $l['script'], 'image' => $l['image'],
+            'objective' => $l['objective'], 'script' => $l['script'], 'image' => app_public_asset_url($l['image']),
             'sortOrder' => (int) $l['sort_order'], 'questions' => [],
             'defaultVoice' => in_array($l['default_voice'] ?? '', catalog_tts_voice_ids(), true)
                 ? $l['default_voice'] : 'af_heart',
@@ -240,10 +240,14 @@ function catalog_level_id(PDO $pdo, array $input): string
 function catalog_image(array $input): ?string
 {
     $image = catalog_text($input, 'image', 220, false);
-    if ($image !== '' && !preg_match('#^/learnenglish/images/[a-zA-Z0-9/_-]+\.(jpg|jpeg|png|webp)$#', $image)) {
-        respond(['error' => 'Gunakan path gambar lokal /learnenglish/images/... (jpg/png/webp).'], 422);
+    if ($image === '') return null;
+    $image = app_rebase_local_image_path($image);
+    $root = rtrim(app_public_path('images'), '/') . '/';
+    if ($image === null || !str_starts_with($image, $root)
+        || !preg_match('/^[A-Za-z0-9/_-]+\\.(jpg|jpeg|png|webp)$/iD', substr($image, strlen($root)))) {
+        respond(['error' => 'Gunakan gambar lokal dari public/images (jpg/png/webp).'], 422);
     }
-    return $image === '' ? null : $image;
+    return $image;
 }
 function catalog_save_level(PDO $pdo, string $id, array $d): void
 {

@@ -1,8 +1,12 @@
-import { useMemo } from "react";
-import { ArrowRight, Mic, Sparkles, Star } from "lucide-react";
+import { useMemo, useState } from "react";
+import { ArrowRight, Filter, Mic, Sparkles, Star } from "lucide-react";
 import { achievements } from "../../gamification";
 import { LEVEL_ICONS, BADGE_ICONS } from "../learning/learningIcons";
-import { buildCourseProgressSummary } from "./progressSummary";
+import {
+  buildCourseProgressSummary,
+  filterJourneyLevels,
+} from "./progressSummary";
+import { hasCourseAccess } from "../courses/courseAccess";
 
 export default function ProgressPage({
   data,
@@ -24,6 +28,25 @@ export default function ProgressPage({
         fallbackCatalog,
       }),
     [courses, courseCatalogs, data, fallbackCatalog],
+  );
+  const [courseFilter, setCourseFilter] = useState("all");
+  const courseOptions = useMemo(() => {
+    const options = new Map();
+    for (const course of courses) {
+      if (!hasCourseAccess(course) || course.id == null) continue;
+      const id = String(course.id);
+      if (!options.has(id)) {
+        options.set(id, {
+          id,
+          name: String(course.name || course.label || course.level || id),
+        });
+      }
+    }
+    return [...options.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }, [courses]);
+  const journeyLevels = useMemo(
+    () => filterJourneyLevels(summary.levels, courseFilter),
+    [courseFilter, summary.levels],
   );
   const recent = (data.sessions || []).slice(-5).reverse();
   const badges = achievements(summary.achievementProgress);
@@ -82,9 +105,35 @@ export default function ProgressPage({
           <h2>Jelajahi tiap level</h2>
         </div>
       </div>
+      {courseOptions.length > 1 && (
+        <div className="journey-map-toolbar">
+          <label htmlFor="journey-course-filter">
+            <Filter size={16} />
+            <span>Filter course</span>
+            <select
+              id="journey-course-filter"
+              value={courseFilter}
+              onChange={(event) => setCourseFilter(event.target.value)}
+            >
+              <option value="all">Semua course</option>
+              {courseOptions.map((course) => (
+                <option value={course.id} key={course.id}>
+                  {course.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <span>{journeyLevels.length} level</span>
+        </div>
+      )}
       {summary.levels.length ? (
-        <div className="progress-levels">
-          {summary.levels.map((level, index) => {
+        <div
+          className="progress-levels journey-map-scroll"
+          tabIndex={0}
+          role="region"
+          aria-label="Journey Map levels; scroll to see more"
+        >
+          {journeyLevels.map((level, index) => {
             const Icon = LEVEL_ICONS[index % LEVEL_ICONS.length] || Sparkles;
             return (
               <div className="progress-level" key={level.key}>
@@ -140,6 +189,19 @@ export default function ProgressPage({
               Jelajahi course <ArrowRight size={16} />
             </button>
           )}
+        </div>
+      )}
+      {summary.levels.length > 0 && journeyLevels.length === 0 && (
+        <div className="empty-activity">
+          <span>🔎</span>
+          <b>Tidak ada level untuk course ini</b>
+          <p>Coba pilih course lain untuk melihat progresnya.</p>
+          <button
+            className="btn-primary"
+            onClick={() => setCourseFilter("all")}
+          >
+            Tampilkan semua course <ArrowRight size={16} />
+          </button>
         </div>
       )}
       <div className="section-head">

@@ -10,7 +10,8 @@ import {
   Sparkles,
 } from "lucide-react";
 import "./coursePages.css";
-import { hasCourseAccess } from "./courseAccess";
+import { hasCourseAccess, partitionCourses } from "./courseAccess";
+import { appAsset } from "../../lib/appPaths";
 
 const rupiah = (amount) =>
   Number(amount || 0) === 0
@@ -47,7 +48,7 @@ function CourseCard({ course, onOpen, onContinue }) {
             src={
               course.posterUrl ||
               course.bannerUrl ||
-              "/learnenglish/images/speakup-adventure.png"
+              appAsset("images/speakup-adventure.png")
             }
             alt=""
             loading="lazy"
@@ -105,15 +106,8 @@ export function CoursesPage({
   onOpenCourse,
   onContinueCourse,
 }) {
-  const enrolled = useMemo(
-    () => courses.filter((course) => hasCourseAccess(course)),
-    [courses],
-  );
-  const available = useMemo(
-    () =>
-      courses.filter(
-        (course) => !hasCourseAccess(course) && course.status === "published",
-      ),
+  const { enrolled, available } = useMemo(
+    () => partitionCourses(courses),
     [courses],
   );
   return (
@@ -132,7 +126,7 @@ export function CoursesPage({
           </p>
         </div>
         <div className="course-hero-art">
-          <img src="/learnenglish/images/speakup-adventure.png" alt="" />
+          <img src={appAsset("images/speakup-adventure.png")} alt="" />
         </div>
       </section>
 
@@ -295,7 +289,7 @@ export function CourseDetailPage({
   const banner =
     course.bannerUrl ||
     course.posterUrl ||
-    "/learnenglish/images/speakup-adventure.png";
+    appAsset("images/speakup-adventure.png");
   return (
     <div
       className="course-pages course-detail-page"

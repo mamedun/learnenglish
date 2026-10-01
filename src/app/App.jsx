@@ -3265,6 +3265,7 @@ Because this is live audio, comment on pronunciation or word stress only when a 
                     />
                   )}
                   <PracticePage
+                    showBackButton={!route?.courseId}
                     onBack={() =>
                       route?.courseId
                         ? openCourse(

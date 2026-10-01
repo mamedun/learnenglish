@@ -7,6 +7,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { apiFetch } from "../../api";
+import { appAsset } from "../../lib/appPaths";
 import { toast } from "sonner";
 
 export default function AuthScreen({ onAuth }) {
@@ -84,7 +85,7 @@ export default function AuthScreen({ onAuth }) {
         <div className="auth-story">
           <img
             className="auth-art"
-            src="/learnenglish/images/speakup-adventure.png"
+            src={appAsset("images/speakup-adventure.png")}
             alt=""
             aria-hidden="true"
           />

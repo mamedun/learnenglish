@@ -150,7 +150,7 @@
           "bandTarget": "A2 vocabulary and speaking practice",
           "prepSeconds": 0,
           "responseSeconds": 30,
-          "image": "/learnenglish/images/speaking/market-conversation-scene-flow.jpg",
+          "image": "/images/speaking/market-conversation-scene-flow.jpg",
           "imageContext": "In the visible illustration, a market vendor hands a paper bag of oranges to a customer; another shopper compares tomatoes; a parent stands with a child; stalls display vegetables and flowers. Only treat these as visible details; any motives or background story are learner inferences, not facts."
         },
         {
@@ -835,7 +835,7 @@
           "explain": "Four pounds plus two pounds equals six pounds."
         }
       ],
-      "image": "/learnenglish/images/listening/a1-cafe-order.jpg"
+      "image": "/images/listening/a1-cafe-order.jpg"
     },
     {
       "id": "L-A1-03",
@@ -865,7 +865,7 @@
           "explain": "It leaves 30 minutes later than 8:15, so it leaves at 8:45."
         }
       ],
-      "image": "/learnenglish/images/listening/a1-morning-bus-stop.jpg"
+      "image": "/images/listening/a1-morning-bus-stop.jpg"
     },
     {
       "id": "L-A2-01",
@@ -895,7 +895,7 @@
           "explain": "They need their ID to get the discounted ticket."
         }
       ],
-      "image": "/learnenglish/images/listening/a2-weekend-museum-plan.jpg"
+      "image": "/images/listening/a2-weekend-museum-plan.jpg"
     },
     {
       "id": "L-A2-02",
@@ -983,7 +983,7 @@
           "explain": "One third is donated to a local food bank."
         }
       ],
-      "image": "/learnenglish/images/listening/b1-community-garden.jpg"
+      "image": "/images/listening/b1-community-garden.jpg"
     },
     {
       "id": "L-B1-02",
@@ -1071,7 +1071,7 @@
           "explain": "The report narrows its focus to access to cycling facilities."
         }
       ],
-      "image": "/learnenglish/images/listening/b2-university-fieldwork.jpg"
+      "image": "/images/listening/b2-university-fieldwork.jpg"
     },
     {
       "id": "L-B2-02",
@@ -1159,7 +1159,7 @@
           "explain": "The conclusion prioritises practical access to essential services."
         }
       ],
-      "image": "/learnenglish/images/listening/c1-city-transport-options.jpg"
+      "image": "/images/listening/c1-city-transport-options.jpg"
     },
     {
       "id": "L-C1-02",
@@ -1276,7 +1276,7 @@
           "explain": "The conclusion emphasises examining how material is interpreted."
         }
       ],
-      "image": "/learnenglish/images/listening/c2-community-archive.jpg"
+      "image": "/images/listening/c2-community-archive.jpg"
     },
     {
       "id": "L-C2-03",

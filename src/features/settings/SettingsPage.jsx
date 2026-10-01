@@ -327,7 +327,7 @@ export default function SettingsPage({
                 <b>Default persetujuan simpan audio</b>
                 <small>
                   Ditanyakan lagi tiap sesi. Jika disetujui, file disimpan di
-                  /learnenglish/api/uploads/{user.id}/ dan DB hanya menyimpan
+                  private server storage dan DB hanya menyimpan
                   metadata/referensi.
                 </small>
               </span>

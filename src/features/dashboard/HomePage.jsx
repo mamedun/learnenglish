@@ -4,6 +4,7 @@ import { achievements } from "../../gamification";
 import { hasCourseAccess } from "../courses/courseAccess";
 import { aggregateCourseAchievements } from "../progress/progressSummary";
 import { BADGE_ICONS } from "../learning/learningIcons";
+import { appAsset } from "../../lib/appPaths";
 import "./homeCourses.css";
 
 const lastAction = (course) =>
@@ -25,7 +26,7 @@ function SmallCourseCard({ course, onOpen, onContinue }) {
           src={
             course.posterUrl ||
             course.bannerUrl ||
-            "/learnenglish/images/speakup-adventure.png"
+            appAsset("images/speakup-adventure.png")
           }
           alt=""
           loading="lazy"

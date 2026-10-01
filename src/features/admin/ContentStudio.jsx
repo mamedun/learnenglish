@@ -822,7 +822,7 @@ export default function ContentStudio({ onCatalogChange }) {
                     label="Path ilustrasi (opsional)"
                     value={editing.image || ""}
                     onChange={(v) => change("image", v)}
-                    placeholder="/learnenglish/images/.../scene.jpg"
+                    placeholder="/images/.../scene.jpg"
                     hint="Pakai aset lokal yang sudah diunggah ke public/images; tidak menerima URL eksternal."
                   />
                   <label className="studio-publish">

@@ -1,6 +1,6 @@
 # SpeakUp — petualangan belajar bahasa Inggris
 
-Aplikasi React **JSX** + Vite dan API PHP/SQLite untuk latihan bahasa Inggris yang terinspirasi IELTS. URL frontend: `/learnenglish/`; API: `/learnenglish/api/`. Ini **bukan** tes atau sertifikasi IELTS resmi.
+Aplikasi React **JSX** + Vite dan API PHP/SQLite untuk latihan bahasa Inggris yang terinspirasi IELTS. Default path frontend: `/learnenglish/`; API: `/learnenglish/api/`. Path dapat diatur untuk subfolder lain atau domain root. Ini **bukan** tes atau sertifikasi IELTS resmi.
 
 ## Arsitektur
 
@@ -25,7 +25,7 @@ Untuk API beda origin, atur allowlist origin persis, HTTPS, dan `SESSION_SAMESIT
 
 ## Konfigurasi: `.env*` hanya untuk frontend, `config.php` hanya untuk PHP
 
-**PHP tidak membaca `.env`, `ENV_FILE`, atau `getenv()` lagi.** Semua konfigurasi backend berasal dari `api/config.php` (tidak masuk Git) yang mengembalikan array PHP. `api/config.example.php` memuat default aman **tanpa rahasia**. Di server:
+**PHP tidak membaca `.env`, `ENV_FILE`, atau `getenv()` lagi.** Semua konfigurasi backend berasal dari `api/config.php` yang harus dijaga privat dan tidak di-commit; file itu mengembalikan array PHP. `api/config.example.php` memuat default aman **tanpa rahasia**. Di server:
 
 ```bash
 cp api/config.example.php api/config.php
@@ -36,7 +36,9 @@ Edit file privat itu, minimal `APP_ENCRYPTION_KEY` (>=32 karakter acak), `ADMIN_
 
 **Jangan commit atau kirim `api/config.php` ke web sebagai file publik.** Apache `.htaccess` menghalangi akses langsung ke config, helper, seed, DB, dan upload. Di Nginx `.htaccess` tidak berlaku: tambahkan deny untuk config dan folder privat. Idealnya simpan DB/upload di luar web root melalui path di `api/config.php`.
 
-Frontend menggunakan `.env.development.local` / `.env.production.local` yang **hanya** berisi variabel `VITE_*`; salin dari `.env.development.example` / `.env.production.example` jika perlu. Vite default mem-proxy PHP lokal; produksi same-origin memakai `/learnenglish/api` otomatis tanpa `VITE_API_BASE_URL`. Jika backend pengembangan di `rikisample.test`, set `VITE_API_PROXY_TARGET=https://rikisample.test` dan `VITE_API_PROXY_PATH_PREFIX=/learnenglish`; jika backend lokal di port 8787, gunakan `VITE_API_PROXY_TARGET=http://127.0.0.1:8787` dan `VITE_API_PROXY_PATH_PREFIX=`. Jangan pernah menaruh kredensial PHP/API key di `VITE_*`.
+Frontend menggunakan `.env.development.local` / `.env.production.local` yang **hanya** berisi variabel `VITE_*`; salin dari `.env.development.example` / `.env.production.example` jika perlu. `VITE_BASE_PATH` mengatur mount frontend dan otomatis membentuk URL aset/API: gunakan `/learnenglish` (default), `/speakup`, atau `/` untuk root. Contoh subfolder: set `VITE_BASE_PATH=/speakup`; untuk root: `VITE_BASE_PATH=/`. Setelah mengubahnya, rebuild frontend dan salin isi `dist/` ke folder web yang cocok.
+
+**Tidak cukup hanya mengubah variabel frontend bila path API PHP juga berubah.** `api/config.php` di server harus memiliki `APP_BASE_PATH` yang sama dengan prefix publik API (mis. `'/speakup'`, atau `'/'` untuk root); defaultnya `/learnenglish` dan dijelaskan di `api/config.example.php`. Pastikan web server benar-benar memetakan frontend dan `/api/` pada lokasi tersebut. Saat development, `VITE_API_PROXY_PATH_PREFIX` menunjuk prefix backend yang dituju (default mengikuti `VITE_BASE_PATH`; isi kosong bila backend ada di root), sedangkan `VITE_API_PROXY_TARGET` adalah host PHP. Gunakan `VITE_API_BASE_URL` hanya untuk API beda origin. Jangan pernah menaruh kredensial PHP/API key di `VITE_*`.
 
 ### Jalankan lokal
 
@@ -50,7 +52,7 @@ php -S 0.0.0.0:8787 api/router.php    # terminal pertama
 npm run dev                            # terminal kedua
 ```
 
-Buka `http://localhost:5173/learnenglish/`. Login/bootstrap gagal bila `APP_ENCRYPTION_KEY` masih kosong (health menampilkan `auth_configured:false`). Password user baru minimal 10 karakter. Untuk mengecek API: `http://localhost:8787/learnenglish/api/health`. Browser di Vite memakai URL relatif dan proxy; tidak memanggil `localhost` dari kode frontend yang di-deploy.
+Dengan konfigurasi default, buka `http://localhost:5173/learnenglish/`. Untuk root/subfolder lain, atur `VITE_BASE_PATH` di env development serta `APP_BASE_PATH` di `api/config.php`; restart Vite setelah mengubah env. Login/bootstrap gagal bila `APP_ENCRYPTION_KEY` masih kosong (health menampilkan `auth_configured:false`). Password user baru minimal 10 karakter. Default API health: `http://localhost:8787/learnenglish/api/health`. Browser di Vite memakai URL relatif dan proxy; tidak memanggil `localhost` dari kode frontend yang di-deploy.
 
 ## Menangani `GET /api/health` dan `/api/me` HTTP 503
 
@@ -68,9 +70,9 @@ Jika Vite masih mem-proxy ke `https://rikisample.test` dan alamat tersebut 503, 
 
 ## Deploy produksi
 
-1. `npm ci && npm run build`, salin **isi** `dist/` ke `/learnenglish/` web root. Salin `api/` (termasuk seed dan `.htaccess`) ke `/learnenglish/api/`. Pastikan SPA fallback tidak menangkap API. Buat `api/config.php` privat pada server **sebelum** mengakses API baru; jangan menyalin config development atau `.env` lama ke frontend.
+1. Sebelum `npm ci && npm run build`, pilih `VITE_BASE_PATH` (`/learnenglish` default, `/speakup`, atau `/` untuk root). Salin **isi** `dist/` ke folder web yang cocok dengan base tersebut. Tempatkan `api/` di URL `<APP_BASE_PATH>/api/`, lalu set `APP_BASE_PATH` pada `api/config.php` privat di server (gunakan `'/'` untuk root). Pastikan SPA fallback tidak menangkap API; `public/.htaccess` memakai rewrite relatif untuk mendukung root maupun subfolder. Buat `api/config.php` privat pada server **sebelum** mengakses API baru; jangan menyalin config development atau `.env` lama ke frontend.
 2. Konfigurasikan `DATA_DB_PATH` ke SQLite yang **sudah berjalan** jika upgrade; pertahankan database/progres, jangan membuat DB baru tanpa sengaja. Proses PHP harus dapat membuat tabel `auth_sessions`, membaca/menulis DB dan menulis di direktori untuk SQLite WAL. Simpan `APP_ENCRYPTION_KEY` yang sama dengan konfigurasi sebelumnya agar API key terenkripsi tetap dapat dibaca. Backup SQLite yang konsisten (termasuk WAL aktif) dan audio bersama.
-3. Di Apache, `.htaccess` melarang akses file privat; di **Nginx** tambahkan aturan setara (sesuaikan server block dan urutan rewrite):
+3. Di Apache, `.htaccess` melarang akses file privat; di **Nginx** tambahkan aturan setara (sesuaikan server block dan urutan rewrite). Contoh berikut memakai default `/learnenglish`; ganti prefix tersebut sesuai `APP_BASE_PATH` (untuk root deployment, gunakan `/api/...` dan aturan root yang setara):
 
    ```nginx
    location ^~ /learnenglish/api/db/      { return 404; }
@@ -80,11 +82,11 @@ Jika Vite masih mem-proxy ke `https://rikisample.test` dan alamat tersebut 503, 
    location ~* ^/learnenglish/(?:\.env.*|.*\.(?:db|sqlite|sqlite3|log)(?:-wal|-shm)?)$ { return 404; }
    ```
 
-4. Gunakan HTTPS. Untuk frontend/API pada origin yang sama biarkan `SESSION_SAMESITE=Lax` dan `VITE_API_BASE_URL` kosong; untuk beda origin HTTPS, konfigurasi `CORS_ALLOWED_ORIGINS` (daftar origin frontend), `SESSION_SAMESITE=None`, dan URL API frontend `VITE_API_BASE_URL` saat build. Header `Authorization` diizinkan untuk CORS origin terdaftar.
+4. Gunakan HTTPS. Untuk frontend/API pada origin yang sama biarkan `SESSION_SAMESITE=Lax` dan `VITE_API_BASE_URL` kosong; API URL otomatis mengikuti `VITE_BASE_PATH`. Untuk beda origin HTTPS, konfigurasi `CORS_ALLOWED_ORIGINS` (daftar origin frontend), `SESSION_SAMESITE=None`, dan URL API frontend `VITE_API_BASE_URL` saat build. Header `Authorization` diizinkan untuk CORS origin terdaftar.
 5. Atur PHP `upload_max_filesize=26M`, `post_max_size=28M`, `max_execution_time=90` untuk cache WAV Kokoro (maksimal 25 MB) dan evaluasi audio ber-consent (batas aplikasi 12 MB). Pastikan folder `TTS_CACHE_DIR` writable oleh proses PHP dan tidak dapat diakses langsung; bila lokasinya berada di web root Nginx, deny URL folder tersebut seperti aturan `uploads` di atas. API key provider dienkripsi dengan AES-256-GCM menggunakan `APP_ENCRYPTION_KEY`; backup kunci itu secara privat.
 6. Uji `health`, pendaftaran/login, reload/refresh, logout, penyimpanan progres, perubahan password admin, Studio, saldo diamond dan billing Live/AI, serta akses audio berdasarkan kepemilikan. Respons health yang sehat tidak sendiri membuktikan semua fitur/konfigurasi provider telah diuji.
 
-## Endpoint penting (`/learnenglish/api/`)
+## Endpoint penting (default: `/learnenglish/api/`)
 
 - `GET health`, `GET me`, `POST register/login/logout`, `POST auth/refresh`, `POST account/password`
 - `GET catalog` (tanpa kunci untuk peserta), `POST listening/check` (koreksi oleh server)
@@ -96,6 +98,9 @@ Jika Vite masih mem-proxy ke `https://rikisample.test` dan alamat tersebut 503, 
 
 ```bash
 npm run build
+node tests/course_access.mjs
+node tests/progress_aggregate.mjs
+node tests/vite_base_path.mjs
 npm audit --omit=dev --audit-level=high
 python3 tests/prepare_smoke_api.py
 # start PHP dari path .../.arena/smoke-api-*/api yang baru dicetak di atas:

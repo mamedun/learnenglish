@@ -12,7 +12,7 @@ header('Cache-Control: no-store');
 
 function respond(array $data,int $status=200):never{http_response_code($status);header('Content-Type: application/json; charset=utf-8');echo json_encode($data,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);exit;}
 function method():string{return strtoupper($_SERVER['REQUEST_METHOD']??'GET');}
-function path_info():string{$p=parse_url($_SERVER['REQUEST_URI']??'/learnenglish/api/health',PHP_URL_PATH)?:'/learnenglish/api/health';$p=preg_replace('#^/learnenglish/api/?#','',$p);$p=preg_replace('#^/api/?#','',$p);return trim($p,'/')?:'health';}
+function path_info():string{$fallback=app_public_path('api/health');$p=parse_url($_SERVER['REQUEST_URI']??$fallback,PHP_URL_PATH)?:$fallback;$prefixes=array_values(array_unique([rtrim(app_public_path('api'),'/'),'/api']));foreach($prefixes as $prefix){if($p===$prefix){$p='';break;}if(str_starts_with($p,$prefix.'/')){$p=substr($p,strlen($prefix));break;}}return trim($p,'/')?:'health';}
 function read_json(int $max=5_500_000):array{$length=(int)($_SERVER['CONTENT_LENGTH']??0);if($length>$max)respond(['error'=>'Request terlalu besar.'],413);$raw=file_get_contents('php://input');$v=json_decode($raw?:'{}',true);if(!is_array($v))respond(['error'=>'JSON tidak valid.'],400);return $v;}
 function db_diagnostics(string $path): array
 {
@@ -545,7 +545,7 @@ if (!empty($_COOKIE['speakup_session'])) {
     session_name('speakup_session');
     $sameSite = (string) cfg('SESSION_SAMESITE', 'Lax');
     if (!in_array($sameSite, ['Lax', 'Strict', 'None'], true)) $sameSite = 'Lax';
-    session_set_cookie_params(['lifetime' => 0, 'path' => '/learnenglish/api/', 'secure' => auth_secure_request() || $sameSite === 'None', 'httponly' => true, 'samesite' => $sameSite]);
+    session_set_cookie_params(['lifetime' => 0, 'path' => app_public_path('api') . '/', 'secure' => auth_secure_request() || $sameSite === 'None', 'httponly' => true, 'samesite' => $sameSite]);
     if (session_status() !== PHP_SESSION_ACTIVE) session_start();
 }
 $action=path_info();$method=method();
@@ -674,8 +674,8 @@ if($action==='admin/settings'&&$method==='GET'){
         'gemini_live_model'=>$c['live_model'],
         'gemini_key_configured'=>$c['gemini_key']!=='',
         'gemini_key_masked'=>$c['gemini_key']===''?'':'••••••••'.substr($c['gemini_key'],-4),
-        'database'=>'SQLite · /learnenglish/api/db/data.db',
-        'audio_path'=>'/learnenglish/api/uploads/',        'courseware_policy'=>courseware_policy(),
+        'database'=>'SQLite · '.app_public_path('api/db/data.db'),
+        'audio_path'=>app_public_path('api/uploads').'/',        'courseware_policy'=>courseware_policy(),
         'lockdown'=>lockdown_on(),
         'stop_registration'=>registration_closed(),
         'video_lessons_enabled'=>false

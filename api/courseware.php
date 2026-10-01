@@ -220,7 +220,9 @@ function courseware_seed_ielts(PDO $pdo): void
 {
     $now = gmdate('c');
     $pdo->prepare("INSERT OR IGNORE INTO courses(id,name,description,poster_url,banner_url,status,price,color,label,level,enable_listening,enable_ai_lesson,enable_live_lesson,sort_order,created_at,updated_at)
-        VALUES('ielts','IELTS English Adventure','Modul bahasa Inggris bergaya IELTS untuk berlatih listening, speaking, dan percakapan live. Ini latihan, bukan tes atau sertifikasi IELTS resmi.','/learnenglish/images/speaking-cue-card-practice.jpg','/learnenglish/images/speakup-adventure.png','published',0,'#315C45','IELTS','A1–C2',1,1,1,0,?,?)")->execute([$now, $now]);
+        VALUES('ielts','IELTS English Adventure','Modul bahasa Inggris bergaya IELTS untuk berlatih listening, speaking, dan percakapan live. Ini latihan, bukan tes atau sertifikasi IELTS resmi.',?,?,'published',0,'#315C45','IELTS','A1–C2',1,1,1,0,?,?)")->execute([
+            app_public_path('images/speaking-cue-card-practice.jpg'), app_public_path('images/speakup-adventure.png'), $now, $now,
+        ]);
 
     $categoryInsert = $pdo->prepare('INSERT OR IGNORE INTO course_categories(course_id,modality,id,name,label,guide,color,sort_order,updated_at) VALUES(?,?,?,?,?,?,?,?,?)');
     $levels = $pdo->query('SELECT * FROM course_levels ORDER BY sort_order,id')->fetchAll();
@@ -350,7 +352,7 @@ function courseware_seed_samples(PDO $pdo): void
     if ($adsCount === 0 && is_array($seed['ad'] ?? null)) {
         $ad = $seed['ad'];
         $pdo->prepare('INSERT INTO course_ads(id,poster_url,title,description,link,sort_order,active,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)')->execute([
-            'demo-english-adventure', $ad['posterUrl'] ?? '/learnenglish/images/market-conversation-scene-flow.jpg',
+            'demo-english-adventure', $ad['posterUrl'] ?? app_public_path('images/market-conversation-scene-flow.jpg'),
             $ad['title'] ?? 'English for your next adventure', $ad['description'] ?? '',
             $ad['link'] ?? 'https://example.com/english-speaking-workshop', (int) ($ad['sortOrder'] ?? 0),
             !empty($ad['active']) ? 1 : 0, $now, $now,
@@ -371,13 +373,11 @@ function courseware_safe_media_url($value, string $label = 'Media'): string
     if (!is_string($value)) respond(['error' => "$label tidak valid."], 422);
     $value = trim($value);
     if ($value === '') return '';
-    if (str_starts_with($value, '/learnenglish/images/')) {
-        if (preg_match('#^/learnenglish/images/[A-Za-z0-9_./-]+$#', $value) && !str_contains($value, '..')) return $value;
-        respond(['error' => "$label path lokal tidak valid."], 422);
-    }
+    $localImage = app_rebase_local_image_path($value);
+    if ($localImage !== null) return $localImage;
     $parts = parse_url($value);
     if (!is_array($parts) || strtolower((string) ($parts['scheme'] ?? '')) !== 'https' || empty($parts['host']) || isset($parts['user']) || isset($parts['pass']))
-        respond(['error' => "$label harus memakai URL HTTPS atau path lokal /learnenglish/images/."], 422);
+        respond(['error' => "$label harus memakai URL HTTPS atau gambar lokal dari public/images/."], 422);
     return $value;
 }
 
@@ -385,8 +385,8 @@ function courseware_public_course(array $row, bool $enrolled = false, array $act
 {
     return [
         'id' => (string) $row['id'], 'name' => (string) $row['name'],
-        'description' => (string) $row['description'], 'posterUrl' => (string) $row['poster_url'],
-        'bannerUrl' => (string) $row['banner_url'], 'status' => (string) $row['status'],
+        'description' => (string) $row['description'], 'posterUrl' => app_public_asset_url($row['poster_url']),
+        'bannerUrl' => app_public_asset_url($row['banner_url']), 'status' => (string) $row['status'],
         'price' => (int) $row['price'], 'color' => (string) $row['color'],
         'label' => (string) $row['label'], 'level' => (string) $row['level'],
         'enableListening' => (bool) $row['enable_listening'],
@@ -557,6 +557,7 @@ function courseware_units_for_modality(PDO $pdo, string $courseId, string $modal
     foreach ($query->fetchAll() as $row) {
         $content = json_decode((string) $row['content_json'], true);
         $content = is_array($content) ? $content : [];
+        if (isset($content['image'])) $content['image'] = app_public_asset_url($content['image']);
         if ($modality === 'listening' && is_array($content['questions'] ?? null)) {
             foreach ($content['questions'] as $index => &$question) {
                 if (!is_array($question)) continue;
@@ -569,7 +570,7 @@ function courseware_units_for_modality(PDO $pdo, string $courseId, string $modal
             'id' => (string) $row['id'], 'courseId' => (string) $row['course_id'],
             'modality' => (string) $row['modality'], 'categoryId' => (string) $row['category_id'],
             'title' => (string) $row['title'], 'subtitle' => (string) $row['subtitle'],
-            'masterPrompt' => (string) $row['master_prompt'], 'mediaUrl' => (string) $row['media_url'],
+            'masterPrompt' => (string) $row['master_prompt'], 'mediaUrl' => app_public_asset_url($row['media_url']),
             'sortOrder' => (int) $row['sort_order'], 'published' => (bool) $row['published'],
             'content' => is_array($content) ? $content : [],
         ];
@@ -637,7 +638,7 @@ function courseware_legacy_catalog(array $course, array $modules): array
         $levels[$unit['categoryId']]['units'][] = array_merge($content, [
             'id' => $unit['id'], 'courseId' => $unit['courseId'], 'level' => $unit['categoryId'],
             'title' => $unit['title'], 'subtitle' => $unit['subtitle'], 'masterPrompt' => $unit['masterPrompt'],
-            'image' => $unit['mediaUrl'] ?: ($content['image'] ?? ''), 'sortOrder' => $unit['sortOrder'],
+            'image' => app_public_asset_url($unit['mediaUrl'] ?: ($content['image'] ?? '')), 'sortOrder' => $unit['sortOrder'],
             'published' => $unit['published'],
             'ttsRevision' => courseware_tts_revision_value($unit['courseId'],'speaking',$unit['id'],(string)($content['prompt']??''),(array)($content['ttsSegments']??[])),
         ]);
@@ -648,7 +649,7 @@ function courseware_legacy_catalog(array $course, array $modules): array
         $listening[] = array_merge($content, [
             'id' => $unit['id'], 'courseId' => $unit['courseId'], 'level' => $unit['categoryId'],
             'title' => $unit['title'], 'objective' => (string) ($content['objective'] ?? $unit['subtitle']),
-            'script' => (string) ($content['script'] ?? ''), 'image' => $unit['mediaUrl'] ?: ($content['image'] ?? ''),
+            'script' => (string) ($content['script'] ?? ''), 'image' => app_public_asset_url($unit['mediaUrl'] ?: ($content['image'] ?? '')),
             'sortOrder' => $unit['sortOrder'], 'published' => $unit['published'],
             'questions' => is_array($content['questions'] ?? null) ? $content['questions'] : [],
             'ttsRevision' => courseware_tts_revision_value($unit['courseId'],'listening',$unit['id'],(string)($content['script']??''),(array)($content['ttsSegments']??[])),
@@ -658,7 +659,7 @@ function courseware_legacy_catalog(array $course, array $modules): array
     foreach (($modules['live_lesson']['units'] ?? []) as $unit) {
         $liveTopics[] = array_merge($unit['content'], [
             'id' => $unit['id'], 'label' => $unit['title'], 'description' => $unit['subtitle'],
-            'masterPrompt' => $unit['masterPrompt'], 'image' => $unit['mediaUrl'],
+            'masterPrompt' => $unit['masterPrompt'], 'image' => app_public_asset_url($unit['mediaUrl']),
         ]);
     }
     return ['levels' => array_values($levels), 'listening' => $listening, 'liveTopics' => $liveTopics];
@@ -749,7 +750,7 @@ function courseware_safe_external_link($value): string
 function courseware_public_ad(array $row): array
 {
     return [
-        'id' => (string) $row['id'], 'posterUrl' => (string) $row['poster_url'],
+        'id' => (string) $row['id'], 'posterUrl' => app_public_asset_url($row['poster_url']),
         'title' => (string) $row['title'], 'description' => (string) $row['description'],
         'link' => (string) $row['link'], 'sortOrder' => (int) $row['sort_order'],
         'active' => (bool) $row['active'],
@@ -863,6 +864,7 @@ function courseware_normalize_content_payload(string $modality, array $input): a
         $sortOrder = $unit['sortOrder'] ?? $index;
         $published = array_key_exists('published', $unit) ? (bool) $unit['published'] : true;
         $content = is_array($unit['content'] ?? null) ? $unit['content'] : [];
+        if (isset($content['image'])) $content['image'] = app_public_asset_url($content['image']);
         if ($title === '' || courseware_strlen($title) > 180 || courseware_strlen($subtitle) > 500 || courseware_strlen($masterPrompt) > 12000 || !is_int($sortOrder) || $sortOrder < 0 || $sortOrder > 100000)
             respond(['error' => 'Judul, prompt master, atau urutan materi tidak valid.'], 422);
         if (strlen((string) json_encode($content, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)) > 200000)

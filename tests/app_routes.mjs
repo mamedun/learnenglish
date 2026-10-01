@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { appRouteFor, parseAppRoute } from "../src/lib/appRoutes.js";
 
 assert.equal(appRouteFor("home"), "/home");
@@ -30,6 +31,17 @@ assert.deepEqual(parseAppRoute("/progress"), { page: "progress" });
 assert.equal(parseAppRoute("/lesson/%E0%A4"), null);
 assert.equal(parseAppRoute("/unknown"), null);
 assert.equal(parseAppRoute("/lesson/too/many"), null);
+
+const appSource = readFileSync(
+  new URL("../src/app/App.jsx", import.meta.url),
+  "utf8",
+);
+const practiceSource = readFileSync(
+  new URL("../src/features/speaking/PracticePage.jsx", import.meta.url),
+  "utf8",
+);
+assert.match(appSource, /showBackButton=\{!route\?\.courseId\}/);
+assert.match(practiceSource, /p\.showBackButton !== false/);
 
 console.log(
   "PASS: app page and lesson paths round-trip and reject invalid routes.",

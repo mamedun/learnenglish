@@ -109,6 +109,24 @@ export function aggregateCourseAchievements(data = {}, courses = []) {
   return achievementProgressForCourses(data, coursesToCount);
 }
 
+export function filterJourneyLevels(levels = [], courseId = "all") {
+  if (courseId === "all") return levels;
+  return list(levels)
+    .map((level) => {
+      const units = list(level?.units).filter(
+        (unit) => String(unit.courseId) === String(courseId),
+      );
+      return {
+        ...level,
+        units,
+        courseCount: units.length ? 1 : 0,
+        total: units.length,
+        completed: units.filter((unit) => unit.completed).length,
+      };
+    })
+    .filter((level) => level.units.length > 0);
+}
+
 export function buildCourseProgressSummary({
   courses = [],
   courseCatalogs = {},

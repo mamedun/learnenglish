@@ -37,7 +37,6 @@ export default function CourseMedia({
   const video = /\.(mp4|webm|mov)(?:[?#].*)?$/i.test(value);
   const image =
     /\.(png|jpe?g|webp|gif|avif|svg)(?:[?#].*)?$/i.test(value) ||
-    value.startsWith("/learnenglish/images/") ||
     value.startsWith("data:image/");
   const youtubeId = /^https:\/\//i.test(value) ? parseYoutube(value) : "";
   let content;

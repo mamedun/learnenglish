@@ -127,7 +127,6 @@ function mediaKind(url = "") {
   if (/\.(mp4|webm|mov)(\?|#|$)/i.test(value)) return "video";
   if (
     /\.(png|jpe?g|webp|gif|avif|svg)(\?|#|$)/i.test(value) ||
-    value.startsWith("/learnenglish/images/") ||
     value.startsWith("data:image/")
   )
     return "image";

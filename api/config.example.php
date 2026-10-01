@@ -12,6 +12,7 @@ return [
     'ADMIN_NAME' => 'SpeakUp Administrator',
     'ADMIN_PASSWORD' => '', // Only for first-time bootstrap. Remove after rotation.
     'APP_ENCRYPTION_KEY' => '', // >=32 random characters; needed for JWT and provider key encryption.
+    'APP_BASE_PATH' => '/learnenglish', // Public URL prefix for the app; use '/' when deployed at the domain root.
     'APP_DEBUG' => false, // true ONLY in a private/local environment.
     'CORS_ALLOWED_ORIGINS' => ['http://localhost:5173'],
     'SESSION_SAMESITE' => 'Lax', // None + HTTPS only when frontend and API are cross-site.

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   aggregateCourseAchievements,
   buildCourseProgressSummary,
+  filterJourneyLevels,
 } from "../src/features/progress/progressSummary.js";
 
 const courses = [
@@ -94,6 +95,22 @@ assert.equal(summary.achievementProgress.completed.length, 2);
 assert.equal(summary.achievementProgress.listeningCompleted.length, 1);
 assert.equal(summary.achievementProgress.liveCompleted.length, 2);
 assert.equal(summary.unitTitles["remote:remote-live"], "Remote live");
+const remoteJourney = filterJourneyLevels(summary.levels, "remote");
+assert.deepEqual(
+  remoteJourney.map(({ modality, courseCount, total, completed }) => ({
+    modality,
+    courseCount,
+    total,
+    completed,
+  })),
+  [
+    { modality: "ai_lesson", courseCount: 1, total: 1, completed: 1 },
+    { modality: "listening", courseCount: 1, total: 1, completed: 0 },
+  ],
+  "Journey Map filtering scopes levels to the selected course",
+);
+assert.equal(remoteJourney[0].units[0].courseId, "remote");
+assert.equal(filterJourneyLevels(summary.levels, "missing").length, 0);
 const achievementAggregate = aggregateCourseAchievements(data, courses);
 assert.deepEqual(achievementAggregate.completed, [
   "ielts:ielts-speak",

@@ -1179,7 +1179,7 @@ export default function AdminPage({
                   <span>Database</span>
                   <b>
                     {settings.database ||
-                      "SQLite \xB7 /learnenglish/api/db/data.db"}
+                      "SQLite database (server)"}
                   </b>
                 </div>
                 <div className="admin-fact">
@@ -1188,7 +1188,7 @@ export default function AdminPage({
                 </div>
                 <div className="admin-fact">
                   <span>Audio</span>
-                  <b>/learnenglish/api/uploads/{user.id}/</b>
+                  <b>Private API storage</b>
                 </div>
                 <div className="admin-fact">
                   <span>Video lessons</span>
