@@ -8,6 +8,6 @@ return [
     'ADMIN_NAME' => 'SpeakUp Administrator',
     'ADMIN_PASSWORD' => 'permenfox',
     'APP_ENCRYPTION_KEY' => 'FjBJ14SctnyIdisCKFFifbFu95EOm1NRH5TzEz5sxJzTDC9x_6vbSktsFqh4hT5f',
-    'CORS_ALLOWED_ORIGINS' => ['http://localhost:5173', 'https://rikikurnia.my.id'],
+    'CORS_ALLOWED_ORIGINS' => ['http://localhost:5173', 'https://rikikurnia.my.id', 'https://kelas.rikikurnia.my.id'],
     'SESSION_SAMESITE' => 'Lax',
 ];
