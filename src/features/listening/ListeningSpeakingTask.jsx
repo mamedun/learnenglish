@@ -31,6 +31,9 @@ export default function ListeningSpeakingTask({
   speechScoringMode = "local",
   speechSimilarityThreshold = 90,
   aiProvider = "clario",
+  courseId = "ielts",
+  maxRecordSeconds = 180,
+  maxAiAudioBytes = 12 * 1024 * 1024,
   speak,
   ttsStatus,
   passed,
@@ -46,6 +49,7 @@ export default function ListeningSpeakingTask({
   const [open, setOpen] = useState(false);
   const [directAudioMode, setDirectAudioMode] = useState(false);
   const [recording, setRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [requestingMic, setRequestingMic] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [processingMessage, setProcessingMessage] = useState("");
@@ -98,6 +102,28 @@ export default function ListeningSpeakingTask({
   useEffect(() => {
     setChecked(null);
   }, [speechScoringMode, speechSimilarityThreshold]);
+  useEffect(() => {
+    if (!recording) return undefined;
+    const timer = window.setInterval(
+      () => setRecordingSeconds((value) => value + 1),
+      1000,
+    );
+    return () => window.clearInterval(timer);
+  }, [recording]);
+  useEffect(() => {
+    if (
+      recording &&
+      recordingSeconds >= Math.max(10, Number(maxRecordSeconds) || 180)
+    ) {
+      toast.info(
+        `Rekaman otomatis dihentikan setelah ${Math.max(10, Number(maxRecordSeconds) || 180)} detik.`,
+      );
+      const activeRecorder = recorderRef.current;
+      if (activeRecorder && activeRecorder.state !== "inactive")
+        activeRecorder.stop();
+      else setRecording(false);
+    }
+  }, [recording, recordingSeconds, maxRecordSeconds]);
   useEffect(() => {
     const onSpeechError = (event) => {
       toast.error(
@@ -198,6 +224,7 @@ export default function ListeningSpeakingTask({
         streamRef.current = null;
         setRecording(false);
       };
+      setRecordingSeconds(0);
       recorder.start(250);
       setAudioBlob(null);
       setAiTranscript("");
@@ -249,6 +276,8 @@ export default function ListeningSpeakingTask({
           body: JSON.stringify({
             expected_text: lesson.script,
             transcript,
+            course_id: courseId,
+            unit_id: lesson.id,
           }),
         });
         const payload = await response.json();
@@ -317,8 +346,10 @@ export default function ListeningSpeakingTask({
         aiProvider === "free"
           ? audioBlob
           : await convertRecordingToWav(audioBlob);
-      if (audioForAI.size > 12 * 1024 * 1024)
-        throw new Error("Audio melebihi batas 12 MB.");
+      if (audioForAI.size > (Number(maxAiAudioBytes) || 12 * 1024 * 1024))
+        throw new Error(
+          `Audio melebihi batas ${(Number(maxAiAudioBytes) || 12 * 1024 * 1024) / (1024 * 1024)} MB.`,
+        );
       const audioMime = (audioForAI.type || "audio/webm").split(";")[0];
       const audioExtension =
         audioMime === "audio/mp4"
@@ -336,6 +367,9 @@ export default function ListeningSpeakingTask({
       );
       form.append("level", lesson.level);
       form.append("task", lesson.script);
+      form.append("course_id", courseId);
+      form.append("unit_id", lesson.id);
+      form.append("duration_seconds", String(recordingSeconds));
       form.append(
         "audio",
         audioForAI,

@@ -1,285 +1,210 @@
-import {
-  ArrowRight,
-  AudioLines,
-  Flame,
-  Headphones,
-  Sparkles,
-  Star,
-  Zap,
-} from "lucide-react";
+import { ArrowRight, BookOpen, Flame, Sparkles, Star, Zap } from "lucide-react";
 import { achievements } from "../../gamification";
-import { LEVEL_ICONS, BADGE_ICONS } from "../learning/learningIcons";
+import { BADGE_ICONS } from "../learning/learningIcons";
+import "./homeCourses.css";
+
+const lastAction = (course) =>
+  ({
+    listening: "Listening Lab",
+    ai_lesson: "AI Lesson",
+    live_lesson: "Live Lesson",
+  })[course.lastModality] || "aktivitas belajar";
+const price = (value) =>
+  Number(value || 0) === 0
+    ? "Gratis"
+    : `Rp${Number(value).toLocaleString("id-ID")}`;
+function SmallCourseCard({ course, onOpen, onContinue }) {
+  const progress = course.progress || {};
+  return (
+    <article className="home-course-card">
+      <button className="home-course-card-main" onClick={() => onOpen(course)}>
+        <img
+          src={
+            course.posterUrl ||
+            course.bannerUrl ||
+            "/learnenglish/images/speakup-adventure.png"
+          }
+          alt=""
+          loading="lazy"
+        />
+        <div>
+          <span>{course.label || course.level || "Course"}</span>
+          <h3>{course.name}</h3>
+          <p>{course.description}</p>
+        </div>
+      </button>
+      <div className="home-course-progress">
+        <div>
+          <span>
+            {progress.completed || 0} / {progress.total || 0} aktivitas
+          </span>
+          <b>{progress.percent || 0}%</b>
+        </div>
+        <i>
+          <span
+            style={{
+              width: `${progress.percent || 0}%`,
+              background: course.color || "#ef754d",
+            }}
+          />
+        </i>
+        <button onClick={() => onContinue(course)}>
+          {course.lastModality
+            ? `Lanjutkan ${lastAction(course)}`
+            : "Mulai course"}
+          <ArrowRight size={15} />
+        </button>
+      </div>
+    </article>
+  );
+}
 
 export default function HomePage({
   greet,
   userName,
   data,
-  pct,
-  totalDone,
-  currentLevel,
-  completed,
-  startUnit,
-  nav,
-  allUnits,
-  curriculum,
-  listeningLessons,
-  hasLearningAccess,
-  startListening,
+  courses = [],
+  onOpenCourse = () => {},
+  onContinueCourse = () => {},
+  nav = () => {},
 }) {
-  const nextSpeaking =
-    currentLevel?.units.find((u) => !completed.has(u.id)) || allUnits[0];
-  const nextListening =
-    listeningLessons.find((l) => !data.listeningCompleted?.includes(l.id)) ||
-    listeningLessons[0];
-  const next = hasLearningAccess ? nextSpeaking : nextListening;
-  const listenDone = listeningLessons.filter((l) =>
-    data.listeningCompleted?.includes(l.id),
-  ).length;
-  const badges = achievements(data);
+  const enrolled = courses
+    .filter((course) => course.enrolled)
+    .sort(
+      (a, b) =>
+        new Date(b.lastActivityAt || 0) - new Date(a.lastActivityAt || 0),
+    );
+  const latest = enrolled[0];
+  const badgeList = achievements(data).slice(0, 4);
   return (
-    <div className="home-page">
-      <section className="welcome-row">
+    <div className="home-courses-page">
+      <section className="home-courses-welcome">
         <div>
           <div className="eyebrow">
-            <Sparkles size={16} /> YOUR LEARNING SPACE
+            <Sparkles size={15} /> RUANG BELAJARMU
           </div>
           <h1>
             {greet}, {userName?.split(" ")[0]} <span>✳</span>
           </h1>
-          <p>Siap untuk satu langkah kecil hari ini? You’ve got this!</p>
+          <p>Satu langkah kecil hari ini membuat tujuanmu semakin dekat.</p>
         </div>
-        <div className="welcome-date">
-          <span>✦</span> KEEP GOING, KEEP GROWING
-        </div>
-      </section>
-      <section className="hero-card">
-        <div className="hero-copy">
-          <div className="hero-kicker">
-            <span className="status-dot" /> YOUR NEXT QUEST ·{" "}
-            {hasLearningAccess ? "SPEAKING" : "LISTENING"}
-          </div>
-          <h2>{next ? next.title : "More adventures coming soon"}</h2>
-          <p>
-            {next
-              ? next.subtitle || next.objective
-              : "Katalog baru sedang disiapkan. Coba materi yang sudah ada sambil menunggu."}
-          </p>
-          <button
-            className="btn-white"
-            onClick={() =>
-              hasLearningAccess ? startUnit(next) : startListening(next?.id)
-            }
-            disabled={!next}
-          >
-            {hasLearningAccess ? "Lanjut speaking" : "Mulai mendengar"}{" "}
-            <ArrowRight size={18} />
-          </button>
-          <small>
-            {hasLearningAccess
-              ? `${next?.level || "A1"} · IELTS-inspired practice`
-              : `${next?.level || "A1"} · original audio script`}
-          </small>
-        </div>
-        <img
-          className="hero-art"
-          src="/learnenglish/images/speakup-adventure.png"
-          alt=""
-          aria-hidden="true"
-        />
-      </section>
-      <div className="stats-grid">
-        <div className="stat-card">
-          <span className="stat-icon lilac">
-            <Zap size={23} />
-          </span>
-          <div>
-            <small>XP TERKUMPUL</small>
-            <strong>{data.xp || 0}</strong>
-            <span>Poin latihanmu</span>
-          </div>
-          <div className="stat-decoration">✦</div>
-        </div>
-        <div className="stat-card">
-          <span className="stat-icon orange">
-            <Flame size={23} />
-          </span>
-          <div>
-            <small>STREAK SAAT INI</small>
-            <strong>
-              {data.streak || 0} <em>hari</em>
-            </strong>
-            <span>Latihan rutin, hasil terasa</span>
-          </div>
-          <div className="stat-decoration">
-            <Flame size={28} />
-          </div>
-        </div>
-        <div className="stat-card">
-          <span className="stat-icon mint">
-            <Headphones size={23} />
-          </span>
-          <div>
-            <small>LISTENING SELESAI</small>
-            <strong>
-              {listenDone}
-              <em> / {listeningLessons.length}</em>
-            </strong>
-            <span>Satu cerita, satu kemajuan</span>
-          </div>
-          <div className="mini-progress">
-            <i
-              style={{
-                width: listeningLessons.length
-                  ? `${(listenDone / listeningLessons.length) * 100}%`
-                  : "0%",
-              }}
-            />
-          </div>
-        </div>
-      </div>
-      <section className="section-head">
-        <div>
-          <div className="eyebrow">PILIH PETUALANGANMU</div>
-          <h2>
-            Jelajahi level <span>A1 — C2</span>
-          </h2>
-        </div>
-        <button className="text-button" onClick={() => nav("progress")}>
-          Lihat progres <ArrowRight size={17} />
-        </button>
-      </section>
-      <div className="level-cards">
-        {curriculum.map((l, i) => {
-          const units = hasLearningAccess
-            ? l.units
-            : listeningLessons.filter((item) => item.level === l.id);
-          const count = units.filter((u) =>
-            hasLearningAccess
-              ? completed.has(u.id)
-              : data.listeningCompleted?.includes(u.id),
-          ).length;
-          return (
-            <button
-              key={l.id}
-              className={`curriculum-card card-${i}`}
-              onClick={() =>
-                hasLearningAccess
-                  ? startUnit(
-                      l.units.find((u) => !completed.has(u.id)) || l.units[0],
-                    )
-                  : startListening(
-                      units.find(
-                        (u) => !data.listeningCompleted?.includes(u.id),
-                      )?.id || units[0]?.id,
-                    )
-              }
-            >
-              <span className="curr-top">
-                <span className="curr-icon" style={{ background: l.color }}>
-                  {(() => {
-                    const Icon = LEVEL_ICONS[i] || Sparkles;
-                    return <Icon size={24} />;
-                  })()}
-                </span>
-                <span className="level-badge">{l.id}</span>
-              </span>
-              <h3>{l.label}</h3>
-              <p>
-                {hasLearningAccess ? "Speaking" : "Listening"} · {l.name}
-              </p>
-              <span className="curr-foot">
-                <span className="tiny-progress">
-                  <i
-                    style={{
-                      width: units.length
-                        ? `${(count / units.length) * 100}%`
-                        : "0%",
-                    }}
-                  />
-                </span>
-                <small>
-                  {count}/{units.length}
-                </small>
-              </span>
-              <span className="curr-arrow">
-                <ArrowRight size={18} />
-              </span>
-            </button>
-          );
-        })}
-      </div>
-      <section className="home-bottom">
-        <div className="daily-card">
-          <span className="daily-quote-icon">✳</span>
-          <div>
-            <small>SMALL STEPS. BIG PROGRESS.</small>
-            <p>
-              "Berani mencoba hari ini lebih penting daripada menunggu
-              sempurna."
-            </p>
-            <span>Praktik 5 menit juga berarti.</span>
-          </div>
-        </div>
-        <button
-          className="mode-card"
-          onClick={() => (hasLearningAccess ? nav("live") : nav("listening"))}
-        >
-          <span className="mode-icon">
-            {hasLearningAccess ? (
-              <AudioLines size={24} />
-            ) : (
-              <Headphones size={24} />
-            )}
+        <div className="home-courses-mini-stats">
+          <span>
+            <Zap size={17} />
+            <b>{data.xp || 0}</b> XP
           </span>
           <span>
-            <b>
-              {hasLearningAccess
-                ? "Let’s talk live"
-                : "One more listening quest?"}
-            </b>
-            <small>
-              {hasLearningAccess
-                ? "Ngobrol spontan bersama Maya"
-                : "Dengarkan, jawab, dapatkan XP"}
-            </small>
+            <Flame size={17} />
+            <b>{data.streak || 0}</b> hari streak
           </span>
-          <ArrowRight size={18} />
-        </button>
+        </div>
       </section>
-      <section className="achievement-preview">
-        <div className="section-head">
-          <div>
-            <div className="eyebrow">COLLECT THE MOMENTS</div>
-            <h2>Badges perjalananmu</h2>
+      <section className="home-courses-hero">
+        <div>
+          <div className="home-courses-kicker">
+            <span /> {latest ? "LANJUTKAN BELAJAR" : "MULAI PETUALANGAN"}
           </div>
-          <button className="text-button" onClick={() => nav("progress")}>
-            Semua pencapaian <ArrowRight size={17} />
+          <h2>{latest ? latest.name : "Temukan course English pertamamu."}</h2>
+          <p>
+            {latest
+              ? `Kegiatan terakhir: ${lastAction(latest)}. Progresmu ${latest.progress?.percent || 0}% — lanjutkan tepat dari langkah terakhir.`
+              : "Jelajahi course gratis dan berbayar yang dirancang untuk tujuanmu."}
+          </p>
+          <button
+            className="home-course-primary"
+            onClick={() => (latest ? onContinueCourse(latest) : nav("courses"))}
+          >
+            {latest ? "Lanjutkan aktivitas" : "Jelajahi Course"}
+            <ArrowRight size={17} />
+          </button>
+          <button
+            className="home-course-secondary"
+            onClick={() => nav("courses")}
+          >
+            Semua course
           </button>
         </div>
-        <div className="badge-row">
-          {badges.map((b) => (
-            <div
-              key={b.title}
-              className={`achievement-badge ${b.unlocked ? "unlocked" : ""}`}
-            >
-              <span>
-                {(() => {
-                  const Icon = BADGE_ICONS[b.icon] || Star;
-                  return <Icon size={23} />;
-                })()}
-              </span>
-              <div>
-                <b>{b.title}</b>
-                <small>{b.unlocked ? "Unlocked!" : b.detail}</small>
-              </div>
-            </div>
-          ))}
+        <div className="home-courses-art">
+          <BookOpen size={72} />
+          <span>
+            LEARN
+            <br />A LITTLE
+            <br />
+            EVERY DAY
+          </span>
         </div>
       </section>
-      <p className="home-caveat">
-        SpeakUp adalah latihan independen terinspirasi IELTS, bukan layanan,
-        tes, atau sertifikasi resmi IELTS. XP bukan band IELTS.
-      </p>
+      <section className="home-enrolled-section">
+        <div className="home-section-heading">
+          <div>
+            <div className="eyebrow">PERJALANANMU</div>
+            <h2>Course yang sedang diikuti</h2>
+          </div>
+          <button onClick={() => nav("courses")}>
+            Lihat semua <ArrowRight size={15} />
+          </button>
+        </div>
+        {enrolled.length ? (
+          <div className="home-course-grid">
+            {enrolled.slice(0, 4).map((course) => (
+              <SmallCourseCard
+                key={course.id}
+                course={course}
+                onOpen={onOpenCourse}
+                onContinue={onContinueCourse}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="home-no-course">
+            <BookOpen size={22} />
+            <span>Belum ada course lain di ruang belajarmu.</span>
+            <button onClick={() => nav("courses")}>
+              Pilih course <ArrowRight size={15} />
+            </button>
+          </div>
+        )}
+      </section>
+      <section className="home-available-strip">
+        <div>
+          <div className="eyebrow">NEXT UP</div>
+          <h2>Temukan jalur belajar berikutnya</h2>
+          <p>IT Remote Worker gratis · Tour Guide English Rp25.000</p>
+        </div>
+        <button onClick={() => nav("courses")}>
+          Buka katalog <ArrowRight size={16} />
+        </button>
+      </section>
+      <section className="home-badges-section">
+        <div className="home-section-heading">
+          <div>
+            <div className="eyebrow">PENCAPAIAN</div>
+            <h2>Badges perjalananmu</h2>
+          </div>
+          <button onClick={() => nav("progress")}>
+            Semua achievement <ArrowRight size={15} />
+          </button>
+        </div>
+        <div className="home-badge-grid">
+          {badgeList.map((badge) => {
+            const Icon = BADGE_ICONS[badge.icon] || Star;
+            return (
+              <div
+                key={badge.title}
+                className={`home-badge ${badge.unlocked ? "unlocked" : ""}`}
+              >
+                <span>
+                  <Icon size={19} />
+                </span>
+                <div>
+                  <b>{badge.title}</b>
+                  <small>{badge.unlocked ? "Terbuka" : badge.detail}</small>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
     </div>
   );
 }

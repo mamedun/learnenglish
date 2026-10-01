@@ -84,13 +84,13 @@ assert.notEqual(chatStart, -1);
 assert.notEqual(audioStart, -1);
 assert.match(
   api.slice(chatStart, audioStart),
-  /wallet_reserve\(\(int\)\$u\['id'\],2,'ai_lesson_text'/,
+  /courseware_wallet_reserve\(\$u,\$cost,'ai_lesson_text'/,
 );
 assert.match(
   api.slice(audioStart, liveTokenStart),
   /\$audioDiamondCost=match\(\$mode\)/,
 );
-assert.match(api.slice(audioStart, liveTokenStart), /'read_aloud_direct'=>3/);
+assert.match(api.slice(audioStart, liveTokenStart), /'read_aloud_direct'=>\$policy\['cost_listening_direct_audio'\]/);
 assert.match(
   api.slice(audioStart, liveTokenStart),
   /\$mode==='read_aloud_direct'/,
@@ -131,7 +131,7 @@ assert.match(admin, /payment_qris_payload/);
 assert.match(admin, /payment_tax_percent/);
 assert.match(admin, /payment_admin_fee/);
 assert.match(admin, /payment_whatsapp/);
-assert.match(admin, /AdminPurchasesPanel/);
+assert.match(admin, /AdminPurchasesHub/);
 assert.match(admin, /AdminUsersPanel/);
 assert.match(audioTask, /expected_text:\s*lesson\.script,\s*transcript/);
 assert.match(audioTask, /read_aloud_direct/);

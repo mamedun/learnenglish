@@ -20,7 +20,9 @@ assert.notEqual(
 );
 const assessmentRoute = source.slice(assessmentStart, assessmentEnd);
 assert.match(assessmentRoute, /\$c\['provider'\]==='free'/);
-assert.match(assessmentRoute, /read_json\(64000\)/);
+assert.match(assessmentRoute, /read_json\(200000\)/);
+assert.match(assessmentRoute, /\$policy=courseware_policy\(\)/);
+assert.match(assessmentRoute, /\$policy\['max_transcript_chars'\]/);
 assert.match(
   assessmentRoute,
   /free_request\(\$prompt,null,'audio\/webm','live-assessment\.txt',55\)/,
@@ -58,7 +60,7 @@ const app = await readFile(
 );
 assert.match(
   app,
-  /buildLearnerAssessmentTranscript\(\s*liveTranscriptLinesRef\.current,\s*12000,?\s*\)/,
+  /buildLearnerAssessmentTranscript\(\s*liveTranscriptLinesRef\.current,\s*maxTranscriptChars,?\s*\)/,
 );
 assert.match(app, /const responseText = await response\.text\(\)/);
 assert.match(app, /Hosting gateway returned HTTP/);

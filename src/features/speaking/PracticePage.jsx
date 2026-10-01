@@ -41,6 +41,7 @@ import {
   speechRecognitionErrorMessage,
   useSpeechRecognition,
 } from "../../hooks/useSpeechRecognition";
+import CourseMedia from "../courses/CourseMedia";
 
 function PrepTimer({ unit }) {
   const [seconds, setSeconds] = useState(Number(unit.prepSeconds) || 60);
@@ -307,21 +308,12 @@ export default function PracticePage(p) {
           </div>
           {unit.prepSeconds > 0 && <PrepTimer unit={unit} />}
           {visual && (
-            <figure className="visual-prompt">
-              <img
-                src={visual}
-                alt={
-                  unit.image
-                    ? "Pasar lokal untuk supplementary speaking practice"
-                    : "Ilustrasi supplementary cue-card speaking practice"
-                }
-              />
-              <figcaption>
-                {unit.image
-                  ? "Visual conversation enrichment \xB7 bukan format resmi IELTS Speaking"
-                  : "Supplementary speaking illustration \xB7 bukan format resmi IELTS Speaking"}
-              </figcaption>
-            </figure>
+            <CourseMedia
+              src={visual}
+              alt={unit.title || "Ilustrasi speaking practice"}
+              className="visual-prompt"
+              caption={unit.image ? "Visual conversation enrichment · bukan format resmi IELTS Speaking" : "Supplementary speaking illustration · bukan format resmi IELTS Speaking"}
+            />
           )}
           <div className="character-row">
             <div className="character-avatar">

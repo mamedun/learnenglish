@@ -7,6 +7,7 @@ function cacheQuery(contentType, item, voiceId) {
     revision: String(item?.ttsRevision || ""),
     voice: voiceId,
   });
+  if (item?.courseId) params.set("course_id", String(item.courseId));
   return `tts-cache?${params.toString()}`;
 }
 
@@ -36,6 +37,7 @@ export async function saveSharedTtsAudio({
   form.append("id", String(item.id));
   form.append("revision", String(item.ttsRevision));
   form.append("voice", voiceId);
+  if (item.courseId) form.append("course_id", String(item.courseId));
   form.append("audio", audio, `${item.id}-${voiceId}.wav`);
   const response = await apiFetch("tts-cache", { method: "POST", body: form });
   if (!response.ok) throw await responseError(response);

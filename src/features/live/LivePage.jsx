@@ -20,6 +20,11 @@ export default function LivePage({
   unlimitedAccess = false,
   liveTopicId,
   liveTopic,
+  topics = [],
+  courseId = "ielts",
+  liveMaxSeconds = 600,
+  liveBlockMinutes = 5,
+  liveRate = 2,
   onLiveTopicChange = () => {},
   beginLive,
   endLive,
@@ -39,8 +44,11 @@ export default function LivePage({
     !liveOn &&
     !liveLoading &&
     liveLines.some((line) => line.who === "learner");
+  const topicOptions = topics?.length ? topics : LIVE_TOPICS;
+  const selectedTopicId = liveTopicId || liveTopic?.id || topicOptions[0]?.id;
+  const sessionLimit = Math.ceil(Number(liveMaxSeconds || 600) / 60);
   return (
-    <div className="live-page">
+    <div className="live-page" data-course-id={courseId}>
       <div className="live-heading">
         <div className="eyebrow">
           <span className="live-pulse" /> REAL-TIME CONVERSATION
@@ -57,7 +65,8 @@ export default function LivePage({
           </span>
           <span className="timer-pill">
             <Clock3 size={14} />
-            {formatTime(liveSeconds)} <small>/ 10:00</small>
+            {formatTime(liveSeconds)}{" "}
+            <small>/ {formatTime(liveMaxSeconds)}</small>
           </span>
         </div>
         <div className="live-orb-wrap">
@@ -88,11 +97,11 @@ export default function LivePage({
             <select
               id="live-topic-select"
               className="live-topic-select"
-              value={liveTopicId || liveTopic?.id || LIVE_TOPICS[0].id}
+              value={selectedTopicId}
               onChange={(event) => onLiveTopicChange(event.target.value)}
               disabled={liveOn || liveLoading}
             >
-              {LIVE_TOPICS.map((topic) => (
+              {topicOptions.map((topic) => (
                 <option key={topic.id} value={topic.id}>
                   {topic.label}
                 </option>
@@ -131,8 +140,8 @@ export default function LivePage({
           </span>
           <span>
             {unlimitedAccess
-              ? "Admin unlimited access · no diamonds used · max 10 min"
-              : `10 diamonds / 5 min · max 10 min · balance ${Number(diamonds).toLocaleString("id-ID")}`}
+              ? `Admin unlimited access · no diamonds used · max ${sessionLimit} min`
+              : `${Number(liveRate)} diamonds / minute · ${Number(liveBlockMinutes)}-minute reserve blocks · max ${sessionLimit} min · balance ${Number(diamonds).toLocaleString("id-ID")}`}
           </span>
         </div>
       </div>

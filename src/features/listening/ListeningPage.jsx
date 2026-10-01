@@ -15,10 +15,12 @@ import { awardXP } from "../../gamification";
 import { normalizeSpeechThreshold } from "../../lib/speechSimilarity";
 import { isTtsBusy } from "../../lib/ttsRocks";
 import ListeningSpeakingTask from "./ListeningSpeakingTask";
+import CourseMedia from "../courses/CourseMedia";
 
 export default function ListeningPage({
   lessons: allLessons,
   levels: curriculum,
+  courseId = "ielts",
   initialLessonId,
   onSelectLesson,
   data,
@@ -29,18 +31,27 @@ export default function ListeningPage({
   speechScoringMode = "local",
   speechSimilarityThreshold = 90,
   aiProvider = "clario",
+  maxRecordSeconds = 180,
+  maxAiAudioBytes = 12 * 1024 * 1024,
   unlimitedDiamonds = false,
   onDiamondsChanged = () => {},
+  onCourseProgress = () => {},
 }) {
   const speechThreshold = normalizeSpeechThreshold(speechSimilarityThreshold);
+  const scopedData =
+    courseId === "ielts" ? data : (data.courseProgress || {})[courseId] || {};
   const [level, setLevel] = useState("All");
   const [activeId, setActiveId] = useState(null);
   useEffect(() => {
-    if (initialLessonId) setLevel("All");
+    setLevel("All");
     setActiveId(initialLessonId || null);
-  }, [initialLessonId]);
-  const [answers, setAnswers] = useState(() => data.listeningAnswers || {});
-  const [results, setResults] = useState(() => data.listeningResults || {});
+  }, [initialLessonId, courseId]);
+  const [answers, setAnswers] = useState(
+    () => scopedData.listeningAnswers || {},
+  );
+  const [results, setResults] = useState(
+    () => scopedData.listeningResults || {},
+  );
   const [checking, setChecking] = useState(null);
   const [showScript, setShowScript] = useState(false);
   const lessons = useMemo(
@@ -48,22 +59,41 @@ export default function ListeningPage({
     [allLessons, level],
   );
   const active = lessons.find((x) => x.id === activeId) || lessons[0];
-  const done = data.listeningCompleted || [];
-  const speechPassed = (data.speakingCompleted || []).includes(active?.id);
-  const speechScore = Number(data.speakingScores?.[active?.id] || 0);
+  const done = scopedData.listeningCompleted || [];
+  const speechPassed = (scopedData.speakingCompleted || []).includes(
+    active?.id,
+  );
+  const speechScore = Number(scopedData.speakingScores?.[active?.id] || 0);
   const ttsBusy = isTtsBusy(ttsStatus);
   const doneCount = allLessons.filter((x) => done.includes(x.id)).length;
   const next = allLessons.find((l) => !done.includes(l.id)) || allLessons[0];
   const keyFor = (question) => `${active.id}:${question.id}`;
+  function patchProgress(previous, updates) {
+    if (courseId === "ielts") return { ...previous, ...updates };
+    return {
+      ...previous,
+      courseProgress: {
+        ...(previous.courseProgress || {}),
+        [courseId]: {
+          ...((previous.courseProgress || {})[courseId] || {}),
+          ...updates,
+        },
+      },
+    };
+  }
   function saveAnswer(key, value) {
     const updated = { ...answers, [key]: value };
     setAnswers(updated);
-    setData((previous) => ({ ...previous, listeningAnswers: updated }));
+    setData((previous) =>
+      patchProgress(previous, { listeningAnswers: updated }),
+    );
   }
   function saveResult(key, value) {
     const updated = { ...results, [key]: value };
     setResults(updated);
-    setData((previous) => ({ ...previous, listeningResults: updated }));
+    setData((previous) =>
+      patchProgress(previous, { listeningResults: updated }),
+    );
   }
   function clearQuestion(key) {
     const updatedAnswers = { ...answers };
@@ -72,19 +102,20 @@ export default function ListeningPage({
     delete updatedResults[key];
     setAnswers(updatedAnswers);
     setResults(updatedResults);
-    setData((previous) => ({
-      ...previous,
-      listeningAnswers: updatedAnswers,
-      listeningResults: updatedResults,
-    }));
+    setData((previous) =>
+      patchProgress(previous, {
+        listeningAnswers: updatedAnswers,
+        listeningResults: updatedResults,
+      }),
+    );
   }
   const score =
     active?.questions.filter((q) => results[keyFor(q)]?.correct).length || 0;
   const finished = !!active && done.includes(active.id);
   useEffect(() => {
-    setAnswers(data.listeningAnswers || {});
-    setResults(data.listeningResults || {});
-  }, [data.listeningAnswers, data.listeningResults]);
+    setAnswers(scopedData.listeningAnswers || {});
+    setResults(scopedData.listeningResults || {});
+  }, [scopedData.listeningAnswers, scopedData.listeningResults]);
   useEffect(() => {
     window.speechSynthesis?.cancel();
     setShowScript(false);
@@ -109,7 +140,8 @@ export default function ListeningPage({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          lesson_id: active.id,
+          course_id: courseId,
+          unit_id: active.id,
           question_id: question.id,
           answer: answers[key],
         }),
@@ -138,10 +170,14 @@ export default function ListeningPage({
       return;
     }
     if (!finished) {
-      setData((p) => ({
-        ...awardXP(p, 10),
-        listeningCompleted: [...(p.listeningCompleted || []), active.id],
-      }));
+      setData((previous) =>
+        patchProgress(awardXP(previous, 10), {
+          listeningCompleted: Array.from(
+            new Set([...(scopedData.listeningCompleted || []), active.id]),
+          ),
+        }),
+      );
+      onCourseProgress(courseId);
       toast.success(
         "Lesson selesai! +10 XP dan progres tersimpan di akunmu ✨",
       );
@@ -263,16 +299,12 @@ export default function ListeningPage({
             <p>{active.objective}</p>
           </div>
           {active.image && (
-            <figure className="listening-visual">
-              <img
-                src={active.image}
-                alt={`Ilustrasi pelengkap untuk ${active.title}`}
-              />
-              <figcaption>
-                Ilustrasi pelengkap · jawaban ada dalam naskah audio, bukan
-                gambar.
-              </figcaption>
-            </figure>
+            <CourseMedia
+              src={active.image}
+              alt={`Ilustrasi pelengkap untuk ${active.title}`}
+              className="listening-visual"
+              caption="Ilustrasi pelengkap · jawaban ada dalam naskah audio, bukan gambar."
+            />
           )}
           <div className="audio-player-card">
             <span className="audio-disc">
@@ -339,11 +371,12 @@ export default function ListeningPage({
                           const updatedResults = { ...results };
                           delete updatedResults[key];
                           setResults(updatedResults);
-                          setData((previous) => ({
-                            ...previous,
-                            listeningAnswers: { ...answers, [key]: j },
-                            listeningResults: updatedResults,
-                          }));
+                          setData((previous) =>
+                            patchProgress(previous, {
+                              listeningAnswers: { ...answers, [key]: j },
+                              listeningResults: updatedResults,
+                            }),
+                          );
                         }}
                       >
                         <span>{String.fromCharCode(65 + j)}</span>
@@ -399,30 +432,36 @@ export default function ListeningPage({
             speechScoringMode={speechScoringMode}
             speechSimilarityThreshold={speechThreshold}
             aiProvider={aiProvider}
+            courseId={courseId}
+            maxRecordSeconds={maxRecordSeconds}
+            maxAiAudioBytes={maxAiAudioBytes}
             unlimitedDiamonds={unlimitedDiamonds}
             passed={speechPassed}
             passedScore={speechScore}
-            savedTranscript={data.speakingTranscripts?.[active.id] || ""}
+            savedTranscript={scopedData.speakingTranscripts?.[active.id] || ""}
             onDiamondsChanged={onDiamondsChanged}
             onAttempt={(percent, transcript, method) =>
               setData((previous) => {
+                const scope =
+                  courseId === "ielts"
+                    ? previous
+                    : (previous.courseProgress || {})[courseId] || {};
                 const previousScore = Number(
-                  previous.speakingScores?.[active.id] || 0,
+                  scope.speakingScores?.[active.id] || 0,
                 );
                 const hasScore =
                   percent !== null &&
                   percent !== undefined &&
                   Number.isFinite(Number(percent));
-                return {
-                  ...previous,
+                return patchProgress(previous, {
                   speakingScores: hasScore
                     ? {
-                        ...(previous.speakingScores || {}),
+                        ...(scope.speakingScores || {}),
                         [active.id]: Math.max(previousScore, Number(percent)),
                       }
-                    : previous.speakingScores || {},
+                    : scope.speakingScores || {},
                   speakingTranscripts: {
-                    ...(previous.speakingTranscripts || {}),
+                    ...(scope.speakingTranscripts || {}),
                     [active.id]: {
                       text: String(transcript || "").trim(),
                       score: hasScore ? Number(percent) : null,
@@ -430,23 +469,28 @@ export default function ListeningPage({
                       updatedAt: new Date().toISOString(),
                     },
                   },
-                };
+                });
               })
             }
             onPass={(percent) =>
-              setData((previous) => ({
-                ...previous,
-                speakingCompleted: Array.from(
-                  new Set([...(previous.speakingCompleted || []), active.id]),
-                ),
-                speakingScores: {
-                  ...(previous.speakingScores || {}),
-                  [active.id]: Math.max(
-                    Number(previous.speakingScores?.[active.id] || 0),
-                    Number(percent) || 0,
+              setData((previous) => {
+                const scope =
+                  courseId === "ielts"
+                    ? previous
+                    : (previous.courseProgress || {})[courseId] || {};
+                return patchProgress(previous, {
+                  speakingCompleted: Array.from(
+                    new Set([...(scope.speakingCompleted || []), active.id]),
                   ),
-                },
-              }))
+                  speakingScores: {
+                    ...(scope.speakingScores || {}),
+                    [active.id]: Math.max(
+                      Number(scope.speakingScores?.[active.id] || 0),
+                      Number(percent) || 0,
+                    ),
+                  },
+                });
+              })
             }
           />
           <div className="lesson-end">

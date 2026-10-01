@@ -106,26 +106,38 @@ function tts_cache_get_audio(array $user): never
     $id = trim((string) ($_GET['id'] ?? ''));
     $revision = trim((string) ($_GET['revision'] ?? ''));
     $voice = trim((string) ($_GET['voice'] ?? ''));
-    if (!in_array($type, ['speaking', 'listening'], true) || !preg_match('/^[A-Za-z0-9-]{3,40}$/', $id)) {
+    $courseId = trim((string) ($_GET['course_id'] ?? ''));
+    if (!in_array($type, ['speaking', 'listening'], true) || !preg_match('/^[A-Za-z0-9_-]{1,80}$/', $id)) {
         respond(['error' => 'Referensi materi audio tidak valid.'], 422);
     }
+    if ($courseId !== '' && !preg_match('/^[A-Za-z0-9_-]{1,80}$/', $courseId)) respond(['error'=>'ID course tidak valid.'],422);
     if (!preg_match('/^[a-f0-9]{64}$/', $revision)) respond(['error' => 'Versi materi audio tidak valid.'], 422);
     if ($voice !== 'multi' && !in_array($voice, catalog_tts_voice_ids(), true)) {
         respond(['error' => 'Model suara audio tidak didukung.'], 422);
     }
 
     $pdo = db();
-    $currentRevision = catalog_tts_revision($pdo, $type, $id);
+    $cacheId = $id;
+    if ($courseId !== '') {
+        $modality = $type === 'speaking' ? 'ai_lesson' : 'listening';
+        $context = courseware_request_context($pdo,$user,['course_id'=>$courseId,'unit_id'=>$id],$modality,false);
+        $currentRevision = courseware_tts_revision($pdo,$courseId,$type,$id);
+        $segments = (array)($context['unit']['content']['ttsSegments'] ?? []);
+        $cacheId = $courseId . ':' . $id;
+    } else {
+        $currentRevision = catalog_tts_revision($pdo, $type, $id);
+        if (($user['role'] ?? '') !== 'admin' && !tts_cache_content_is_published($pdo, $type, $id))
+            respond(['error' => 'Materi audio tidak tersedia.'], 404);
+        $segments = tts_cache_content_segments($pdo,$type,$id);
+    }
     if ($currentRevision === null)
         respond(['error' => 'Materi audio tidak ditemukan.'], 404);
-    if (($user['role'] ?? '') !== 'admin' && !tts_cache_content_is_published($pdo, $type, $id))
-        respond(['error' => 'Materi audio tidak tersedia.'], 404);
     if (!hash_equals($currentRevision, $revision))
         respond(['error' => 'Cache materi sudah usang.'], 404);
-    if ($voice === 'multi' && count(tts_cache_content_segments($pdo, $type, $id)) < 2)
+    if ($voice === 'multi' && count($segments) < 2)
         respond(['error' => 'Materi ini belum memiliki dialog multi-speaker.'], 404);
 
-    $key = tts_cache_key($type, $id, $revision, $voice);
+    $key = tts_cache_key($type, $cacheId, $revision, $voice);
     $query = $pdo->prepare('SELECT file_path,file_size FROM shared_tts_cache WHERE cache_key=?');
     $query->execute([$key]);
     $asset = $query->fetch();
@@ -152,9 +164,11 @@ function tts_cache_upload(array $user): never
     $id = trim((string) ($_POST['id'] ?? ''));
     $revision = trim((string) ($_POST['revision'] ?? ''));
     $voice = trim((string) ($_POST['voice'] ?? ''));
-    if (!in_array($type, ['speaking', 'listening'], true) || !preg_match('/^[A-Za-z0-9-]{3,40}$/', $id)) {
+    $courseId = trim((string) ($_POST['course_id'] ?? ''));
+    if (!in_array($type, ['speaking', 'listening'], true) || !preg_match('/^[A-Za-z0-9_-]{1,80}$/', $id)) {
         respond(['error' => 'Referensi materi audio tidak valid.'], 422);
     }
+    if ($courseId !== '' && !preg_match('/^[A-Za-z0-9_-]{1,80}$/', $courseId)) respond(['error'=>'ID course tidak valid.'],422);
     if (!preg_match('/^[a-f0-9]{64}$/', $revision)) respond(['error' => 'Versi materi audio tidak valid.'], 422);
     if ($voice !== 'multi' && !in_array($voice, catalog_tts_voice_ids(), true)) {
         respond(['error' => 'Model suara audio tidak didukung.'], 422);
@@ -162,13 +176,23 @@ function tts_cache_upload(array $user): never
     if ($voice === 'multi' && !$admin) respond(['error' => 'Dialog bersama hanya dapat disiapkan admin.'], 403);
 
     $pdo = db();
-    $currentRevision = catalog_tts_revision($pdo, $type, $id);
+    $cacheId = $id;
+    if ($courseId !== '') {
+        $modality = $type === 'speaking' ? 'ai_lesson' : 'listening';
+        $context = courseware_request_context($pdo,$user,['course_id'=>$courseId,'unit_id'=>$id],$modality,false);
+        $currentRevision = courseware_tts_revision($pdo,$courseId,$type,$id);
+        $segments = (array)($context['unit']['content']['ttsSegments'] ?? []);
+        $cacheId = $courseId . ':' . $id;
+    } else {
+        $currentRevision = catalog_tts_revision($pdo, $type, $id);
+        if (!$admin && !tts_cache_content_is_published($pdo, $type, $id))
+            respond(['error' => 'Materi audio tidak tersedia.'], 404);
+        $segments = tts_cache_content_segments($pdo,$type,$id);
+    }
     if ($currentRevision === null) respond(['error' => 'Materi audio tidak ditemukan.'], 404);
-    if (!$admin && !tts_cache_content_is_published($pdo, $type, $id))
-        respond(['error' => 'Materi audio tidak tersedia.'], 404);
     if (!hash_equals($currentRevision, $revision))
         respond(['error' => 'Materi berubah saat audio dibuat. Muat ulang materi lalu coba lagi.'], 409);
-    if ($voice === 'multi' && count(tts_cache_content_segments($pdo, $type, $id)) < 2)
+    if ($voice === 'multi' && count($segments) < 2)
         respond(['error' => 'Materi ini belum memiliki dialog multi-speaker.'], 422);
 
     if (!isset($_FILES['audio']) || (int) ($_FILES['audio']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
@@ -187,7 +211,7 @@ function tts_cache_upload(array $user): never
     if (!is_string($header) || strlen($header) < 12 || substr($header, 0, 4) !== 'RIFF' || substr($header, 8, 4) !== 'WAVE')
         respond(['error' => 'Isi file bukan WAV yang valid.'], 415);
 
-    $key = tts_cache_key($type, $id, $revision, $voice);
+    $key = tts_cache_key($type, $cacheId, $revision, $voice);
     $directory = tts_cache_directory();
     $targetPath = $directory . '/' . $key . '.wav';
     $stagedPath = $directory . '/' . $key . '.' . bin2hex(random_bytes(8)) . '.tmp';
@@ -234,7 +258,7 @@ function tts_cache_upload(array $user): never
 
         $now = gmdate('c');
         $save = $pdo->prepare('INSERT INTO shared_tts_cache(cache_key,content_type,content_id,source_revision,voice_id,mime,file_path,file_size,created_at,last_accessed_at) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(cache_key) DO UPDATE SET content_type=excluded.content_type,content_id=excluded.content_id,source_revision=excluded.source_revision,voice_id=excluded.voice_id,mime=excluded.mime,file_path=excluded.file_path,file_size=excluded.file_size,created_at=excluded.created_at,last_accessed_at=excluded.last_accessed_at');
-        $save->execute([$key, $type, $id, $revision, $voice, 'audio/wav', $targetPath, $size, $now, $now]);
+        $save->execute([$key, $type, $cacheId, $revision, $voice, 'audio/wav', $targetPath, $size, $now, $now]);
         $summary = tts_cache_summary();
         $pdo->exec('COMMIT');
         if ($backupPath && is_file($backupPath)) @unlink($backupPath);

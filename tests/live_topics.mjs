@@ -38,7 +38,9 @@ assert.match(app, /activeLiveTopic\.opening/);
 assert.match(app, /liveTopicId=\{liveTopicId\}/);
 assert.match(page, /id="live-topic-select"/);
 assert.match(page, /disabled=\{liveOn \|\| liveLoading\}/);
-assert.match(page, /LIVE_TOPICS\.map/);
+assert.match(page, /topicOptions\.map/);
+assert.match(page, /topics = \[\]/);
+assert.match(app, /topics=\{currentLiveTopics\}/);
 assert.match(page, /live-conversation-title/);
 
 console.log(

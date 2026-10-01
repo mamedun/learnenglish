@@ -4,13 +4,11 @@ import Swal from "sweetalert2";
 import { toast } from "sonner";
 import {
   AudioLines,
-  BarChart3,
+  BookOpen,
   ChevronRight,
   Flame,
   Gem,
-  Headphones,
   Home,
-  Mic,
   MoreHorizontal,
   RotateCcw,
   Settings,
@@ -45,10 +43,15 @@ const greet = () => {
 import AuthScreen from "../features/auth/AuthScreen";
 import PasswordForm from "../features/auth/PasswordForm";
 import HomePage from "../features/dashboard/HomePage";
+import {
+  CoursesPage,
+  CourseDetailPage,
+  ActivityHeader,
+} from "../features/courses/CoursePages";
+import CoursePurchaseDialog from "../features/courses/CoursePurchaseDialog";
 import ModuleLoading from "../components/ModuleLoading";
 import ModuleErrorBoundary from "../components/ModuleErrorBoundary";
 import ProcessingStatus from "../components/ProcessingStatus";
-import { LEVEL_ICONS } from "../features/learning/learningIcons";
 import { convertRecordingToWav } from "../lib/audio";
 import {
   generateKokoroAudio,
@@ -103,6 +106,17 @@ function App() {
   const setLoadError = useAuthStore((s) => s.setLoadError);
   const saveChain = useRef(Promise.resolve());
   const accountIdRef = useRef(null);
+  const activityPathRef = useRef("");
+  const activeUnitCourseIdRef = useRef("");
+  const [courseList, setCourseList] = useState([]);
+  const [courseAds, setCourseAds] = useState([]);
+  const [courseCache, setCourseCache] = useState({});
+  const [coursePageLoading, setCoursePageLoading] = useState(false);
+  const [coursePageError, setCoursePageError] = useState("");
+  const [coursePurchase, setCoursePurchase] = useState(null);
+  const [coursePaymentSettings, setCoursePaymentSettings] = useState(null);
+  const [coursePurchaseRefreshing, setCoursePurchaseRefreshing] =
+    useState(false);
   const [activeUnitId, setActiveUnitId] = useState(null);
   const [selectedListeningId, setSelectedListeningId] = useState(null);
   const [transcript, setTranscript] = useState("");
@@ -112,6 +126,15 @@ function App() {
     speech_similarity_threshold: 90,
     ai_provider: "clario",
     free_browser_debug: false,
+    courseware_policy: {
+      max_record_seconds: 180,
+      max_transcript_chars: 3000,
+      max_live_seconds: 600,
+      max_ai_audio_bytes: 12 * 1024 * 1024,
+      cost_live_assessment: 0,
+      cost_live_per_minute: 2,
+      live_block_minutes: 5,
+    },
   });
   const [ttsStatus, setTtsStatus] = useState({
     phase: "idle",
@@ -133,8 +156,8 @@ function App() {
   const [showLessonList, setShowLessonList] = useState(false);
   const [liveOn, setLiveOn] = useState(false);
   const [liveTopicId, setLiveTopicId] = useState(DEFAULT_LIVE_TOPIC_ID);
-  const activeLiveTopic = getLiveTopic(liveTopicId);
   const [liveSeconds, setLiveSeconds] = useState(0);
+  const [liveRuntimePolicy, setLiveRuntimePolicy] = useState(null);
   const [liveLines, setLiveLines] = useState([]);
   const [liveStatus, setLiveStatus] = useState("Ready");
   const [liveLoading, setLiveLoading] = useState(false);
@@ -154,7 +177,9 @@ function App() {
   const liveCurrentSpeakerRef = useRef(null);
   const livePlayheadRef = useRef(0);
   const liveBillingSessionRef = useRef(null);
+  const liveCourseContextRef = useRef(null);
   const liveBillingBlocksRef = useRef(0);
+  const liveBillingReservedMinutesRef = useRef(0);
   const liveStartedAtRef = useRef(0);
   const liveBillingReserveLockRef = useRef(false);
   const liveBillingStartedRef = useRef(false);
@@ -166,13 +191,59 @@ function App() {
   const recordingStartRef = useRef(false);
   const fileInput = useRef(null);
   const audioUrlRef = useRef(null);
-  const curriculum = catalog.levels;
-  const listeningLessons = catalog.listening;
+  const currentCourseId = route?.courseId || "ielts";
+  const currentCoursePayload = courseCache[currentCourseId] || null;
+  const activeCatalog = currentCoursePayload?.catalog || catalog;
+  const curriculum = activeCatalog?.levels || [];
+  const listeningLessons = activeCatalog?.listening || [];
+  const currentLiveTopics = activeCatalog?.liveTopics || [];
+  const activeLiveTopic =
+    currentLiveTopics.find((topic) => topic.id === liveTopicId) ||
+    getLiveTopic(liveTopicId);
   const allUnits = useMemo(
-    () => curriculum.flatMap((l) => l.units),
+    () => curriculum.flatMap((level) => level.units || []),
     [curriculum],
   );
-  const activeUnit = allUnits.find((u) => u.id === activeUnitId) || allUnits[0];
+  const activeUnit =
+    allUnits.find((unit) => unit.id === activeUnitId) || allUnits[0];
+  const maxLiveSeconds = Math.max(
+    60,
+    Math.min(
+      3600,
+      Number(appConfig.courseware_policy?.max_live_seconds) || 600,
+    ),
+  );
+  const maxRecordingSeconds = Math.max(
+    10,
+    Math.min(
+      900,
+      Number(appConfig.courseware_policy?.max_record_seconds) || 180,
+    ),
+  );
+  const maxTranscriptChars = Math.max(
+    100,
+    Math.min(
+      48000,
+      Number(appConfig.courseware_policy?.max_transcript_chars) || 3000,
+    ),
+  );
+  const liveBlockMinutes = Math.max(
+    1,
+    Math.min(10, Number(appConfig.courseware_policy?.live_block_minutes) || 5),
+  );
+  const liveCostPerMinute = Math.max(
+    0,
+    Number(appConfig.courseware_policy?.cost_live_per_minute ?? 2),
+  );
+  const liveMaxSeconds =
+    Number(liveRuntimePolicy?.maxSeconds) || maxLiveSeconds;
+  const liveReservedMinutes =
+    Number(liveRuntimePolicy?.reservedMinutes) ||
+    liveBillingReservedMinutesRef.current ||
+    liveBlockMinutes;
+  const liveRuntimeBlockMinutes =
+    Number(liveRuntimePolicy?.blockMinutes) || liveBlockMinutes;
+  const liveRuntimeRate = Number(liveRuntimePolicy?.rate ?? liveCostPerMinute);
   const ttsBusy = isTtsBusy(ttsStatus);
   function applyDiamondBalance(value) {
     const diamonds = Number(value);
@@ -191,7 +262,7 @@ function App() {
       return;
     }
     setDataReady(false);
-    const [course, progress, config] = await Promise.all([
+    const [legacyCatalog, progress, config, courseware] = await Promise.all([
       apiJson("catalog"),
       apiJson("progress"),
       apiJson("app-config").catch(() => ({
@@ -201,11 +272,20 @@ function App() {
           speech_similarity_threshold: 90,
           ai_provider: "clario",
           free_browser_debug: false,
+          courseware_policy: {},
         },
       })),
+      apiJson("courses").catch(() => ({ courses: [], ads: [] })),
     ]);
     if (!current()) return;
-    setCatalog(course);
+    const ieltsCourse = await apiJson("course-data?course_id=ielts").catch(
+      () => null,
+    );
+    if (!current()) return;
+    setCourseList(courseware.courses || []);
+    setCourseAds(courseware.ads || []);
+    setCourseCache(ieltsCourse ? { ielts: ieltsCourse } : {});
+    setCatalog(ieltsCourse?.catalog || legacyCatalog);
     setAppConfig({
       speech_input_mode:
         config.settings?.speech_input_mode || "live_transcribe",
@@ -216,6 +296,26 @@ function App() {
       free_browser_debug:
         account?.role === "admin" &&
         config.settings?.free_browser_debug === true,
+      courseware_policy: {
+        ...(config.settings?.courseware_policy || {}),
+        max_record_seconds:
+          Number(config.settings?.courseware_policy?.max_record_seconds) || 180,
+        max_transcript_chars:
+          Number(config.settings?.courseware_policy?.max_transcript_chars) ||
+          3000,
+        max_live_seconds:
+          Number(config.settings?.courseware_policy?.max_live_seconds) || 600,
+        max_ai_audio_bytes:
+          Number(config.settings?.courseware_policy?.max_ai_audio_bytes) ||
+          12 * 1024 * 1024,
+        cost_live_assessment:
+          Number(config.settings?.courseware_policy?.cost_live_assessment) || 0,
+        cost_live_per_minute: Number(
+          config.settings?.courseware_policy?.cost_live_per_minute ?? 2,
+        ),
+        live_block_minutes:
+          Number(config.settings?.courseware_policy?.live_block_minutes) || 5,
+      },
     });
     const savedSettings = (progress.progress || {}).settings || {};
     const settings = { ...initialData.settings, ...savedSettings };
@@ -241,13 +341,109 @@ function App() {
       speakingCompleted: progress.progress?.speakingCompleted || [],
       speakingScores: progress.progress?.speakingScores || {},
       speakingTranscripts: progress.progress?.speakingTranscripts || {},
+      courseProgress: progress.progress?.courseProgress || {},
     });
     setDataReady(true);
   }
   async function reloadCatalog() {
-    const course = await apiJson("catalog");
-    setCatalog(course);
+    const [legacyCatalog, courseware] = await Promise.all([
+      apiJson("catalog"),
+      apiJson("courses").catch(() => ({ courses: [], ads: [] })),
+    ]);
+    const ieltsCourse = await apiJson("course-data?course_id=ielts").catch(
+      () => null,
+    );
+    setCatalog(ieltsCourse?.catalog || legacyCatalog);
+    setCourseList(courseware.courses || []);
+    setCourseAds(courseware.ads || []);
+    setCourseCache(ieltsCourse ? { ielts: ieltsCourse } : {});
   }
+  async function reloadCourses() {
+    const result = await apiJson("courses");
+    setCourseList(result.courses || []);
+    setCourseAds(result.ads || []);
+    return result;
+  }
+  async function reloadCourseData(courseId) {
+    const payload = await apiJson(
+      `course-data?course_id=${encodeURIComponent(courseId)}`,
+    );
+    setCourseCache((previous) => ({ ...previous, [courseId]: payload }));
+    if (courseId === "ielts" && payload.catalog) setCatalog(payload.catalog);
+    return payload;
+  }
+  function incrementCourseProgress(courseId) {
+    const increment = (course) => {
+      const progress = course.progress || {};
+      const total = Math.max(0, Number(progress.total) || 0);
+      const completed = Math.min(
+        total,
+        Math.max(0, Number(progress.completed) || 0) + 1,
+      );
+      return {
+        ...course,
+        progress: {
+          ...progress,
+          completed,
+          total,
+          percent: total ? Math.round((completed * 100) / total) : 0,
+        },
+      };
+    };
+    setCourseList((previous) =>
+      previous.map((course) =>
+        course.id === courseId ? increment(course) : course,
+      ),
+    );
+    setCourseCache((previous) => {
+      const cached = previous[courseId];
+      if (!cached?.course) return previous;
+      return {
+        ...previous,
+        [courseId]: { ...cached, course: increment(cached.course) },
+      };
+    });
+  }
+  useEffect(() => {
+    if (!user || !dataReady || !route?.courseId) return undefined;
+    setPage(route.page);
+    if (courseCache[route.courseId]) {
+      setCoursePageLoading(false);
+      setCoursePageError("");
+      return undefined;
+    }
+    let active = true;
+    setCoursePageLoading(true);
+    setCoursePageError("");
+    apiJson(`course-data?course_id=${encodeURIComponent(route.courseId)}`)
+      .then((payload) => {
+        if (!active) return;
+        setCourseCache((previous) => ({
+          ...previous,
+          [route.courseId]: payload,
+        }));
+        if (route.courseId === "ielts" && payload.catalog)
+          setCatalog(payload.catalog);
+      })
+      .catch((error) => {
+        if (active)
+          setCoursePageError(error.message || "Course tidak dapat dimuat.");
+      })
+      .finally(() => {
+        if (active) setCoursePageLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [
+    route?.courseId,
+    route?.page,
+    dataReady,
+    user?.id,
+    courseCache,
+    setPage,
+    setCatalog,
+  ]);
   function enqueueSave(snapshot, id) {
     const task = saveChain.current
       .catch(() => {})
@@ -338,6 +534,14 @@ function App() {
             ...(result.settings.ai_provider
               ? { ai_provider: result.settings.ai_provider }
               : {}),
+            ...(result.settings.courseware_policy
+              ? {
+                  courseware_policy: {
+                    ...current.courseware_policy,
+                    ...result.settings.courseware_policy,
+                  },
+                }
+              : {}),
           }));
       } catch {
         // A transient config fetch must not interrupt a speaking lesson.
@@ -377,24 +581,30 @@ function App() {
       const startedAt = liveStartedAtRef.current;
       if (startedAt)
         setLiveSeconds(
-          Math.min(600, Math.floor((Date.now() - startedAt) / 1000)),
+          Math.min(liveMaxSeconds, Math.floor((Date.now() - startedAt) / 1000)),
         );
     };
     updateLiveTime();
     const timer = window.setInterval(updateLiveTime, 1e3);
     return () => clearInterval(timer);
-  }, [liveOn]);
+  }, [liveOn, liveMaxSeconds]);
   useEffect(() => {
-    if (liveOn && liveSeconds >= 600) {
-      toast.info("Sesi Live mencapai batas 10 menit.");
+    if (liveOn && liveSeconds >= liveMaxSeconds) {
+      toast.info(
+        `Sesi Live mencapai batas ${Math.floor(liveMaxSeconds / 60)} menit.`,
+      );
       void endLive();
     }
-  }, [liveOn, liveSeconds]);
+  }, [liveOn, liveSeconds, liveMaxSeconds]);
   useEffect(() => {
+    const reservedMinutes =
+      liveBillingReservedMinutesRef.current || liveReservedMinutes;
+    const maxMinutes = Math.max(1, Math.ceil(liveMaxSeconds / 60));
+    const reserveAt = Math.max(0, reservedMinutes * 60 - 60);
     if (
       !liveOn ||
-      liveSeconds < 240 ||
-      liveBillingBlocksRef.current >= 2 ||
+      liveSeconds < reserveAt ||
+      reservedMinutes >= maxMinutes ||
       liveBillingReserveLockRef.current
     )
       return;
@@ -407,9 +617,17 @@ function App() {
       body: JSON.stringify({ session_id: sessionId }),
     })
       .then((result) => {
-        liveBillingBlocksRef.current = Number(result.reserved_blocks) || 2;
+        liveBillingBlocksRef.current =
+          Number(result.reserved_blocks) || liveBillingBlocksRef.current + 1;
+        liveBillingReservedMinutesRef.current =
+          Number(result.reserved_minutes) ||
+          reservedMinutes + liveRuntimeBlockMinutes;
+        setLiveRuntimePolicy((current) => ({
+          ...(current || {}),
+          reservedMinutes: liveBillingReservedMinutesRef.current,
+        }));
         applyDiamondBalance(result.diamonds);
-        setLiveStatus("Connected · next 5-minute block reserved");
+        setLiveStatus("Connected · next Live block reserved");
       })
       .catch((error) => {
         applyDiamondBalance(error.diamonds);
@@ -421,15 +639,28 @@ function App() {
       .finally(() => {
         liveBillingReserveLockRef.current = false;
       });
-  }, [liveOn, liveSeconds]);
+  }, [
+    liveOn,
+    liveSeconds,
+    liveMaxSeconds,
+    liveReservedMinutes,
+    liveRuntimeBlockMinutes,
+  ]);
   useEffect(() => {
-    if (
-      recording &&
-      activeUnit?.prepSeconds &&
-      elapsed >= Number(activeUnit.responseSeconds || 120)
-    )
-      stopRecording();
-  }, [recording, elapsed, activeUnit]);
+    const hardLimit = Math.max(
+      10,
+      Number(appConfig.courseware_policy?.max_record_seconds) || 180,
+    );
+    const unitLimit = activeUnit?.prepSeconds
+      ? Number(activeUnit.responseSeconds || 120)
+      : hardLimit;
+    if (recording && elapsed >= Math.min(hardLimit, unitLimit)) stopRecording();
+  }, [
+    recording,
+    elapsed,
+    activeUnit,
+    appConfig.courseware_policy?.max_record_seconds,
+  ]);
   useEffect(
     () => () => {
       ttsRequestIdRef.current += 1;
@@ -478,15 +709,12 @@ function App() {
     if (page !== "live" && (liveOn || liveBillingSessionRef.current))
       void endLive();
   }, [page, liveOn]);
-  const completed = new Set(data.completed || []);
-  const totalDone = allUnits.filter((u) => completed.has(u.id)).length;
-  const levelProgress = curriculum.map((l) => ({
-    ...l,
-    done: l.units.filter((u) => completed.has(u.id)).length,
-  }));
-  const currentLevel =
-    levelProgress.find((l) => l.units.some((u) => !completed.has(u.id))) ||
-    levelProgress.at(-1);
+  const scopedCourseProgress =
+    currentCourseId === "ielts"
+      ? data
+      : (data.courseProgress || {})[currentCourseId] || {};
+  const completed = new Set(scopedCourseProgress.completed || []);
+  const totalDone = allUnits.filter((unit) => completed.has(unit.id)).length;
   const allTurns = useMemo(
     () => (data.sessions || []).flatMap((s) => s.turns || []),
     [data.sessions],
@@ -497,37 +725,90 @@ function App() {
   const hasLearningAccess = Boolean(user);
   useEffect(() => {
     if (!authReady || !dataReady) return;
-
     if (!route) {
       setPage("home");
       navigate("/home", { replace: true });
       return;
     }
+    const routeCourseId = route.courseId || "ielts";
+    if (route.courseId && !courseCache[route.courseId]) {
+      setPage(route.page);
+      return;
+    }
+    const noteActivity = (modality, unitId = null) => {
+      const key = `${routeCourseId}:${modality}:${unitId || ""}`;
+      if (activityPathRef.current === key) return;
+      activityPathRef.current = key;
+      void apiJson("course-activity", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          course_id: routeCourseId,
+          modality,
+          unit_id: unitId,
+        }),
+      })
+        .then(() => {
+          setCourseList((previous) =>
+            previous.map((course) =>
+              course.id === routeCourseId
+                ? {
+                    ...course,
+                    lastModality: modality,
+                    lastUnitId: unitId,
+                    lastActivityAt: new Date().toISOString(),
+                  }
+                : course,
+            ),
+          );
+        })
+        .catch(() => {});
+    };
 
     if (route.page === "practice") {
       const unit = allUnits.find((item) => item.id === route.unitId);
       if (!unit) {
-        navigate("/home", { replace: true });
-        return;
-      }
-      const firstIncompleteIndex = allUnits.findIndex(
-        (item) => !completed.has(item.id),
-      );
-      const routeUnitIndex = allUnits.findIndex((item) => item.id === unit.id);
-      if (firstIncompleteIndex >= 0 && routeUnitIndex > firstIncompleteIndex) {
-        toast.info("Selesaikan lesson sebelumnya untuk membuka materi ini.");
         navigate(
-          appRouteFor("practice", {
-            unitId: allUnits[firstIncompleteIndex].id,
-          }),
+          route.courseId
+            ? appRouteFor("course-detail", { courseId: routeCourseId })
+            : "/home",
           { replace: true },
         );
         return;
       }
-      if (activeUnitId !== unit.id) {
+      if (routeCourseId === "ielts") {
+        const firstIncompleteIndex = allUnits.findIndex(
+          (item) => !completed.has(item.id),
+        );
+        const routeUnitIndex = allUnits.findIndex(
+          (item) => item.id === unit.id,
+        );
+        if (
+          firstIncompleteIndex >= 0 &&
+          routeUnitIndex > firstIncompleteIndex
+        ) {
+          toast.info("Selesaikan lesson sebelumnya untuk membuka materi ini.");
+          navigate(
+            appRouteFor("practice", {
+              unitId: allUnits[firstIncompleteIndex].id,
+            }),
+            { replace: true },
+          );
+          return;
+        }
+      }
+      if (
+        activeUnitId !== unit.id ||
+        activeUnitCourseIdRef.current !== routeCourseId
+      ) {
+        activeUnitCourseIdRef.current = routeCourseId;
         setTurns(
           (data.sessions || [])
-            .filter((session) => session.unitId === unit.id)
+            .filter(
+              (session) =>
+                (session.courseId || "ielts") === routeCourseId &&
+                session.unitId === unit.id,
+            )
             .flatMap((session) => session.turns || []),
         );
         setTranscript("");
@@ -537,17 +818,33 @@ function App() {
         setShowLessonList(false);
       }
       setActiveUnitId(unit.id);
+      noteActivity("ai_lesson", unit.id);
     } else if (route.page === "listening") {
       if (
         route.listeningId &&
         !listeningLessons.some((lesson) => lesson.id === route.listeningId)
       ) {
-        navigate("/listening", { replace: true });
+        navigate(
+          route.courseId
+            ? appRouteFor("listening", { courseId: routeCourseId })
+            : "/listening",
+          { replace: true },
+        );
         return;
       }
       setSelectedListeningId(route.listeningId || null);
+      noteActivity("listening", route.listeningId || null);
+    } else if (route.page === "live") {
+      setSelectedListeningId(null);
+      const topic =
+        currentLiveTopics.find((item) => item.id === route.topicId) ||
+        currentLiveTopics[0] ||
+        getLiveTopic(DEFAULT_LIVE_TOPIC_ID);
+      if (topic?.id) setLiveTopicId(topic.id);
+      noteActivity("live_lesson", route.topicId || topic?.id || null);
     } else {
       setSelectedListeningId(null);
+      activityPathRef.current = "";
       if (route.page === "admin" && user?.role !== "admin") {
         navigate("/home", { replace: true });
         return;
@@ -560,7 +857,10 @@ function App() {
     activeUnitId,
     allUnits,
     authReady,
-    data.completed,
+    scopedCourseProgress.completed,
+    courseCache,
+    currentCourseId,
+    currentLiveTopics,
     data.sessions,
     dataReady,
     hasLearningAccess,
@@ -575,14 +875,17 @@ function App() {
   const nav = (p) => {
     if (p === "practice") {
       if (!allUnits.length)
-        return toast.info("Belum ada unit speaking yang diterbitkan.");
+        return toast.info("Belum ada unit AI Lesson yang diterbitkan.");
       const targetUnit =
         allUnits.find((unit) => unit.id === activeUnitId) ||
         allUnits.find((unit) => !completed.has(unit.id)) ||
         allUnits[0];
-      const targetPath = appRouteFor("practice", { unitId: targetUnit.id });
+      const targetPath = appRouteFor("practice", {
+        unitId: targetUnit.id,
+        courseId: currentCourseId,
+      });
       if (location.pathname === targetPath) return;
-      startUnit(targetUnit);
+      startUnit(targetUnit, currentCourseId);
       return;
     }
     const targetPath = appRouteFor(p);
@@ -590,24 +893,44 @@ function App() {
     setPage(p);
     navigate(targetPath);
   };
-  const startListening = (id) => {
+  const startListening = (id, courseId = currentCourseId) => {
     setSelectedListeningId(id || null);
     setPage("listening");
-    const targetPath = appRouteFor("listening", { listeningId: id });
+    const targetPath = appRouteFor("listening", { listeningId: id, courseId });
     if (location.pathname !== targetPath) navigate(targetPath);
   };
-  const startUnit = (unit) => {
+  const startUnit = (unit, courseId = unit?.courseId || currentCourseId) => {
     if (!unit) return toast.info("Belum ada unit di level ini.");
-    const index = allUnits.findIndex((x) => x.id === unit.id);
-    const nextIndex = allUnits.findIndex((x) => !completed.has(x.id));
-    if (nextIndex >= 0 && index > nextIndex) {
-      toast.info("Selesaikan lesson sebelumnya untuk membuka materi ini.");
-      return;
+    if (courseId === "ielts") {
+      const units =
+        courseId === currentCourseId
+          ? allUnits
+          : (courseCache[courseId]?.catalog?.levels || []).flatMap(
+              (level) => level.units || [],
+            );
+      const courseProgress =
+        courseId === "ielts"
+          ? data
+          : (data.courseProgress || {})[courseId] || {};
+      const courseCompleted = new Set(courseProgress.completed || []);
+      const index = units.findIndex((item) => item.id === unit.id);
+      const nextIndex = units.findIndex(
+        (item) => !courseCompleted.has(item.id),
+      );
+      if (nextIndex >= 0 && index > nextIndex) {
+        toast.info("Selesaikan lesson sebelumnya untuk membuka materi ini.");
+        return;
+      }
     }
+    activeUnitCourseIdRef.current = courseId;
     setActiveUnitId(unit.id);
     setTurns(
       (data.sessions || [])
-        .filter((session) => session.unitId === unit.id)
+        .filter(
+          (session) =>
+            (session.courseId || "ielts") === courseId &&
+            session.unitId === unit.id,
+        )
         .flatMap((session) => session.turns || []),
     );
     setTranscript("");
@@ -615,9 +938,140 @@ function App() {
     setSessionSaveAudio(null);
     setPage("practice");
     setShowLessonList(false);
-    const targetPath = appRouteFor("practice", { unitId: unit.id });
+    const targetPath = appRouteFor("practice", { unitId: unit.id, courseId });
     if (location.pathname !== targetPath) navigate(targetPath);
   };
+  function openCourse(course) {
+    if (!course?.id) return;
+    setPage("course-detail");
+    navigate(appRouteFor("course-detail", { courseId: course.id }));
+  }
+  function continueCourse(course) {
+    if (!course?.id) return;
+    const modality = course.lastModality;
+    const unitId = course.lastUnitId;
+    if (modality === "listening") {
+      setSelectedListeningId(unitId || null);
+      setPage("listening");
+      navigate(
+        appRouteFor("listening", {
+          courseId: course.id,
+          listeningId: unitId || undefined,
+        }),
+      );
+    } else if (modality === "ai_lesson" && unitId) {
+      navigate(appRouteFor("practice", { courseId: course.id, unitId }));
+    } else if (modality === "live_lesson") {
+      const topicId =
+        unitId || courseCache[course.id]?.catalog?.liveTopics?.[0]?.id;
+      if (topicId) setLiveTopicId(topicId);
+      setPage("live");
+      navigate(appRouteFor("live", { courseId: course.id, topicId }));
+    } else {
+      openCourse(course);
+    }
+  }
+  function openCourseActivity(courseId, modality, unitId = null) {
+    if (!courseId || !modality) return;
+    const payload = courseCache[courseId];
+    if (modality === "listening") {
+      const lessonId = unitId || payload?.catalog?.listening?.[0]?.id || null;
+      setSelectedListeningId(lessonId);
+      setPage("listening");
+      navigate(
+        appRouteFor("listening", {
+          courseId,
+          listeningId: lessonId || undefined,
+        }),
+      );
+    } else if (modality === "ai_lesson") {
+      const units = (payload?.catalog?.levels || []).flatMap(
+        (level) => level.units || [],
+      );
+      const unit = units.find((item) => item.id === unitId) || units[0];
+      if (unit) startUnit(unit, courseId);
+      else toast.info("Belum ada AI Lesson yang diterbitkan untuk course ini.");
+    } else {
+      const topicId = unitId || payload?.catalog?.liveTopics?.[0]?.id;
+      if (!topicId)
+        return toast.info("Belum ada topik Live Lesson yang diterbitkan.");
+      setLiveTopicId(topicId);
+      setPage("live");
+      navigate(appRouteFor("live", { courseId, topicId }));
+    }
+  }
+  async function enrollCourse(course) {
+    if (!course?.id) return;
+    try {
+      await apiJson("course-enroll", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ course_id: course.id }),
+      });
+      await Promise.all([reloadCourses(), reloadCourseData(course.id)]);
+      toast.success(`Kamu berhasil enroll ke ${course.name}.`);
+    } catch (error) {
+      toast.error(error.message || "Enrollment gagal diproses.");
+    }
+  }
+  async function purchaseCourse(course) {
+    if (!course?.id) return;
+    try {
+      const [created, history] = await Promise.all([
+        apiJson("shop/course-purchases", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ course_id: course.id }),
+        }),
+        apiJson("shop/course-purchases"),
+      ]);
+      const purchase = created.purchase;
+      const latest = (history.purchases || []).find(
+        (item) => item.id === purchase.id,
+      );
+      setCoursePurchase({ ...(latest || {}), ...purchase });
+      setCoursePaymentSettings(history.payments || {});
+    } catch (error) {
+      toast.error(error.message || "Pesanan course tidak dapat dibuat.");
+    }
+  }
+  async function contactCoursePurchase(purchase) {
+    try {
+      await apiJson(`shop/course-purchases/${purchase.id}/contacted`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+    } catch (error) {
+      toast.error(
+        error.message || "Status konfirmasi pembayaran tidak tersimpan.",
+      );
+    }
+  }
+  async function refreshCoursePurchase() {
+    if (!coursePurchase) return;
+    setCoursePurchaseRefreshing(true);
+    try {
+      const history = await apiJson("shop/course-purchases");
+      setCoursePaymentSettings(history.payments || {});
+      const updated = (history.purchases || []).find(
+        (item) => item.id === coursePurchase.id,
+      );
+      if (!updated) throw new Error("Pesanan tidak ditemukan pada akun ini.");
+      setCoursePurchase(updated);
+      if (updated.status === "paid") {
+        await Promise.all([
+          reloadCourses(),
+          reloadCourseData(updated.course_id),
+        ]);
+        toast.success("Pembayaran disetujui; enrollment course sudah aktif.");
+      } else toast.info("Pembayaran masih menunggu verifikasi Admin.");
+    } catch (error) {
+      toast.error(error.message || "Status pembayaran gagal diperbarui.");
+    } finally {
+      setCoursePurchaseRefreshing(false);
+    }
+  }
   async function requestMic() {
     if (micRequestRef.current) return micRequestRef.current;
     setPermission("requesting");
@@ -746,6 +1200,12 @@ function App() {
   }
   async function submitTurn({ mode = "transcript" } = {}) {
     if (submitTurnLockRef.current) return;
+    const practiceCourseId = activeUnit?.courseId || currentCourseId;
+    const currentUnitSessions = (data.sessions || []).filter(
+      (session) =>
+        (session.courseId || "ielts") === practiceCourseId &&
+        session.unitId === activeUnit?.id,
+    );
     if (!["transcript", "audio"].includes(mode)) {
       toast.error("Pilih metode jawaban yang valid.");
       return;
@@ -846,8 +1306,13 @@ function App() {
           currentConfig.ai_provider === "free"
             ? audioBlob
             : await convertRecordingToWav(audioBlob);
-        if (audioForAI.size > 12 * 1024 * 1024)
-          throw new Error("Audio melebihi batas 12 MB.");
+        const maxAudioBytes =
+          Number(appConfig.courseware_policy?.max_ai_audio_bytes) ||
+          12 * 1024 * 1024;
+        if (audioForAI.size > maxAudioBytes)
+          throw new Error(
+            `Audio melebihi batas ${(maxAudioBytes / 1024 / 1024).toFixed(0)} MB.`,
+          );
         const audioMime = (audioForAI.type || "audio/webm").split(";")[0];
         const audioExtension =
           audioMime === "audio/mp4"
@@ -954,6 +1419,9 @@ function App() {
         form.append("task_mode", "response");
         form.append("level", activeUnit.level);
         form.append("task", activeUnit.prompt);
+        form.append("course_id", practiceCourseId);
+        form.append("unit_id", activeUnit.id);
+        form.append("duration_seconds", String(elapsed));
         form.append(
           "audio",
           audioForAI,
@@ -1002,6 +1470,8 @@ function App() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            course_id: practiceCourseId,
+            unit_id: activeUnit.id,
             transcript: submittedTranscript,
             task: activeUnit.prompt,
             lesson: {
@@ -1013,13 +1483,11 @@ function App() {
             },
             level: activeUnit.level,
             memory_summary:
-              data.sessions
-                .filter((session) => session.unitId === activeUnit.id)
+              currentUnitSessions
                 .map((session) => session.summary)
                 .filter(Boolean)
                 .slice(-1)[0] || "",
-            recent_turns: data.sessions
-              .filter((session) => session.unitId === activeUnit.id)
+            recent_turns: currentUnitSessions
               .flatMap((session) => session.turns || [])
               .slice(-6)
               .map((turn) => ({
@@ -1154,7 +1622,11 @@ function App() {
         let replaced = false;
         if (retrySlot) {
           for (let index = sessions.length - 1; index >= 0; index -= 1) {
-            if (sessions[index]?.unitId !== activeUnit.id) continue;
+            if (
+              (sessions[index]?.courseId || "ielts") !== practiceCourseId ||
+              sessions[index]?.unitId !== activeUnit.id
+            )
+              continue;
             const storedTurns = sessions[index].turns || [];
             if (storedTurns.at(-1)?.id !== retrySlot.id) continue;
             sessions[index] = {
@@ -1167,7 +1639,10 @@ function App() {
         }
         if (!replaced) {
           const lastIndex = sessions.length - 1;
-          if (sessions[lastIndex]?.unitId === activeUnit.id) {
+          if (
+            (sessions[lastIndex]?.courseId || "ielts") === practiceCourseId &&
+            sessions[lastIndex]?.unitId === activeUnit.id
+          ) {
             sessions[lastIndex] = {
               ...sessions[lastIndex],
               turns: [...(sessions[lastIndex].turns || []), item],
@@ -1175,6 +1650,9 @@ function App() {
           } else {
             sessions.push({
               id: crypto.randomUUID(),
+              ...(practiceCourseId !== "ielts"
+                ? { courseId: practiceCourseId }
+                : {}),
               unitId: activeUnit.id,
               turns: [item],
             });
@@ -1203,7 +1681,11 @@ function App() {
       [
         ...turns,
         ...(data.sessions || [])
-          .filter((session) => session.unitId === unitId)
+          .filter(
+            (session) =>
+              (session.courseId || "ielts") === currentCourseId &&
+              session.unitId === unitId,
+          )
           .flatMap((session) => session.turns || []),
       ]
         .map((turn) => turn.audioId)
@@ -1221,7 +1703,9 @@ function App() {
     setData((previous) => ({
       ...previous,
       sessions: (previous.sessions || []).filter(
-        (session) => session.unitId !== unitId,
+        (session) =>
+          (session.courseId || "ielts") !== currentCourseId ||
+          session.unitId !== unitId,
       ),
     }));
     setAudioBlob(null);
@@ -1250,11 +1734,33 @@ function App() {
     }
 
     const alreadyCompleted = completed.has(activeUnit.id);
+    const practiceCourseId = activeUnit.courseId || currentCourseId;
     if (!alreadyCompleted) {
-      setData((prev) => ({
-        ...awardXP(prev, 25),
-        completed: [...prev.completed, activeUnit.id],
-      }));
+      setData((previous) => {
+        const awarded = awardXP(previous, 25);
+        if (practiceCourseId === "ielts")
+          return {
+            ...awarded,
+            completed: Array.from(
+              new Set([...(previous.completed || []), activeUnit.id]),
+            ),
+          };
+        const courseProgress = previous.courseProgress || {};
+        const current = courseProgress[practiceCourseId] || {};
+        return {
+          ...awarded,
+          courseProgress: {
+            ...courseProgress,
+            [practiceCourseId]: {
+              ...current,
+              completed: Array.from(
+                new Set([...(current.completed || []), activeUnit.id]),
+              ),
+            },
+          },
+        };
+      });
+      incrementCourseProgress(practiceCourseId);
     }
 
     const nextLesson = findNextPracticeLesson(allUnits, activeUnit.id);
@@ -1264,7 +1770,12 @@ function App() {
           ? "Lesson selesai. Membuka lesson berikutnya."
           : "Pelajaran selesai! +25 XP · membuka lesson berikutnya.",
       );
-      navigate(appRouteFor("practice", { unitId: nextLesson.id }));
+      navigate(
+        appRouteFor("practice", {
+          unitId: nextLesson.id,
+          courseId: practiceCourseId,
+        }),
+      );
       return;
     }
 
@@ -1730,7 +2241,7 @@ Speak entirely in English. Keep every spoken answer, correction, and explanation
 
 After each learner turn, listen for actual grammar, sentence structure, pronoun choice (for example, I/he/she/they), word choice, and unnatural phrasing. When you notice a meaningful issue, briefly use this helpful pattern: “Instead of saying [the learner’s actual words], it’s better to say [a natural correction].” Give a short, friendly reason when useful, then continue the role-play. Correct the most useful one or two issues in that turn without interrupting the learner or turning the conversation into a lecture. Never invent an error or change the learner’s meaning. If their grammar, pronouns, sentence structure, and phrasing are already good, give specific praise for what they said well and keep the conversation moving.
 
-Because this is live audio, comment on pronunciation or word stress only when a problem is clearly audible. If a sound is clearly mispronounced, kindly say the word naturally, give a short sound hint, and invite a retry. If pronunciation is clear, offer specific praise. Never guess pronunciation from text alone or assign a pronunciation score. Keep replies concise, natural, supportive, and suitable for spoken conversation. This is practice, not an official IELTS test; do not claim official scores. The session is limited to 10 minutes.`;
+Because this is live audio, comment on pronunciation or word stress only when a problem is clearly audible. If a sound is clearly mispronounced, kindly say the word naturally, give a short sound hint, and invite a retry. If pronunciation is clear, offer specific praise. Never guess pronunciation from text alone or assign a pronunciation score. Keep replies concise, natural, supportive, and suitable for spoken conversation. Use this response style: ${activeLiveTopic.responseStyle || "Warm, concise, and supportive."} This is practice, not an official IELTS test; do not claim official scores. The session is limited to ${Math.ceil(liveMaxSeconds / 60)} minutes.`;
 
   function appendLiveTranscriptChunk(who, chunk) {
     const incoming = String(chunk ?? "");
@@ -1835,9 +2346,11 @@ Because this is live audio, comment on pronunciation or word stress only when a 
       return null;
     } finally {
       liveBillingBlocksRef.current = 0;
+      liveBillingReservedMinutesRef.current = 0;
       liveBillingStartedRef.current = false;
       liveBillingReserveLockRef.current = false;
       liveStartedAtRef.current = 0;
+      setLiveRuntimePolicy(null);
     }
   }
   function failLiveConnection(message) {
@@ -1863,8 +2376,8 @@ Because this is live audio, comment on pronunciation or word stress only when a 
         title: "Izinkan Live Lesson?",
         text:
           user?.role === "admin"
-            ? "Audio mikrofon dikirim langsung dari browser ke Gemini dan tidak diarsipkan oleh SpeakUp. Setelah sesi, hanya transkrip dikirim ke provider global Admin untuk feedback. Akun Admin memiliki akses tanpa batas dan tidak memakai diamond; sesi tetap dibatasi hingga 10 menit."
-            : "Audio mikrofon dikirim langsung dari browser ke Gemini dan tidak diarsipkan oleh SpeakUp. Setelah sesi, hanya transkrip dikirim ke provider global Admin untuk feedback. Sistem mencadangkan 10 diamond per blok 5 menit, menagih 2 diamond per menit yang dimulai, dan membatasi sesi hingga 10 menit.",
+            ? `Audio mikrofon dikirim langsung dari browser ke Gemini dan tidak diarsipkan oleh SpeakUp. Setelah sesi, hanya transkrip dikirim ke provider global Admin untuk feedback. Akun Admin tidak memakai diamond; sesi dibatasi ${Math.ceil(liveMaxSeconds / 60)} menit.`
+            : `Audio mikrofon dikirim langsung dari browser ke Gemini dan tidak diarsipkan oleh SpeakUp. Setelah sesi, hanya transkrip dikirim ke provider global Admin untuk feedback. Biaya ${liveCostPerMinute} diamond per menit; cadangan per blok ${liveBlockMinutes} menit. Batas sesi ${Math.ceil(liveMaxSeconds / 60)} menit.`,
         icon: "info",
         showCancelButton: true,
         confirmButtonText: "Setuju & lanjutkan",
@@ -1878,10 +2391,25 @@ Because this is live audio, comment on pronunciation or word stress only when a 
       const billing = await apiJson("live-billing/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: "{}",
+        body: JSON.stringify({
+          course_id: currentCourseId,
+          unit_id: activeLiveTopic?.id || null,
+        }),
       });
       liveBillingSessionRef.current = billing.session_id;
+      liveCourseContextRef.current = {
+        courseId: currentCourseId,
+        unitId: activeLiveTopic?.id || null,
+      };
       liveBillingBlocksRef.current = Number(billing.reserved_blocks) || 1;
+      liveBillingReservedMinutesRef.current =
+        Number(billing.reserved_minutes) || liveBlockMinutes;
+      setLiveRuntimePolicy({
+        maxSeconds: Number(billing.max_seconds) || liveMaxSeconds,
+        reservedMinutes: liveBillingReservedMinutesRef.current,
+        blockMinutes: Number(billing.block_minutes) || liveBlockMinutes,
+        rate: Number(billing.cost_per_minute ?? liveCostPerMinute),
+      });
       liveBillingStartedRef.current = false;
       applyDiamondBalance(billing.diamonds);
       assertLiveStartCurrent();
@@ -2185,6 +2713,10 @@ Because this is live audio, comment on pronunciation or word stress only when a 
     }
   }
   async function assessLiveTranscript(transcript) {
+    const liveContext = liveCourseContextRef.current || {};
+    const assessmentCourseId = liveContext.courseId || currentCourseId;
+    const assessmentUnitId = liveContext.unitId || activeLiveTopic?.id || null;
+    const assessmentCourse = courseCache[assessmentCourseId]?.course;
     setLiveLoading(true);
     setLiveAssessmentFailed(false);
     setLiveStatus("Mengirim transkrip untuk feedback sesi…");
@@ -2193,8 +2725,11 @@ Because this is live audio, comment on pronunciation or word stress only when a 
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          course_id: assessmentCourseId,
+          unit_id: assessmentUnitId,
           transcript,
-          level: activeUnit?.level || "unspecified",
+          level:
+            assessmentCourse?.level || activeLiveTopic?.level || "unspecified",
         }),
       });
       setLiveStatus("Menerima feedback sesi…");
@@ -2236,10 +2771,32 @@ Because this is live audio, comment on pronunciation or word stress only when a 
       setLiveLoading(false);
     }
   }
+  function markLiveCourseComplete() {
+    const context = liveCourseContextRef.current || {};
+    const courseId = context.courseId || currentCourseId;
+    const topicId = context.unitId || activeLiveTopic?.id;
+    if (!topicId) return;
+    setData((previous) => {
+      const courseProgress = previous.courseProgress || {};
+      const current = courseProgress[courseId] || {};
+      const completed = current.liveCompleted || [];
+      if (completed.includes(topicId)) return previous;
+      return {
+        ...previous,
+        courseProgress: {
+          ...courseProgress,
+          [courseId]: { ...current, liveCompleted: [...completed, topicId] },
+        },
+      };
+    });
+    const completed =
+      (data.courseProgress || {})[courseId]?.liveCompleted || [];
+    if (!completed.includes(topicId)) incrementCourseProgress(courseId);
+  }
   async function retryLiveAssessment() {
     const transcript = buildLearnerAssessmentTranscript(
       liveTranscriptLinesRef.current,
-      12000,
+      maxTranscriptChars,
     );
     if (!transcript) {
       setLiveAssessmentFailed(false);
@@ -2283,7 +2840,7 @@ Because this is live audio, comment on pronunciation or word stress only when a 
     liveEndingRef.current = false;
     const transcript = buildLearnerAssessmentTranscript(
       liveTranscriptLinesRef.current,
-      12000,
+      maxTranscriptChars,
     );
     if (!transcript) {
       setLiveStatus("Sesi berakhir");
@@ -2291,6 +2848,7 @@ Because this is live audio, comment on pronunciation or word stress only when a 
       toast.info("Sesi ditutup. Belum ada transkrip ucapan untuk dinilai.");
       return;
     }
+    markLiveCourseComplete();
     await assessLiveTranscript(transcript);
   }
   async function authenticate(mode, payload) {
@@ -2377,17 +2935,33 @@ Because this is live audio, comment on pronunciation or word stress only when a 
     );
   const menu = [
     { id: "home", label: "Beranda", icon: Home },
-    { id: "listening", label: "Listening Lab", icon: Headphones },
-    { id: "practice", label: "AI Lesson", icon: Mic },
-    { id: "live", label: "Live Lesson", icon: AudioLines },
-    { id: "shop", label: "Toko Diamond", icon: Gem },
-    { id: "progress", label: "Pencapaian", icon: BarChart3 },
-    { id: "settings", label: "Pengaturan", icon: Settings },
+    { id: "courses", label: "Course", icon: BookOpen },
+    { id: "progress", label: "Achievement", icon: Sparkles },
+    { id: "settings", label: "Settings", icon: Settings },
     ...(user.role === "admin"
       ? [{ id: "admin", label: "Studio Admin", icon: ShieldCheck }]
       : []),
   ];
-  const pageTitle = menu.find((item) => item.id === page)?.label || "SpeakUp";
+  const activeMenuPage = [
+    "course-detail",
+    "listening",
+    "practice",
+    "live",
+  ].includes(page)
+    ? "courses"
+    : page;
+  const pageTitle =
+    page === "course-detail"
+      ? currentCoursePayload?.course?.name || "Course"
+      : page === "listening"
+        ? "Listening Lab"
+        : page === "practice"
+          ? "AI Lesson"
+          : page === "live"
+            ? "Live Lesson"
+            : page === "shop"
+              ? "Toko Diamond"
+              : menu.find((item) => item.id === page)?.label || "SpeakUp";
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -2412,7 +2986,7 @@ Because this is live audio, comment on pronunciation or word stress only when a 
           {menu.map((item) => (
             <button
               key={item.id}
-              className={page === item.id ? "active" : ""}
+              className={activeMenuPage === item.id ? "active" : ""}
               onClick={() => nav(item.id)}
               title={item.label}
             >
@@ -2422,61 +2996,6 @@ Because this is live audio, comment on pronunciation or word stress only when a 
             </button>
           ))}
         </nav>
-        {hasLearningAccess && (
-          <div className="sidebar-course">
-            <div className="side-label">JALUR SPEAKING</div>
-            <div className="level-list">
-              {curriculum.map((l, i) => (
-                <button
-                  key={l.id}
-                  className="level-item"
-                  onClick={() =>
-                    startUnit(
-                      l.units.find((u) => !completed.has(u.id)) || l.units[0],
-                    )
-                  }
-                  disabled={!l.units.length}
-                >
-                  <span className="level-dot" style={{ background: l.color }}>
-                    {(() => {
-                      const Icon = LEVEL_ICONS[i] || Sparkles;
-                      return <Icon size={19} />;
-                    })()}
-                  </span>
-                  <span>
-                    <b>
-                      {l.id} · {l.label}
-                    </b>
-                    <small>
-                      {l.units.filter((u) => completed.has(u.id)).length}/
-                      {l.units.length} lesson
-                    </small>
-                  </span>
-                  <ChevronRight size={15} />
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-        <button className="sidebar-wallet" onClick={() => nav("shop")}>
-          <span>
-            <Gem size={16} /> SALDO DIAMOND
-          </span>
-          <b>
-            {user?.unlimited_diamonds
-              ? "Unlimited"
-              : Number(user.diamonds || 0).toLocaleString("id-ID")}
-          </b>
-          <small>
-            {user?.unlimited_diamonds ? (
-              "Admin · tanpa pengurangan saldo"
-            ) : (
-              <>
-                Isi saldo di Toko Diamond <ChevronRight size={13} />
-              </>
-            )}
-          </small>
-        </button>
         <div className="sidebar-bottom">
           <button className="profile-row" onClick={() => nav("settings")}>
             <span className="avatar">
@@ -2602,114 +3121,192 @@ Because this is live audio, comment on pronunciation or word stress only when a 
                   greet={greet()}
                   userName={user.name}
                   data={data}
-                  pct={pct}
-                  totalDone={totalDone}
-                  currentLevel={currentLevel}
-                  completed={completed}
-                  startUnit={startUnit}
+                  courses={courseList}
+                  onOpenCourse={openCourse}
+                  onContinueCourse={continueCourse}
                   nav={nav}
-                  allUnits={allUnits}
-                  curriculum={curriculum}
-                  listeningLessons={listeningLessons}
-                  hasLearningAccess={hasLearningAccess}
-                  startListening={startListening}
+                />
+              )}
+              {page === "courses" && (
+                <CoursesPage
+                  courses={courseList}
+                  ads={courseAds}
+                  onOpenCourse={openCourse}
+                  onContinueCourse={continueCourse}
+                />
+              )}
+              {page === "course-detail" && (
+                <CourseDetailPage
+                  payload={courseCache[route?.courseId]}
+                  loading={coursePageLoading}
+                  error={coursePageError}
+                  onBack={() => nav("courses")}
+                  onEnroll={enrollCourse}
+                  onPurchase={purchaseCourse}
+                  onOpenActivity={openCourseActivity}
+                  onContinue={continueCourse}
                 />
               )}
               {page === "listening" && (
-                <ListeningPage
-                  levels={curriculum}
-                  lessons={listeningLessons}
-                  initialLessonId={selectedListeningId}
-                  onSelectLesson={startListening}
-                  data={data}
-                  setData={setData}
-                  speak={speak}
-                  ttsStatus={ttsStatus}
-                  speechInputMode={appConfig.speech_input_mode}
-                  speechScoringMode={appConfig.speech_scoring_mode}
-                  speechSimilarityThreshold={
-                    appConfig.speech_similarity_threshold
-                  }
-                  aiProvider={appConfig.ai_provider}
-                  unlimitedDiamonds={user?.unlimited_diamonds}
-                  onDiamondsChanged={applyDiamondBalance}
-                />
+                <>
+                  {route?.courseId && (
+                    <ActivityHeader
+                      course={currentCoursePayload?.course}
+                      mode="listening"
+                      onBack={() =>
+                        openCourse(
+                          currentCoursePayload?.course || {
+                            id: currentCourseId,
+                          },
+                        )
+                      }
+                    />
+                  )}
+                  <ListeningPage
+                    courseId={currentCourseId}
+                    levels={curriculum}
+                    lessons={listeningLessons}
+                    initialLessonId={selectedListeningId}
+                    onSelectLesson={(id) => startListening(id, currentCourseId)}
+                    data={data}
+                    setData={setData}
+                    speak={speak}
+                    ttsStatus={ttsStatus}
+                    speechInputMode={appConfig.speech_input_mode}
+                    speechScoringMode={appConfig.speech_scoring_mode}
+                    maxRecordSeconds={maxRecordingSeconds}
+                    maxAiAudioBytes={
+                      Number(appConfig.courseware_policy?.max_ai_audio_bytes) ||
+                      12 * 1024 * 1024
+                    }
+                    speechSimilarityThreshold={
+                      appConfig.speech_similarity_threshold
+                    }
+                    aiProvider={appConfig.ai_provider}
+                    unlimitedDiamonds={user?.unlimited_diamonds}
+                    onDiamondsChanged={applyDiamondBalance}
+                    onCourseProgress={incrementCourseProgress}
+                  />
+                </>
               )}
               {page === "shop" && (
                 <ShopPage user={user} onBalanceChange={applyDiamondBalance} />
               )}
               {page === "practice" && activeUnit && (
-                <PracticePage
-                  onBack={() => nav("home")}
-                  unit={activeUnit}
-                  allUnits={allUnits}
-                  turns={turns}
-                  transcript={transcript}
-                  setTranscript={setTranscript}
-                  recording={recording}
-                  processing={processing}
-                  processingMessage={processingMessage}
-                  permission={permission}
-                  devices={devices}
-                  deviceId={deviceId}
-                  changeDevice={(id) => {
-                    if (
-                      recording ||
-                      recordingStartRef.current ||
-                      micRequestRef.current
-                    )
-                      return;
-                    streamRef.current
-                      ?.getTracks()
-                      .forEach((track) => track.stop());
-                    streamRef.current = null;
-                    setDeviceId(id);
-                    setPermission("idle");
-                    setAudioBlob(null);
-                    setTranscript("");
-                    setElapsed(0);
-                  }}
-                  elapsed={elapsed}
-                  audioBlob={audioBlob}
-                  showLessonList={showLessonList}
-                  setShowLessonList={setShowLessonList}
-                  startUnit={startUnit}
-                  startRecording={startRecording}
-                  stopRecording={stopRecording}
-                  requestMic={requestMic}
-                  submitTurn={submitTurn}
-                  finishUnit={finishUnit}
-                  speak={speak}
-                  ttsStatus={ttsStatus}
-                  playRecording={playRecording}
-                  loadingRecordingId={loadingRecordingId}
-                  completed={completed}
-                  clearHistory={clearPracticeHistory}
-                  diamonds={user.diamonds}
-                  unlimitedDiamonds={user?.unlimited_diamonds}
-                  similarityThreshold={appConfig.speech_similarity_threshold}
-                  sessionSaveAudio={sessionSaveAudio}
-                  resetRecording={resetRecording}
-                />
+                <>
+                  {route?.courseId && (
+                    <ActivityHeader
+                      course={currentCoursePayload?.course}
+                      mode="ai_lesson"
+                      onBack={() =>
+                        openCourse(
+                          currentCoursePayload?.course || {
+                            id: currentCourseId,
+                          },
+                        )
+                      }
+                    />
+                  )}
+                  <PracticePage
+                    onBack={() =>
+                      route?.courseId
+                        ? openCourse(
+                            currentCoursePayload?.course || {
+                              id: currentCourseId,
+                            },
+                          )
+                        : nav("home")
+                    }
+                    unit={activeUnit}
+                    allUnits={allUnits}
+                    turns={turns}
+                    transcript={transcript}
+                    setTranscript={setTranscript}
+                    recording={recording}
+                    processing={processing}
+                    processingMessage={processingMessage}
+                    permission={permission}
+                    devices={devices}
+                    deviceId={deviceId}
+                    changeDevice={(id) => {
+                      if (
+                        recording ||
+                        recordingStartRef.current ||
+                        micRequestRef.current
+                      )
+                        return;
+                      streamRef.current
+                        ?.getTracks()
+                        .forEach((track) => track.stop());
+                      streamRef.current = null;
+                      setDeviceId(id);
+                      setPermission("idle");
+                      setAudioBlob(null);
+                      setTranscript("");
+                      setElapsed(0);
+                    }}
+                    elapsed={elapsed}
+                    audioBlob={audioBlob}
+                    showLessonList={showLessonList}
+                    setShowLessonList={setShowLessonList}
+                    startUnit={startUnit}
+                    startRecording={startRecording}
+                    stopRecording={stopRecording}
+                    requestMic={requestMic}
+                    submitTurn={submitTurn}
+                    finishUnit={finishUnit}
+                    speak={speak}
+                    ttsStatus={ttsStatus}
+                    playRecording={playRecording}
+                    loadingRecordingId={loadingRecordingId}
+                    completed={completed}
+                    clearHistory={clearPracticeHistory}
+                    diamonds={user.diamonds}
+                    unlimitedDiamonds={user?.unlimited_diamonds}
+                    similarityThreshold={appConfig.speech_similarity_threshold}
+                    sessionSaveAudio={sessionSaveAudio}
+                    resetRecording={resetRecording}
+                  />
+                </>
               )}
               {page === "live" && (
-                <LivePage
-                  liveOn={liveOn}
-                  liveSeconds={liveSeconds}
-                  liveLines={liveLines}
-                  liveStatus={liveStatus}
-                  liveLoading={liveLoading}
-                  liveAssessment={liveAssessment}
-                  liveAssessmentFailed={liveAssessmentFailed}
-                  diamonds={user.diamonds}
-                  unlimitedAccess={user?.unlimited_diamonds}
-                  liveTopicId={liveTopicId}
-                  liveTopic={activeLiveTopic}
-                  onLiveTopicChange={setLiveTopicId}
-                  beginLive={beginLive}
-                  endLive={endLive}
-                  retryLiveAssessment={retryLiveAssessment}
-                />
+                <>
+                  {route?.courseId && (
+                    <ActivityHeader
+                      course={currentCoursePayload?.course}
+                      mode="live_lesson"
+                      onBack={() =>
+                        openCourse(
+                          currentCoursePayload?.course || {
+                            id: currentCourseId,
+                          },
+                        )
+                      }
+                    />
+                  )}
+                  <LivePage
+                    courseId={currentCourseId}
+                    topics={currentLiveTopics}
+                    liveMaxSeconds={liveMaxSeconds}
+                    liveBlockMinutes={liveRuntimeBlockMinutes}
+                    liveRate={liveRuntimeRate}
+                    liveOn={liveOn}
+                    liveSeconds={liveSeconds}
+                    liveLines={liveLines}
+                    liveStatus={liveStatus}
+                    liveLoading={liveLoading}
+                    liveAssessment={liveAssessment}
+                    liveAssessmentFailed={liveAssessmentFailed}
+                    diamonds={user.diamonds}
+                    unlimitedAccess={user?.unlimited_diamonds}
+                    liveTopicId={liveTopicId}
+                    liveTopic={activeLiveTopic}
+                    onLiveTopicChange={setLiveTopicId}
+                    beginLive={beginLive}
+                    endLive={endLive}
+                    retryLiveAssessment={retryLiveAssessment}
+                  />
+                </>
               )}
               {page === "progress" && (
                 <ProgressPage
@@ -2777,27 +3374,32 @@ Because this is live audio, comment on pronunciation or word stress only when a 
           </ModuleErrorBoundary>
         </div>
       </main>
+      {coursePurchase && (
+        <CoursePurchaseDialog
+          purchase={coursePurchase}
+          settings={coursePaymentSettings}
+          user={user}
+          onClose={() => setCoursePurchase(null)}
+          onContact={contactCoursePurchase}
+          onRefresh={refreshCoursePurchase}
+          refreshing={coursePurchaseRefreshing}
+        />
+      )}
       <nav className="mobile-nav" aria-label="Menu seluler">
         {menu
           .filter((item) =>
-            ["home", "listening", "practice", "progress", "shop"].includes(
+            ["home", "courses", "progress", "settings", "admin"].includes(
               item.id,
             ),
           )
           .map((item) => (
             <button
               key={item.id}
-              className={page === item.id ? "active" : ""}
+              className={activeMenuPage === item.id ? "active" : ""}
               onClick={() => nav(item.id)}
             >
               <item.icon size={21} />
-              {item.label === "Listening Lab"
-                ? "Listening"
-                : item.label === "Pencapaian"
-                  ? "Progres"
-                  : item.id === "shop"
-                    ? "Toko"
-                    : item.label}
+              {item.label}
             </button>
           ))}
       </nav>

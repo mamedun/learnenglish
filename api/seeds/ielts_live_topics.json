@@ -1,0 +1,110 @@
+[
+  {
+    "id": "meeting-someone-new",
+    "label": "Meeting someone new",
+    "description": "Berkenalan dan membuka obrolan santai.",
+    "teacherRole": "a friendly person the learner has just met at a community event",
+    "learnerRole": "a person introducing themselves and getting to know someone",
+    "situation": "You have just been introduced at a relaxed community event.",
+    "opening": "Hi, I’m Maya. It’s lovely to meet you. What brings you to this event today?"
+  },
+  {
+    "id": "job-interview",
+    "label": "Job interview",
+    "description": "Latihan wawancara kerja bersama HRD atau hiring manager.",
+    "teacherRole": "a professional but friendly hiring manager conducting a job interview",
+    "learnerRole": "a job candidate answering the interview questions",
+    "situation": "The learner is interviewing for a role that matches their experience.",
+    "opening": "Good morning, and thank you for joining me. To get started, could you tell me a little about yourself?"
+  },
+  {
+    "id": "workplace-meeting",
+    "label": "Workplace meeting",
+    "description": "Menyampaikan ide, progres, dan pendapat di rapat kerja.",
+    "teacherRole": "a supportive colleague leading a short workplace meeting",
+    "learnerRole": "a teammate sharing an update and contributing ideas",
+    "situation": "Your team is discussing progress on a shared project.",
+    "opening": "Thanks for joining the meeting. What progress have you made on your current project this week?"
+  },
+  {
+    "id": "restaurant-order",
+    "label": "At a restaurant",
+    "description": "Memesan makanan dan bertanya tentang menu.",
+    "teacherRole": "a welcoming restaurant server",
+    "learnerRole": "a customer choosing food and asking about the menu",
+    "situation": "The learner has just sat down and is looking at the menu.",
+    "opening": "Good evening! Welcome in. Would you like a little more time with the menu, or are you ready to order?"
+  },
+  {
+    "id": "hotel-check-in",
+    "label": "Hotel check-in",
+    "description": "Check-in, fasilitas hotel, dan permintaan selama menginap.",
+    "teacherRole": "a helpful hotel receptionist",
+    "learnerRole": "a guest checking in and asking practical questions",
+    "situation": "The learner has arrived at the hotel with a reservation.",
+    "opening": "Good afternoon! Welcome to the hotel. Do you have a reservation with us?"
+  },
+  {
+    "id": "airport-check-in",
+    "label": "At the airport",
+    "description": "Check-in penerbangan, bagasi, dan informasi perjalanan.",
+    "teacherRole": "a polite airline check-in agent",
+    "learnerRole": "a passenger preparing to check in for a flight",
+    "situation": "The learner is at the airport counter before an international flight.",
+    "opening": "Good morning. May I see your passport, and where are you flying today?"
+  },
+  {
+    "id": "asking-directions",
+    "label": "Asking for directions",
+    "description": "Bertanya dan memahami petunjuk jalan.",
+    "teacherRole": "a friendly local who knows the neighborhood",
+    "learnerRole": "a visitor asking how to reach a place nearby",
+    "situation": "The learner is visiting the area and needs help finding a destination.",
+    "opening": "Hello! You look like you might be looking for something. Where are you trying to get to?"
+  },
+  {
+    "id": "shopping",
+    "label": "Shopping for clothes",
+    "description": "Mencari ukuran, warna, harga, dan mencoba pakaian.",
+    "teacherRole": "a helpful clothing-store assistant",
+    "learnerRole": "a customer looking for a suitable item of clothing",
+    "situation": "The learner is browsing in a clothing store and may need assistance.",
+    "opening": "Hi there! Let me know if I can help. What kind of clothes are you looking for today?"
+  },
+  {
+    "id": "doctor-appointment",
+    "label": "Making a doctor’s appointment",
+    "description": "Latihan percakapan bahasa Inggris di klinik, bukan saran medis.",
+    "teacherRole": "a clinic receptionist helping someone arrange an appointment",
+    "learnerRole": "a patient calling to book or change an appointment",
+    "situation": "The learner is calling a clinic to arrange a convenient appointment time.",
+    "opening": "Good morning, Green Street Clinic. How can I help you today?"
+  },
+  {
+    "id": "customer-service",
+    "label": "Customer service call",
+    "description": "Menjelaskan masalah dan meminta solusi dengan sopan.",
+    "teacherRole": "a calm customer-support representative",
+    "learnerRole": "a customer explaining a problem and asking for help",
+    "situation": "The learner is calling about a delayed order and wants a clear solution.",
+    "opening": "Thank you for calling customer support. My name is Maya. How can I help you with your order?"
+  },
+  {
+    "id": "weekend-plans",
+    "label": "Weekend plans and hobbies",
+    "description": "Obrolan santai tentang hobi, akhir pekan, dan minat.",
+    "teacherRole": "a friendly conversation partner who is curious about the learner’s interests",
+    "learnerRole": "someone sharing their hobbies and plans",
+    "situation": "You are chatting casually about how you spend your free time.",
+    "opening": "Hi! I’m glad we have a chance to chat. What do you usually enjoy doing at the weekend?"
+  },
+  {
+    "id": "travel-planning",
+    "label": "Planning a trip",
+    "description": "Membicarakan tujuan, jadwal, transportasi, dan pengalaman wisata.",
+    "teacherRole": "a travel-loving friend helping plan a trip",
+    "learnerRole": "a traveler discussing where they would like to go",
+    "situation": "You are planning a short holiday together and comparing ideas.",
+    "opening": "I’m excited to plan this trip with you. If you could visit anywhere next month, where would you go?"
+  }
+]

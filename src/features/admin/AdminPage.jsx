@@ -20,7 +20,9 @@ import ModuleLoading from "../../components/ModuleLoading";
 import ContentStudio from "./ContentStudio";
 import AdminAudioCache from "./AdminAudioCache";
 import AdminUsersPanel from "./AdminUsersPanel";
-import AdminPurchasesPanel from "./AdminPurchasesPanel";
+import AdminPurchasesHub from "./AdminPurchasesHub";
+import AdminCourseUsagePanel from "./AdminCourseUsagePanel";
+import CourseStudio from "./CourseStudio";
 import { toast } from "sonner";
 
 const FREE_DEFAULT_POOL = Array.from(
@@ -35,7 +37,7 @@ export default function AdminPage({
   onSpeechSimilarityThresholdChange,
   onAIProviderChange,
 }) {
-  const [adminTab, setAdminTab] = useState("content");
+  const [adminTab, setAdminTab] = useState("courses");
   const [settings, setSettings] = useState({
     ai_provider: "clario",
     speech_input_mode: "live_transcribe",
@@ -57,6 +59,21 @@ export default function AdminPage({
     free_token_mode: "auto",
     free_browser_debug: false,
     gemini_live_model: "",
+    courseware_policy: {
+      max_record_seconds: 180,
+      max_transcript_chars: 3000,
+      max_live_seconds: 600,
+      max_ai_audio_bytes: 12582912,
+      cost_ai_lesson_text: 2,
+      cost_ai_lesson_audio: 5,
+      cost_listening_transcribe: 1,
+      cost_listening_ai_score: 1,
+      cost_listening_direct_audio: 3,
+      cost_live_assessment: 0,
+      cost_live_per_minute: 2,
+      live_block_minutes: 5,
+      diamond_price_idr: 100,
+    },
   });
   const [models, setModels] = useState([]);
   const [modelsProvider, setModelsProvider] = useState("");
@@ -111,6 +128,15 @@ export default function AdminPage({
   }, []);
   function change(k, v) {
     setSettings((p) => ({ ...p, [k]: v }));
+  }
+  function changePolicy(key, value) {
+    setSettings((current) => ({
+      ...current,
+      courseware_policy: {
+        ...(current.courseware_policy || {}),
+        [key]: value,
+      },
+    }));
   }
   async function refreshModels(provider) {
     if (settings.ai_provider !== provider || modelsProvider !== provider)
@@ -192,6 +218,7 @@ export default function AdminPage({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...saveSettings,
+          ...(saveSettings.courseware_policy || {}),
           clario_api_key: apiKey,
           free_api_key: freeApiKey,
           free_jwt_secret: freeJwtSecret,
@@ -247,6 +274,14 @@ export default function AdminPage({
       >
         <button
           role="tab"
+          aria-selected={adminTab === "courses"}
+          className={adminTab === "courses" ? "active" : ""}
+          onClick={() => setAdminTab("courses")}
+        >
+          <BookOpen size={17} /> Course Studio
+        </button>
+        <button
+          role="tab"
           aria-selected={adminTab === "content"}
           className={adminTab === "content" ? "active" : ""}
           onClick={() => setAdminTab("content")}
@@ -279,6 +314,14 @@ export default function AdminPage({
         </button>
         <button
           role="tab"
+          aria-selected={adminTab === "usage"}
+          className={adminTab === "usage" ? "active" : ""}
+          onClick={() => setAdminTab("usage")}
+        >
+          <BarChart3 size={17} /> Penggunaan
+        </button>
+        <button
+          role="tab"
           aria-selected={adminTab === "access"}
           className={adminTab === "access" ? "active" : ""}
           onClick={() => setAdminTab("access")}
@@ -286,14 +329,18 @@ export default function AdminPage({
           <Settings size={17} /> Akses & pembayaran
         </button>
       </div>
-      {adminTab === "content" ? (
+      {adminTab === "courses" ? (
+        <CourseStudio onCatalogChange={onCatalogChange} />
+      ) : adminTab === "content" ? (
         <ContentStudio onCatalogChange={onCatalogChange} />
       ) : adminTab === "audio" ? (
         <AdminAudioCache />
       ) : adminTab === "users" ? (
         <AdminUsersPanel />
       ) : adminTab === "purchases" ? (
-        <AdminPurchasesPanel />
+        <AdminPurchasesHub />
+      ) : adminTab === "usage" ? (
+        <AdminCourseUsagePanel />
       ) : settingsError ? (
         <div className="studio-error" role="alert">
           {settingsError} <button onClick={loadSettings}>Coba lagi</button>
@@ -952,6 +999,61 @@ export default function AdminPage({
                   backend; long-lived API key tetap tersimpan terenkripsi dan
                   tidak dikirim ke browser.
                 </span>
+              </div>
+              <div className="admin-divider" />
+              <div className="setting-title">
+                <div className="setting-icon blue">
+                  <Settings size={18} />
+                </div>
+                <div>
+                  <b>Kebijakan Course & biaya AI</b>
+                  <small>Durasi, batas teks, harga diamond, dan tarif berlaku global.</small>
+                </div>
+              </div>
+              <div className="payment-config-grid courseware-policy-grid">
+                <label className="field-label">DURASI MAKSIMUM REKAMAN (detik)
+                  <input className="text-field" type="number" min={10} max={900} step={1} value={settings.courseware_policy?.max_record_seconds ?? 180} onChange={(event)=>changePolicy("max_record_seconds",Number(event.target.value))}/>
+                </label>
+                <label className="field-label">PANJANG MAKSIMUM TRANSKRIP (karakter)
+                  <input className="text-field" type="number" min={100} max={48000} step={100} value={settings.courseware_policy?.max_transcript_chars ?? 3000} onChange={(event)=>changePolicy("max_transcript_chars",Number(event.target.value))}/>
+                </label>
+                <label className="field-label">DURASI MAKSIMUM LIVE (detik)
+                  <input className="text-field" type="number" min={60} max={3600} step={30} value={settings.courseware_policy?.max_live_seconds ?? 600} onChange={(event)=>changePolicy("max_live_seconds",Number(event.target.value))}/>
+                </label>
+                <label className="field-label">HARGA PER DIAMOND (Rp)
+                  <input className="text-field" type="number" min={1} max={5000} step={1} value={settings.courseware_policy?.diamond_price_idr ?? 100} onChange={(event)=>changePolicy("diamond_price_idr",Number(event.target.value))}/>
+                </label>
+                <label className="field-label">AI LESSON · TRANSKRIP (diamond)
+                  <input className="text-field" type="number" min={0} max={10000} step={1} value={settings.courseware_policy?.cost_ai_lesson_text ?? 2} onChange={(event)=>changePolicy("cost_ai_lesson_text",Number(event.target.value))}/>
+                </label>
+                <label className="field-label">AI LESSON · AUDIO (diamond)
+                  <input className="text-field" type="number" min={0} max={10000} step={1} value={settings.courseware_policy?.cost_ai_lesson_audio ?? 5} onChange={(event)=>changePolicy("cost_ai_lesson_audio",Number(event.target.value))}/>
+                </label>
+                <label className="field-label">LISTENING · TRANSKRIPSI (diamond)
+                  <input className="text-field" type="number" min={0} max={10000} step={1} value={settings.courseware_policy?.cost_listening_transcribe ?? 1} onChange={(event)=>changePolicy("cost_listening_transcribe",Number(event.target.value))}/>
+                </label>
+                <label className="field-label">LISTENING · AI SCORE (diamond)
+                  <input className="text-field" type="number" min={0} max={10000} step={1} value={settings.courseware_policy?.cost_listening_ai_score ?? 1} onChange={(event)=>changePolicy("cost_listening_ai_score",Number(event.target.value))}/>
+                </label>
+                <label className="field-label">LISTENING · DIRECT AUDIO (diamond)
+                  <input className="text-field" type="number" min={0} max={10000} step={1} value={settings.courseware_policy?.cost_listening_direct_audio ?? 3} onChange={(event)=>changePolicy("cost_listening_direct_audio",Number(event.target.value))}/>
+                </label>
+                <label className="field-label">LIVE · ASSESSMENT SETELAH SESI (diamond)
+                  <input className="text-field" type="number" min={0} max={10000} step={1} value={settings.courseware_policy?.cost_live_assessment ?? 0} onChange={(event)=>changePolicy("cost_live_assessment",Number(event.target.value))}/>
+                </label>
+                <label className="field-label">LIVE · BIAYA PER MENIT (diamond)
+                  <input className="text-field" type="number" min={0} max={10000} step={1} value={settings.courseware_policy?.cost_live_per_minute ?? 2} onChange={(event)=>changePolicy("cost_live_per_minute",Number(event.target.value))}/>
+                </label>
+                <label className="field-label">LIVE · CADANGAN PER BLOK (menit)
+                  <input className="text-field" type="number" min={1} max={10} step={1} value={settings.courseware_policy?.live_block_minutes ?? 5} onChange={(event)=>changePolicy("live_block_minutes",Number(event.target.value))}/>
+                </label>
+                <label className="field-label">MAKSIMUM AUDIO AI (MB)
+                  <input className="text-field" type="number" min={1} max={24} step={1} value={Math.round(Number(settings.courseware_policy?.max_ai_audio_bytes ?? 12582912)/1048576)} onChange={(event)=>changePolicy("max_ai_audio_bytes",Number(event.target.value)*1048576)}/>
+                </label>
+              </div>
+              <div className="info-box">
+                <CircleHelp size={15}/>
+                <span>Admin utama tidak mengonsumsi diamond. Biaya Live Assessment default 0; Gemini Live tetap menangani audio langsung, sedangkan assessment memakai provider AI global terpilih.</span>
               </div>
               <div className="admin-divider" />
               <div className="setting-title">

@@ -1,0 +1,213 @@
+.course-payment-backdrop {
+  position: fixed;
+  z-index: 1500;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(18, 27, 42, 0.59);
+  backdrop-filter: blur(5px);
+}
+.course-payment-dialog {
+  position: relative;
+  width: min(720px, 100%);
+  max-height: calc(100vh - 36px);
+  overflow: auto;
+  padding: 24px;
+  border-radius: 22px;
+  background: #fff;
+  box-shadow: 0 26px 80px rgba(12, 23, 41, 0.28);
+}
+.course-payment-close {
+  position: absolute;
+  top: 17px;
+  right: 17px;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid #e7e9ee;
+  border-radius: 10px;
+  background: #fff;
+  color: #747c89;
+  cursor: pointer;
+}
+.course-payment-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding-right: 38px;
+}
+.course-payment-icon {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  flex: 0 0 auto;
+  border-radius: 14px;
+  background: #fff1e9;
+  color: #e66d47;
+}
+.course-payment-heading h2 {
+  font-size: 20px;
+  margin: 5px 0 4px;
+}
+.course-payment-heading p {
+  font-size: 12px;
+  color: #798191;
+  margin: 0;
+  line-height: 1.5;
+}
+.course-payment-content {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin: 22px 0 19px;
+}
+.course-payment-qr {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  padding: 17px;
+  border: 1px solid #e9ebf0;
+  border-radius: 15px;
+  background: #fbfcfd;
+}
+.course-payment-qr img {
+  width: min(100%, 250px);
+  aspect-ratio: 1;
+  object-fit: contain;
+}
+.course-payment-qr > b {
+  font-size: 21px;
+  color: #243143;
+}
+.course-payment-qr > small {
+  font-size: 10px;
+  color: #818898;
+  text-align: center;
+}
+.course-payment-qr .outline-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 5px;
+  padding: 8px 10px;
+  border: 1px solid #dfe3e9;
+  border-radius: 9px;
+  background: white;
+  color: #596272;
+  font-size: 10px;
+  font-weight: 750;
+  cursor: pointer;
+}
+.course-payment-noqr {
+  display: grid;
+  place-items: center;
+  width: 200px;
+  aspect-ratio: 1;
+  border: 1px dashed #d9dfe7;
+  color: #939aa7;
+  font-size: 12px;
+}
+.course-payment-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  justify-content: center;
+  padding: 6px 0;
+}
+.course-payment-summary > div:not(.course-payment-expiry) {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  color: #777f8e;
+}
+.course-payment-summary > div b {
+  color: #414a59;
+}
+.course-payment-summary .course-payment-total {
+  padding-top: 13px;
+  border-top: 1px solid #eaedf1;
+  font-size: 14px !important;
+}
+.course-payment-summary .course-payment-total b {
+  font-size: 18px;
+  color: #d46442;
+}
+.course-payment-expiry {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  color: #858c99;
+  font-size: 10px;
+  line-height: 1.45;
+}
+.course-payment-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+.course-payment-actions .btn-primary,
+.course-payment-actions .outline-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 10px 13px;
+  border-radius: 9px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.course-payment-actions .outline-btn {
+  border: 1px solid #dfe3e9;
+  background: #fff;
+  color: #596272;
+}
+.course-payment-actions button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+.course-payment-success {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #eaf7ee;
+  color: #2d7850;
+  font-size: 12px;
+  font-weight: 800;
+}
+.course-payment-footnote {
+  margin-top: 13px;
+  color: #8b92a0;
+  font-size: 10px;
+  line-height: 1.5;
+}
+@media (max-width: 600px) {
+  .course-payment-dialog {
+    padding: 20px 16px;
+  }
+  .course-payment-content {
+    grid-template-columns: 1fr;
+    gap: 13px;
+  }
+  .course-payment-qr img {
+    width: min(100%, 215px);
+  }
+  .course-payment-actions {
+    flex-direction: column;
+  }
+  .course-payment-actions > * {
+    width: 100%;
+  }
+  .course-payment-heading h2 {
+    font-size: 17px;
+  }
+}

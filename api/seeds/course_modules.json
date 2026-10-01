@@ -1,0 +1,98 @@
+{
+  "courses": [
+    {
+      "id": "it-remote-worker",
+      "name": "IT Remote Worker English",
+      "description": "Bahasa Inggris praktis untuk tim IT remote: stand-up singkat, pembaruan progres, code review, dan wawancara kerja. Mulai dari aktivitas mana pun dan belajar dengan tempo sendiri.",
+      "posterUrl": "/learnenglish/images/speaking-cue-card-practice.jpg",
+      "bannerUrl": "/learnenglish/images/speakup-adventure.png",
+      "status": "published",
+      "price": 0,
+      "color": "#285B75",
+      "label": "Career English",
+      "level": "Beginner–Intermediate",
+      "enableListening": true,
+      "enableAiLesson": true,
+      "enableLiveLesson": true,
+      "sortOrder": 10,
+      "modules": {
+        "listening": {
+          "categories": [
+            {"id":"remote-work","name":"Remote work essentials","label":"Workplace listening","guide":"Listen for the task, deadline, and next action.","color":"#285B75","sortOrder":0}
+          ],
+          "units": [
+            {"id":"remote-standup-listening","categoryId":"remote-work","title":"Daily stand-up update","subtitle":"Catch the progress, blocker, and next step.","sortOrder":0,"content":{"objective":"Understand a concise remote-team status update.","script":"Hi, everyone. I finished the new sign-in screen yesterday and opened a pull request this morning. I am waiting for a review from Sam before merging it. My only blocker is the test environment, which has been unavailable since nine. I will contact the platform team after this call. If it is ready by lunchtime, I can complete the integration tests today. Otherwise, I will update the project board and move that task to tomorrow.","questions":[{"prompt":"What did the speaker finish yesterday?","options":["The sign-in screen","The integration tests","The project board"],"answer":0,"explain":"The speaker says the new sign-in screen was finished yesterday."},{"prompt":"What is the current blocker?","options":["A missing project deadline","The unavailable test environment","A teammate being absent"],"answer":1,"explain":"The test environment has been unavailable since nine."},{"prompt":"What will the speaker do if the environment is not ready?","options":["Cancel the pull request","Update the project board and move the task","Ask Sam to complete the tests"],"answer":1,"explain":"The speaker will update the board and move the task to tomorrow."}],"defaultVoice":"af_heart","ttsSegments":[]}}
+          ]
+        },
+        "ai_lesson": {
+          "categories": [
+            {"id":"remote-speaking","name":"Remote team communication","label":"AI Lesson","guide":"Give a clear update, explain one detail, and invite a response.","color":"#285B75","sortOrder":0}
+          ],
+          "units": [
+            {"id":"remote-project-update","categoryId":"remote-speaking","title":"Give a project update","subtitle":"Explain what is done, what is next, and what is blocked.","masterPrompt":"You are a calm English coach for remote IT professionals. Keep the learner's meaning, ask one focused follow-up, and correct only clear, useful English errors. Do not invent mistakes.","sortOrder":0,"content":{"emoji":"💻","duration":"5 min","prompt":"You are joining a short remote-team stand-up. Tell your teammates what you completed, what you will work on next, and whether anything is blocking you. Include one specific detail.","objective":"Deliver a concise and natural status update in a remote team.","part":"Workplace speaking","questionType":"Project update","bandTarget":"Clear and concise","prepSeconds":30,"responseSeconds":90,"defaultVoice":"af_heart","ttsSegments":[]}},
+            {"id":"remote-code-review","categoryId":"remote-speaking","title":"Discuss a code review","subtitle":"Ask for clarification and respond constructively.","masterPrompt":"Act as a supportive software teammate. Discuss the code review in English; never pretend the learner made an error that is not present.","sortOrder":1,"content":{"emoji":"🧩","duration":"5 min","prompt":"A teammate has left a comment asking you to simplify a function. Explain your approach, ask one polite clarifying question, and suggest a next step.","objective":"Use collaborative language during a code review.","part":"Workplace speaking","questionType":"Code review","bandTarget":"Natural professional English","prepSeconds":30,"responseSeconds":90,"defaultVoice":"af_heart","ttsSegments":[]}}
+          ]
+        },
+        "live_lesson": {
+          "categories": [
+            {"id":"remote-live","name":"Live team conversations","label":"Live Lesson","guide":"Practice spontaneous conversations as a remote teammate.","color":"#285B75","sortOrder":0}
+          ],
+          "units": [
+            {"id":"remote-sprint-planning","categoryId":"remote-live","title":"Sprint planning call","subtitle":"Agree priorities and negotiate a realistic task estimate.","masterPrompt":"Guide a realistic sprint-planning role-play. Start speaking first and keep your colleague role friendly and concise.","sortOrder":0,"content":{"teacherRole":"a supportive software teammate facilitating sprint planning","learnerRole":"a developer explaining capacity and choosing a sprint task","situation":"Your remote team is planning a one-week sprint. The team has a small bug fix, a new feature, and a technical-debt task to prioritize.","opening":"Good morning, everyone. Before we choose our sprint tasks, how much time do you have available this week?"}}
+          ]
+        }
+      }
+    },
+    {
+      "id": "tour-guide-english",
+      "name": "Tour Guide English",
+      "description": "Bahasa Inggris praktis untuk pemandu wisata: menyambut tamu, menjelaskan tempat bersejarah, memberi arahan, dan menjawab pertanyaan wisatawan.",
+      "posterUrl": "/learnenglish/images/market-conversation-scene.jpg",
+      "bannerUrl": "/learnenglish/images/market-conversation-scene-flow.jpg",
+      "status": "published",
+      "price": 25000,
+      "color": "#9A5B27",
+      "label": "Tourism English",
+      "level": "Elementary–Intermediate",
+      "enableListening": true,
+      "enableAiLesson": true,
+      "enableLiveLesson": true,
+      "sortOrder": 20,
+      "modules": {
+        "listening": {
+          "categories": [
+            {"id":"tour-guide-basics","name":"Welcoming visitors","label":"Guided tour listening","guide":"Listen for meeting points, timings, and visitor questions.","color":"#9A5B27","sortOrder":0}
+          ],
+          "units": [
+            {"id":"tour-meeting-point","categoryId":"tour-guide-basics","title":"Meet the group","subtitle":"Listen for the departure time and meeting point.","sortOrder":0,"content":{"objective":"Identify key details in a tour welcome announcement.","script":"Welcome to the old town walking tour. My name is Dina, and I will be your guide this morning. We will leave the visitor center at half past nine and walk to the central square. Please keep your ticket with you; we will check it before entering the museum. The walk takes about fifteen minutes, and there is a short stop for water along the way. If you have any questions or need a slower pace, please let me know.","questions":[{"prompt":"When does the group leave the visitor center?","options":["At nine o'clock","At half past nine","At a quarter to ten"],"answer":1,"explain":"The guide says the group leaves at half past nine."},{"prompt":"How long does the walk to the square take?","options":["About fifteen minutes","About half an hour","About an hour"],"answer":0,"explain":"The walk takes about fifteen minutes."},{"prompt":"What should visitors keep with them?","options":["A bottle of water","Their ticket","A city map"],"answer":1,"explain":"The guide asks everyone to keep their ticket with them."}],"defaultVoice":"af_heart","ttsSegments":[]}}
+          ]
+        },
+        "ai_lesson": {
+          "categories": [
+            {"id":"tour-guide-speaking","name":"Explain and recommend","label":"AI Lesson","guide":"Describe a place clearly and make visitors feel welcome.","color":"#9A5B27","sortOrder":0}
+          ],
+          "units": [
+            {"id":"tourist-attraction-intro","categoryId":"tour-guide-speaking","title":"Introduce a local attraction","subtitle":"Create a short, engaging introduction for visitors.","masterPrompt":"You are a friendly English coach for a local tour guide. Encourage accurate, vivid descriptions and never invent a learner error.","sortOrder":0,"content":{"emoji":"🏛️","duration":"5 min","prompt":"Imagine you are guiding visitors at a local attraction you know well. Welcome the group, describe one interesting feature, and explain why it matters. Finish by inviting one question.","objective":"Give a warm, informative introduction to a place of interest.","part":"Tour guide speaking","questionType":"Visitor welcome","bandTarget":"Clear and engaging","prepSeconds":30,"responseSeconds":90,"defaultVoice":"af_heart","ttsSegments":[]}},
+            {"id":"recommend-local-food","categoryId":"tour-guide-speaking","title":"Recommend local food","subtitle":"Explain a dish and help a visitor choose.","masterPrompt":"You are a considerate speaking coach. Ask about the visitor's preferences and help the learner explain local food clearly.","sortOrder":1,"content":{"emoji":"🍲","duration":"5 min","prompt":"A visitor asks what local dish they should try. Recommend a dish, describe its main ingredients and taste, and mention one useful detail such as spice level or a dietary option.","objective":"Explain a local food recommendation in a helpful way.","part":"Tour guide speaking","questionType":"Food recommendation","bandTarget":"Natural and helpful","prepSeconds":30,"responseSeconds":90,"defaultVoice":"af_heart","ttsSegments":[]}}
+          ]
+        },
+        "live_lesson": {
+          "categories": [
+            {"id":"tour-live","name":"Tourist conversations","label":"Live Lesson","guide":"Respond naturally to common visitor questions.","color":"#9A5B27","sortOrder":0}
+          ],
+          "units": [
+            {"id":"tourist-directions","categoryId":"tour-live","title":"Help a visitor find a place","subtitle":"Give clear directions and check that the visitor understands.","masterPrompt":"Start as a visitor who needs directions. Keep turns short, be polite, and let the learner explain a route.","sortOrder":0,"content":{"teacherRole":"a friendly visitor exploring the town","learnerRole":"a local tour guide giving directions","situation":"The visitor wants to walk from the central square to a nearby traditional market and is unsure which street to take.","opening":"Excuse me, I am trying to find the traditional market. Is it within walking distance from here?"}}
+          ]
+        }
+      }
+    }
+  ],
+  "ad": {
+    "posterUrl": "/learnenglish/images/market-conversation-scene-flow.jpg",
+    "title": "Make your next conversation count",
+    "description": "Practice practical English with short guided lessons and friendly conversation.",
+    "link": "https://example.com/english-speaking-workshop",
+    "sortOrder": 0,
+    "active": true
+  }
+}

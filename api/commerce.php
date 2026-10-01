@@ -295,7 +295,7 @@ function payment_public_settings(): array
         'dynamic_qris_available'=>$settings['qris_payload'] !== '',
         'static_qr_available'=>payment_static_qr_url($settings)!==null,
         'static_qr_url'=>payment_static_qr_url($settings),
-        'diamond_rate'=>100,
+        'diamond_rate'=>max(1,(int)app_setting('diamond_price_idr','100')),
         'minimum_purchase'=>5000,
         'purchase_step'=>5000,
         'purchase_validity_hours'=>24,
@@ -379,7 +379,9 @@ function create_diamond_purchase(int $userId, int $baseAmount): array
     }
     $tax = (int)round($baseAmount * max(0, min(100, (float)$settings['tax_percent'])) / 100);
     $adminFee = max(0, (int)$settings['admin_fee']);
-    $diamonds = intdiv($baseAmount, 100);
+    $diamondRate = max(1, (int)app_setting("diamond_price_idr", "100"));
+    $diamonds = intdiv($baseAmount, $diamondRate);
+    if ($diamonds < 1) respond(["error"=>"Nominal pembelian tidak cukup untuk membeli satu diamond dengan harga saat ini."],422);
     $createdAt = gmdate('c');
     $expiresAt = gmdate('c', time() + 86400);
     $pdo = db();
@@ -495,7 +497,9 @@ function delete_diamond_purchase(string $purchaseId): bool
 
 function live_billing_recover_stale(int $userId): void
 {
-    $query = db()->prepare("SELECT id,status,started_at,created_at FROM live_billing_sessions WHERE user_id=? AND status IN ('reserved','active')");
+    $policy = function_exists('courseware_policy') ? courseware_policy() : ['max_live_seconds'=>600];
+    $maxSeconds = max(60, (int)($policy['max_live_seconds'] ?? 600));
+    $query = db()->prepare("SELECT id,status,started_at,created_at,max_seconds FROM live_billing_sessions WHERE user_id=? AND status IN ('reserved','active')");
     $query->execute([$userId]);
     $now = time();
     foreach ($query->fetchAll() as $session) {
@@ -503,34 +507,49 @@ function live_billing_recover_stale(int $userId): void
             $created = strtotime((string)$session['created_at']);
             if ($created !== false && $now - $created >= 180)
                 live_billing_settle((string)$session['id'], $userId, true);
-        } elseif (!empty($session['started_at']) && $now - (int)$session['started_at'] >= 600) {
-            live_billing_settle((string)$session['id'], $userId, false);
+        } elseif (!empty($session['started_at'])) {
+            $sessionLimit = max(60, (int)($session['max_seconds'] ?? $maxSeconds));
+            if ($now - (int)$session['started_at'] >= $sessionLimit)
+                live_billing_settle((string)$session['id'], $userId, false);
         }
     }
 }
 
-function live_billing_start(int $userId): array
+function live_billing_start(int $userId, string $courseId = 'ielts', ?string $unitId = null): array
 {
     live_billing_recover_stale($userId);
     $unlimited = wallet_is_admin($userId);
+    $policy = function_exists('courseware_policy') ? courseware_policy() : [];
+    $maxSeconds = max(60, (int)($policy['max_live_seconds'] ?? 600));
+    $blockMinutes = max(1, min(10, (int)($policy['live_block_minutes'] ?? 5)));
+    $rate = max(0, (int)($policy['cost_live_per_minute'] ?? 2));
+    $firstMinutes = min($blockMinutes, max(1, (int)ceil($maxSeconds / 60)));
+    $reserveCost = $firstMinutes * $rate;
     $pdo = db();
     $pdo->beginTransaction();
     try {
-        if (!$unlimited) {
-            $debit = $pdo->prepare('UPDATE users SET diamonds=diamonds-10 WHERE id=? AND diamonds>=10');
-            $debit->execute([$userId]);
+        if (!$unlimited && $reserveCost > 0) {
+            // The default policy preserves the original 10-diamond first-block reserve.
+            if ($reserveCost === 10) {
+                $debit = $pdo->prepare('UPDATE users SET diamonds=diamonds-10 WHERE id=? AND diamonds>=10');
+                $debit->execute([$userId]);
+            } else {
+                $debit = $pdo->prepare('UPDATE users SET diamonds=diamonds-? WHERE id=? AND diamonds>=?');
+                $debit->execute([$reserveCost,$userId,$reserveCost]);
+            }
             if ($debit->rowCount() !== 1) {
                 $balance = wallet_balance($userId);
                 $pdo->rollBack();
-                respond(['error'=>'Live Lesson memerlukan minimal 10 diamond untuk membuka blok 5 menit.','code'=>'insufficient_diamonds','required'=>10,'diamonds'=>$balance],402);
+                respond(['error'=>"Live Lesson memerlukan minimal $reserveCost diamond untuk membuka blok pertama.",'code'=>'insufficient_diamonds','required'=>$reserveCost,'diamonds'=>$balance],402);
             }
         }
         $id = bin2hex(random_bytes(16));
-        $pdo->prepare("INSERT INTO live_billing_sessions(id,user_id,reserved_blocks,status,created_at) VALUES(?,?,1,'reserved',?)")->execute([$id,$userId,gmdate('c')]);
-        if (!$unlimited) wallet_record($pdo,$userId,-10,'live_reserve',$id,'Cadangan blok pertama Live Lesson (5 menit).');
+        $pdo->prepare("INSERT INTO live_billing_sessions(id,user_id,reserved_blocks,status,created_at,course_id,unit_id,reserved_minutes,rate_per_minute,block_minutes,max_seconds) VALUES(?,?,1,'reserved',?,?,?,?,?,?,?)")
+            ->execute([$id,$userId,gmdate('c'),$courseId,$unitId,$firstMinutes,$rate,$blockMinutes,$maxSeconds]);
+        if (!$unlimited && $reserveCost > 0) wallet_record($pdo,$userId,-$reserveCost,'live_reserve',$id,"Cadangan blok pertama Live Lesson ($firstMinutes menit).");
         $balance = wallet_balance($userId);
         $pdo->commit();
-        return ['session_id'=>$id,'diamonds'=>$balance,'reserved_blocks'=>1,'unlimited_access'=>$unlimited];
+        return ['session_id'=>$id,'diamonds'=>$balance,'reserved_blocks'=>1,'reserved_minutes'=>$firstMinutes,'cost_per_minute'=>$rate,'block_minutes'=>$blockMinutes,'max_seconds'=>$maxSeconds,'unlimited_access'=>$unlimited];
     } catch (Throwable $error) {
         if ($pdo->inTransaction()) $pdo->rollBack();
         throw $error;
@@ -559,36 +578,58 @@ function live_billing_reserve_next(string $sessionId, int $userId): array
     $pdo = db();
     $pdo->beginTransaction();
     try {
-        $query = $pdo->prepare("SELECT started_at,reserved_blocks,status FROM live_billing_sessions WHERE id=? AND user_id=?");
+        $query = $pdo->prepare("SELECT started_at,reserved_blocks,reserved_minutes,rate_per_minute,block_minutes,max_seconds,status FROM live_billing_sessions WHERE id=? AND user_id=?");
         $query->execute([$sessionId,$userId]);
         $session = $query->fetch();
-        if (!$session || $session['status'] !== 'active' || (int)$session['reserved_blocks'] !== 1 || !$session['started_at']) {
+        if (!$session || $session['status'] !== 'active' || (int)$session['reserved_blocks'] < 1 || !$session['started_at']) {
             $pdo->rollBack();
             respond(['error'=>'Blok Live berikutnya tidak tersedia.'],409);
         }
         $elapsed = time() - (int)$session['started_at'];
-        if ($elapsed < 240) {
+        $reservedMinutes = max(1,(int)$session['reserved_minutes']);
+        $rate = max(0,(int)$session['rate_per_minute']);
+        $blockMinutes = max(1,(int)$session['block_minutes']);
+        $maxMinutes = max(1,(int)ceil((int)$session['max_seconds']/60));
+        $reserveAt = max(0,$reservedMinutes*60-60);
+        if ($blockMinutes === 5 && $reservedMinutes === 5 && $elapsed < 240) {
             $pdo->rollBack();
             respond(['error'=>'Blok Live berikutnya belum waktunya.'],409);
         }
-        if ($elapsed >= 600) {
+        if ($elapsed < $reserveAt) {
             $pdo->rollBack();
-            respond(['error'=>'Sesi Live sudah mencapai batas 10 menit.'],409);
+            respond(['error'=>'Blok Live berikutnya belum waktunya.'],409);
         }
-        if (!$unlimited) {
-            $debit = $pdo->prepare('UPDATE users SET diamonds=diamonds-10 WHERE id=? AND diamonds>=10');
-            $debit->execute([$userId]);
+        if ($elapsed >= (int)$session['max_seconds']) {
+            $pdo->rollBack();
+            respond(['error'=>'Sesi Live sudah mencapai batas waktu yang ditetapkan.'],409);
+        }
+        $nextMinutes = min($blockMinutes,max(0,$maxMinutes-$reservedMinutes));
+        if ($nextMinutes < 1) {
+            $pdo->rollBack();
+            respond(['error'=>'Sesi Live sudah memiliki cadangan sampai batas maksimal.'],409);
+        }
+        $reserveCost = $nextMinutes * $rate;
+        if (!$unlimited && $reserveCost > 0) {
+            if ($reserveCost === 10) {
+                $debit = $pdo->prepare('UPDATE users SET diamonds=diamonds-10 WHERE id=? AND diamonds>=10');
+                $debit->execute([$userId]);
+            } else {
+                $debit = $pdo->prepare('UPDATE users SET diamonds=diamonds-? WHERE id=? AND diamonds>=?');
+                $debit->execute([$reserveCost,$userId,$reserveCost]);
+            }
             if ($debit->rowCount() !== 1) {
                 $balance = wallet_balance($userId);
                 $pdo->rollBack();
-                respond(['error'=>'Saldo tidak cukup untuk blok Live berikutnya. Sesi akan dihentikan.','code'=>'insufficient_diamonds','required'=>10,'diamonds'=>$balance],402);
+                respond(['error'=>'Saldo tidak cukup untuk blok Live berikutnya. Sesi akan dihentikan.','code'=>'insufficient_diamonds','required'=>$reserveCost,'diamonds'=>$balance],402);
             }
         }
-        $pdo->prepare('UPDATE live_billing_sessions SET reserved_blocks=2 WHERE id=? AND user_id=?')->execute([$sessionId,$userId]);
-        if (!$unlimited) wallet_record($pdo,$userId,-10,'live_reserve',$sessionId.':2','Cadangan blok kedua Live Lesson (menit 5–10).');
+        $blocks = (int)$session['reserved_blocks'] + 1;
+        $newReservedMinutes = $reservedMinutes + $nextMinutes;
+        $pdo->prepare('UPDATE live_billing_sessions SET reserved_blocks=?,reserved_minutes=? WHERE id=? AND user_id=?')->execute([$blocks,$newReservedMinutes,$sessionId,$userId]);
+        if (!$unlimited && $reserveCost > 0) wallet_record($pdo,$userId,-$reserveCost,'live_reserve',$sessionId.':'.$blocks,"Cadangan blok Live berikutnya ($nextMinutes menit).");
         $balance = wallet_balance($userId);
         $pdo->commit();
-        return ['ok'=>true,'diamonds'=>$balance,'reserved_blocks'=>2,'unlimited_access'=>$unlimited];
+        return ['ok'=>true,'diamonds'=>$balance,'reserved_blocks'=>$blocks,'reserved_minutes'=>$newReservedMinutes,'block_minutes'=>$blockMinutes,'unlimited_access'=>$unlimited];
     } catch (Throwable $error) {
         if ($pdo->inTransaction()) $pdo->rollBack();
         throw $error;
@@ -613,18 +654,28 @@ function live_billing_settle(string $sessionId, int $userId, bool $cancel = fals
             $pdo->rollBack();
             return ['ok'=>true,'charged_diamonds'=>(int)$session['charged_diamonds'],'refunded_diamonds'=>(int)$session['refunded_diamonds'],'diamonds'=>$balance,'unlimited_access'=>$unlimited];
         }
-        $reserved = (int)$session['reserved_blocks'] * 10;
-        $seconds = $session['started_at'] ? max(0,min(600,time()-(int)$session['started_at'])) : 0;
-        $charged = $unlimited ? 0 : (($cancel && !$session['started_at']) ? 0 : min($reserved,(int)ceil($seconds/60)*2));
+        $maxSeconds = max(60,(int)($session['max_seconds'] ?? 600));
+        $rate = max(0,(int)($session['rate_per_minute'] ?? 2));
+        $reservedMinutes = max(0,(int)($session['reserved_minutes'] ?? ((int)$session['reserved_blocks']*5)));
+        $reserved = $unlimited ? 0 : $reservedMinutes*$rate;
+        // Preserve the original default cap expression while using each session's Admin-configured limit.
+        $seconds = $session['started_at']
+            ? ($maxSeconds === 600 ? max(0,min(600,time()-(int)$session['started_at'])) : max(0,min($maxSeconds,time()-(int)$session['started_at'])))
+            : 0;
+        $minutesUsed = (int)ceil($seconds/60);
+        $charged = $unlimited ? 0 : (($cancel && !$session['started_at']) ? 0 : min($reserved,$rate===2 ? (int)ceil($seconds/60)*2 : $minutesUsed*$rate));
         $refund = $unlimited ? 0 : max(0,$reserved-$charged);
         if ($refund > 0) {
             $pdo->prepare('UPDATE users SET diamonds=diamonds+? WHERE id=?')->execute([$refund,$userId]);
             wallet_record($pdo,$userId,$refund,'live_refund',$sessionId,'Pengembalian diamond untuk durasi Live yang tidak terpakai.');
         }
         $pdo->prepare("UPDATE live_billing_sessions SET status='ended',charged_diamonds=?,refunded_diamonds=?,settled_at=? WHERE id=? AND user_id=?")->execute([$charged,$refund,gmdate('c'),$sessionId,$userId]);
+        if (function_exists('courseware_log_usage') && !empty($session['course_id'])) {
+            courseware_log_usage($pdo,$userId,(string)$session['course_id'],'live_lesson',!empty($session['unit_id'])?(string)$session['unit_id']:null,'live_session','gemini_live',$charged,0,0,$seconds,$seconds>0?'completed':'cancelled');
+        }
         $balance = wallet_balance($userId);
         $pdo->commit();
-        return ['ok'=>true,'charged_diamonds'=>$charged,'refunded_diamonds'=>$refund,'diamonds'=>$balance,'unlimited_access'=>$unlimited];
+        return ['ok'=>true,'charged_diamonds'=>$charged,'refunded_diamonds'=>$refund,'diamonds'=>$balance,'duration_seconds'=>$seconds,'unlimited_access'=>$unlimited];
     } catch (Throwable $error) {
         if ($pdo->inTransaction()) $pdo->rollBack();
         throw $error;
