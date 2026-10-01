@@ -2,7 +2,7 @@
 $uri = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
 // The PHP development router must never expose private PHP configuration or
 // implementation files as directly routable static assets.
-if (preg_match('#(?:^|/)(?:config(?:\.example)?|bootstrap|catalog|auth|router)\.php$#i', $uri) || str_contains($uri, '..')) {
+if (preg_match('#(?:^|/)(?:config(?:\.example)?|bootstrap|catalog|auth|router|tts_cache)\.php$#i', $uri) || str_contains($uri, '..')) {
     http_response_code(404);
     return true;
 }

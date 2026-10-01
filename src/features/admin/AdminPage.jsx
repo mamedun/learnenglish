@@ -21,6 +21,7 @@ import {
 import { apiFetch, apiJson } from "../../api";
 import ModuleLoading from "../../components/ModuleLoading";
 import ContentStudio from "./ContentStudio";
+import AdminAudioCache from "./AdminAudioCache";
 import { toast } from "sonner";
 import Swal from "sweetalert2";
 
@@ -293,6 +294,14 @@ export default function AdminPage({
         </button>
         <button
           role="tab"
+          aria-selected={adminTab === "audio"}
+          className={adminTab === "audio" ? "active" : ""}
+          onClick={() => setAdminTab("audio")}
+        >
+          <AudioLines size={17} /> Audio cache
+        </button>
+        <button
+          role="tab"
           aria-selected={adminTab === "access"}
           className={adminTab === "access" ? "active" : ""}
           onClick={() => setAdminTab("access")}
@@ -302,6 +311,8 @@ export default function AdminPage({
       </div>
       {adminTab === "content" ? (
         <ContentStudio onCatalogChange={onCatalogChange} />
+      ) : adminTab === "audio" ? (
+        <AdminAudioCache />
       ) : settingsError ? (
         <div className="studio-error" role="alert">
           {settingsError} <button onClick={loadSettings}>Coba lagi</button>

@@ -7,6 +7,7 @@ declare(strict_types=1);
 return [
     'DATA_DB_PATH' => __DIR__ . '/db/data.db',
     'UPLOADS_DIR' => __DIR__ . '/uploads',
+    'TTS_CACHE_DIR' => __DIR__ . '/uploads/tts-cache', // Shared Kokoro cache, private to the API; LRU limit is fixed at 1 GB.
     'ADMIN_EMAIL' => 'admin@rikikurnia.my.id',
     'ADMIN_NAME' => 'SpeakUp Administrator',
     'ADMIN_PASSWORD' => '', // Only for first-time bootstrap. Remove after rotation.

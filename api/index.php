@@ -3,6 +3,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/bootstrap.php';
 require_once __DIR__ . '/catalog.php';
 require_once __DIR__ . '/auth.php';
+require_once __DIR__ . '/tts_cache.php';
 app_config();
 header('X-Content-Type-Options: nosniff');
 header('Cache-Control: no-store');
@@ -62,6 +63,8 @@ function db(): PDO
         $pdo->exec("CREATE TABLE IF NOT EXISTS progress(user_id INTEGER PRIMARY KEY,payload TEXT NOT NULL DEFAULT '{}',updated_at TEXT NOT NULL,FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE);");
         $pdo->exec("CREATE TABLE IF NOT EXISTS app_settings(setting_key TEXT PRIMARY KEY,setting_value TEXT NOT NULL,updated_at TEXT NOT NULL);");
         $pdo->exec("CREATE TABLE IF NOT EXISTS audio_assets(id TEXT PRIMARY KEY,user_id INTEGER NOT NULL,client_ref TEXT,mime TEXT NOT NULL,extension TEXT NOT NULL,file_path TEXT NOT NULL,file_size INTEGER NOT NULL,created_at TEXT NOT NULL,FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE);");
+        $pdo->exec("CREATE TABLE IF NOT EXISTS shared_tts_cache(cache_key TEXT PRIMARY KEY,content_type TEXT NOT NULL,content_id TEXT NOT NULL,source_revision TEXT NOT NULL,voice_id TEXT NOT NULL,mime TEXT NOT NULL,file_path TEXT NOT NULL,file_size INTEGER NOT NULL,created_at TEXT NOT NULL,last_accessed_at TEXT NOT NULL)");
+        $pdo->exec('CREATE INDEX IF NOT EXISTS shared_tts_lru ON shared_tts_cache(last_accessed_at, created_at)');
         auth_install($pdo);
         seed_admin($pdo);
         catalog_install($pdo);
@@ -377,25 +380,41 @@ if($action==='account/password'&&$method==='POST'){
 if($action==='catalog'&&$method==='GET'){require_user();respond(catalog_data(db()));}
 if($action==='listening/check'&&$method==='POST'){origin_check();require_user();rate_limit('listening-check',120,60);respond(catalog_check_answer(db(),read_json(8192)));}
 if($action==='admin/catalog'&&$method==='GET'){require_admin();respond(catalog_data(db(),true));}
+if($action==='tts-cache'&&$method==='GET'){$u=require_user();tts_cache_get_audio($u);}
+if($action==='tts-cache'&&$method==='POST'){$u=require_user();tts_cache_upload($u);}
+if($action==='admin/tts-cache'&&$method==='GET'){require_admin();respond(['cache'=>tts_cache_summary()]);}
+if($action==='admin/tts-cache/clear'&&in_array($method,['POST','DELETE'],true)){origin_check();require_admin();rate_limit('admin-tts-cache-clear',10,3600);$deleted=tts_cache_clear_all();respond(['ok'=>true,'deleted'=>$deleted,'cache'=>tts_cache_summary()]);}
 if(preg_match('#^admin/levels/([A-C][12])$#',$action,$m)&&$method==='PUT'){
     origin_check();require_admin();catalog_save_level(db(),$m[1],read_json(8192));respond(['ok'=>true]);
 }
 if($action==='admin/units'&&$method==='POST'){
-    origin_check();require_admin();$id=catalog_save_unit(db(),read_json(16384),null);respond(['ok'=>true,'id'=>$id],201);
+    origin_check();require_admin();$id=catalog_save_unit(db(),read_json(65536),null);respond(['ok'=>true,'id'=>$id],201);
 }
 if(preg_match('#^admin/units/([A-Za-z0-9-]{3,40})$#',$action,$m)&&in_array($method,['PUT','DELETE'],true)){
     origin_check();require_admin();
     if($method==='DELETE')catalog_archive(db(),'unit',$m[1]);
-    else catalog_save_unit(db(),read_json(16384),$m[1]);
+    else {
+        $pdo=db();
+        $previousRevision=catalog_tts_revision($pdo,'speaking',$m[1]);
+        catalog_save_unit($pdo,read_json(65536),$m[1]);
+        $currentRevision=catalog_tts_revision($pdo,'speaking',$m[1]);
+        if($previousRevision!==null&&$currentRevision!==$previousRevision)tts_cache_delete_content('speaking',$m[1]);
+    }
     respond(['ok'=>true]);
 }
 if($action==='admin/listening'&&$method==='POST'){
-    origin_check();require_admin();$id=catalog_save_listening(db(),read_json(48000),null);respond(['ok'=>true,'id'=>$id],201);
+    origin_check();require_admin();$id=catalog_save_listening(db(),read_json(512000),null);respond(['ok'=>true,'id'=>$id],201);
 }
 if(preg_match('#^admin/listening/([A-Za-z0-9-]{3,40})$#',$action,$m)&&in_array($method,['PUT','DELETE'],true)){
     origin_check();require_admin();
     if($method==='DELETE')catalog_archive(db(),'listening',$m[1]);
-    else catalog_save_listening(db(),read_json(48000),$m[1]);
+    else {
+        $pdo=db();
+        $previousRevision=catalog_tts_revision($pdo,'listening',$m[1]);
+        catalog_save_listening($pdo,read_json(512000),$m[1]);
+        $currentRevision=catalog_tts_revision($pdo,'listening',$m[1]);
+        if($previousRevision!==null&&$currentRevision!==$previousRevision)tts_cache_delete_content('listening',$m[1]);
+    }
     respond(['ok'=>true]);
 }
 if($action==='progress'&&$method==='GET'){$u=require_user();$q=db()->prepare('SELECT payload,updated_at FROM progress WHERE user_id=?');$q->execute([(int)$u['id']]);$r=$q->fetch();respond(['progress'=>$r?json_decode($r['payload'],true):null,'updated_at'=>$r['updated_at']??null]);}

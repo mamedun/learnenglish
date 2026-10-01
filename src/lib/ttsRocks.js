@@ -16,6 +16,9 @@ const BUSY_TTS_PHASES = new Set([
   "cache",
   "cache-hit",
   "load-model",
+  "cache-lookup",
+  "generate",
+  "cache-upload",
   "speaking",
 ]);
 
@@ -25,25 +28,9 @@ export function isTtsBusy(status) {
 
 export const KOKORO_VOICES = [
   { id: "af_heart", name: "Heart", accent: "American · feminine" },
-  { id: "af_bella", name: "Bella", accent: "American · feminine" },
-  { id: "af_nicole", name: "Nicole", accent: "American · feminine" },
-  { id: "af_sarah", name: "Sarah", accent: "American · feminine" },
-  { id: "af_sky", name: "Sky", accent: "American · feminine" },
-  { id: "af_aoede", name: "Aoede", accent: "American · feminine" },
-  { id: "af_jessica", name: "Jessica", accent: "American · feminine" },
-  { id: "af_kore", name: "Kore", accent: "American · feminine" },
-  { id: "am_adam", name: "Adam", accent: "American · masculine" },
-  { id: "am_michael", name: "Michael", accent: "American · masculine" },
-  { id: "am_fenrir", name: "Fenrir", accent: "American · masculine" },
   { id: "am_puck", name: "Puck", accent: "American · masculine" },
   { id: "bf_emma", name: "Emma", accent: "British · feminine" },
-  { id: "bf_isabella", name: "Isabella", accent: "British · feminine" },
   { id: "bm_george", name: "George", accent: "British · masculine" },
-  { id: "bm_lewis", name: "Lewis", accent: "British · masculine" },
-  { id: "jf_alpha", name: "Alpha", accent: "Japanese · feminine" },
-  { id: "zf_xiaobei", name: "Xiaobei", accent: "Chinese · feminine" },
-  { id: "ef_dora", name: "Dora", accent: "Spanish · feminine" },
-  { id: "ff_siwis", name: "Siwis", accent: "French · feminine" },
 ];
 
 function emitStatus(onStatus, status) {
@@ -337,6 +324,153 @@ export async function speakKokoro(
     message: `Kokoro siap (${device === "webgpu" ? "WebGPU" : "WASM"}). Model tersimpan di perangkat.`,
   });
   return device;
+}
+
+function wavFromFloat32(samples, sampleRate) {
+  const dataSize = samples.length * 2;
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+  const write = (offset, value) => {
+    for (let i = 0; i < value.length; i += 1)
+      view.setUint8(offset + i, value.charCodeAt(i));
+  };
+  write(0, "RIFF");
+  view.setUint32(4, 36 + dataSize, true);
+  write(8, "WAVE");
+  write(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  write(36, "data");
+  view.setUint32(40, dataSize, true);
+  for (let i = 0; i < samples.length; i += 1) {
+    const sample = Math.max(-1, Math.min(1, Number(samples[i]) || 0));
+    view.setInt16(
+      44 + i * 2,
+      sample < 0 ? sample * 0x8000 : sample * 0x7fff,
+      true,
+    );
+  }
+  return new Blob([buffer], { type: "audio/wav" });
+}
+
+function getGeneratedSamples(result) {
+  const candidate =
+    result?.data ?? result?.audio?.data ?? result?.audio ?? result?.waveform;
+  if (candidate instanceof Float32Array) return candidate;
+  if (ArrayBuffer.isView(candidate))
+    return new Float32Array(
+      candidate.buffer,
+      candidate.byteOffset,
+      Math.floor(candidate.byteLength / Float32Array.BYTES_PER_ELEMENT),
+    );
+  if (Array.isArray(candidate)) return Float32Array.from(candidate);
+  return null;
+}
+
+function getGeneratedSampleRate(result) {
+  const sampleRate =
+    result?.sampling_rate ??
+    result?.samplingRate ??
+    result?.sample_rate ??
+    result?.audio?.sampling_rate ??
+    result?.audio?.samplingRate ??
+    24_000;
+  return Number.isFinite(Number(sampleRate)) ? Number(sampleRate) : 24_000;
+}
+
+function assertVoice(voice) {
+  if (!KOKORO_VOICES.some((item) => item.id === voice))
+    throw new Error("Model suara Kokoro tidak didukung.");
+}
+
+export async function generateKokoroAudio(
+  text,
+  { voice = "af_heart", compute = "auto", speed = 0.88, onStatus } = {},
+) {
+  const source = String(text || "").trim();
+  if (!source) throw new Error("Teks audio masih kosong.");
+  assertVoice(voice);
+  const { TTS, device } = await prepare(compute, onStatus);
+  emitStatus(onStatus, {
+    phase: "generate",
+    progress: null,
+    device,
+    voice,
+    message: `Membuat audio Kokoro (${voice})…`,
+  });
+  const generated = await TTS.kokoroTtsInstance.generate(source, {
+    voice,
+    speed,
+  });
+  const samples = getGeneratedSamples(generated);
+  const sampleRate = getGeneratedSampleRate(generated);
+  if (!samples?.length || sampleRate < 8_000 || sampleRate > 96_000)
+    throw new Error("Kokoro tidak menghasilkan waveform audio yang valid.");
+  return wavFromFloat32(samples, sampleRate);
+}
+
+export async function generateKokoroCompositeAudio(
+  segments,
+  { compute = "auto", speed = 0.88, pauseMs = 280, onStatus } = {},
+) {
+  const turns = (Array.isArray(segments) ? segments : []).filter((turn) =>
+    String(turn?.text || "").trim(),
+  );
+  if (turns.length < 2)
+    throw new Error("Dialog multi-voice perlu sedikitnya dua giliran.");
+  for (const turn of turns) assertVoice(turn.voice || "af_heart");
+  const { TTS, device } = await prepare(compute, onStatus);
+  const parts = [];
+  let totalSamples = 0;
+  let sampleRate = 24_000;
+  const pauseSamples = Math.max(0, Math.round((pauseMs / 1000) * sampleRate));
+
+  for (let i = 0; i < turns.length; i += 1) {
+    const turn = turns[i];
+    const voice = turn.voice || "af_heart";
+    emitStatus(onStatus, {
+      phase: "generate",
+      progress: Math.round((i / turns.length) * 100),
+      device,
+      voice,
+      message: `Membuat giliran ${i + 1}/${turns.length} (${voice})…`,
+    });
+    const generated = await TTS.kokoroTtsInstance.generate(
+      String(turn.text).trim(),
+      { voice, speed },
+    );
+    const audioSamples = getGeneratedSamples(generated);
+    const audioRate = getGeneratedSampleRate(generated);
+    if (!audioSamples?.length || audioRate !== sampleRate)
+      throw new Error(
+        "Kokoro menghasilkan sample rate audio yang tidak cocok.",
+      );
+    parts.push(audioSamples);
+    totalSamples += audioSamples.length;
+    if (i < turns.length - 1 && pauseSamples) {
+      parts.push(new Float32Array(pauseSamples));
+      totalSamples += pauseSamples;
+    }
+  }
+
+  const combined = new Float32Array(totalSamples);
+  let offset = 0;
+  for (const part of parts) {
+    combined.set(part, offset);
+    offset += part.length;
+  }
+  emitStatus(onStatus, {
+    phase: "generate",
+    progress: 100,
+    device,
+    message: "Menggabungkan giliran dialog…",
+  });
+  return wavFromFloat32(combined, sampleRate);
 }
 
 export async function getKokoroCacheInfo() {

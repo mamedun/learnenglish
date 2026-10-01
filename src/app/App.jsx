@@ -40,7 +40,14 @@ import ModuleErrorBoundary from "../components/ModuleErrorBoundary";
 import ProcessingStatus from "../components/ProcessingStatus";
 import { LEVEL_ICONS } from "../features/learning/learningIcons";
 import { convertRecordingToWav } from "../lib/audio";
-import { isTtsBusy, preloadKokoro, speakKokoro } from "../lib/ttsRocks";
+import {
+  generateKokoroAudio,
+  isTtsBusy,
+  KOKORO_VOICES,
+  preloadKokoro,
+  speakKokoro,
+} from "../lib/ttsRocks";
+import { getSharedTtsAudio, saveSharedTtsAudio } from "../lib/ttsCache";
 
 const AdminPage = lazy(() => import("../features/admin/AdminPage"));
 const ListeningPage = lazy(() => import("../features/listening/ListeningPage"));
@@ -102,6 +109,7 @@ function App() {
   const [liveAssessment, setLiveAssessment] = useState(null);
   const liveWsRef = useRef(null);
   const ttsRequestIdRef = useRef(0);
+  const ttsAudioRef = useRef(null);
   const liveContextRef = useRef(null);
   const liveStreamRef = useRef(null);
   const liveSourceRef = useRef(null);
@@ -164,6 +172,10 @@ function App() {
       settings.ttsCompute = "auto";
       settings.ttsEngineVersion = 1;
     }
+    if (!KOKORO_VOICES.some((voice) => voice.id === settings.voice))
+      settings.voice = "af_heart";
+    settings.useCachedVoice =
+      savedSettings.useCachedVoice === false ? false : true;
     setData({
       ...initialData,
       ...(progress.progress || {}),
@@ -311,6 +323,8 @@ function App() {
   }, [recording, elapsed, activeUnit]);
   useEffect(
     () => () => {
+      ttsRequestIdRef.current += 1;
+      stopCurrentSpeech();
       streamRef.current?.getTracks().forEach((t) => t.stop());
       liveStreamRef.current?.getTracks().forEach((t) => t.stop());
       liveWsRef.current?.close();
@@ -723,7 +737,60 @@ function App() {
     }
     nav("home");
   }
-  function speakWithBrowser(text, requestId) {
+  function stopCurrentSpeech() {
+    window.speechSynthesis?.cancel();
+    const active = ttsAudioRef.current;
+    if (!active) return;
+    ttsAudioRef.current = null;
+    active.audio.pause();
+    active.audio.removeAttribute("src");
+    active.audio.load();
+    active.finish?.();
+  }
+
+  function playCachedAudio(blob, requestId) {
+    const objectUrl = URL.createObjectURL(blob);
+    const audio = new Audio(objectUrl);
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const finish = (error = null) => {
+        if (settled) return;
+        settled = true;
+        audio.onended = null;
+        audio.onerror = null;
+        if (ttsAudioRef.current?.audio === audio) ttsAudioRef.current = null;
+        URL.revokeObjectURL(objectUrl);
+        if (requestId === ttsRequestIdRef.current) {
+          setTtsStatus(
+            error
+              ? { phase: "error", message: "Audio cache gagal diputar." }
+              : {
+                  phase: "ready",
+                  message: "Audio Kokoro cache selesai diputar.",
+                },
+          );
+        }
+        if (error) reject(error);
+        else resolve();
+      };
+      ttsAudioRef.current = { audio, url: objectUrl, finish };
+      audio.onended = () => finish();
+      audio.onerror = () =>
+        finish(new Error("File audio bersama tidak dapat diputar."));
+      setTtsStatus({
+        phase: "speaking",
+        message: "Memutar audio Kokoro dari shared cache…",
+      });
+      try {
+        const playback = audio.play();
+        playback?.catch(finish);
+      } catch (error) {
+        finish(error);
+      }
+    });
+  }
+
+  function speakWithBrowser(text, requestId, fallbackReason = "") {
     const synth = window.speechSynthesis;
     if (!synth) throw new Error("Text-to-speech tidak didukung browser ini.");
     synth.cancel();
@@ -740,13 +807,13 @@ function App() {
     if (voice) utterance.voice = voice;
     setTtsStatus({
       phase: "speaking",
-      message: "Menyiapkan suara Browser Native…",
+      message: fallbackReason || "Menyiapkan suara Browser Native…",
     });
     utterance.onstart = () => {
       if (requestId === ttsRequestIdRef.current)
         setTtsStatus({
           phase: "speaking",
-          message: "Membacakan dengan Browser Native…",
+          message: fallbackReason || "Membacakan dengan Browser Native…",
         });
     };
     utterance.onend = () => {
@@ -771,12 +838,44 @@ function App() {
     synth.speak(utterance);
   }
 
-  async function speak(text) {
-    if (!text) return;
+  function speakNativeFallback(text, requestId, message) {
+    try {
+      speakWithBrowser(text, requestId, message);
+      return true;
+    } catch (error) {
+      if (requestId === ttsRequestIdRef.current)
+        setTtsStatus({ phase: "error", message: error.message });
+      toast.error(error.message || "Browser TTS gagal diputar.");
+      return false;
+    }
+  }
+
+  async function speak(text, options = {}) {
+    const sourceText = String(text || "").trim();
+    if (!sourceText) return;
     const requestId = ++ttsRequestIdRef.current;
-    if ((data.settings.tts || "kokoro") === "native") {
+    stopCurrentSpeech();
+    const engine = data.settings.tts || "kokoro";
+    const cachedMode = data.settings.useCachedVoice !== false;
+    const forceKokoro = options?.forceKokoro === true;
+    const context = options?.type && options?.item ? options : null;
+    const segments = Array.isArray(context?.item?.ttsSegments)
+      ? context.item.ttsSegments.filter((turn) =>
+          String(turn?.text || "").trim(),
+        )
+      : [];
+    const spokenText = segments.length
+      ? segments.map((turn) => String(turn.text).trim()).join(" ")
+      : sourceText;
+    const userVoice = KOKORO_VOICES.some(
+      (voice) => voice.id === data.settings.voice,
+    )
+      ? data.settings.voice
+      : "af_heart";
+
+    if (engine === "native") {
       try {
-        speakWithBrowser(text, requestId);
+        speakWithBrowser(spokenText, requestId);
       } catch (error) {
         setTtsStatus({ phase: "error", message: error.message });
         toast.error(error.message || "Browser TTS gagal diputar.");
@@ -784,10 +883,123 @@ function App() {
       return;
     }
 
+    if (!forceKokoro && context) {
+      const item = context.item;
+      const voice = cachedMode ? item.defaultVoice || "af_heart" : userVoice;
+      let cachedAudio = null;
+      setTtsStatus({
+        phase: "cache-lookup",
+        message: "Memeriksa shared Kokoro cache…",
+      });
+      try {
+        if (segments.length >= 2) {
+          cachedAudio = await getSharedTtsAudio(context.type, item, "multi");
+          if (!cachedAudio && !cachedMode)
+            cachedAudio = await getSharedTtsAudio(context.type, item, voice);
+        } else {
+          cachedAudio = await getSharedTtsAudio(context.type, item, voice);
+        }
+      } catch {
+        if (requestId !== ttsRequestIdRef.current) return;
+        if (cachedMode) {
+          speakNativeFallback(
+            spokenText,
+            requestId,
+            "Shared cache tidak tersedia; menggunakan Browser Native.",
+          );
+          return;
+        }
+      }
+      if (requestId !== ttsRequestIdRef.current) return;
+      if (cachedAudio) {
+        try {
+          await playCachedAudio(cachedAudio, requestId);
+        } catch {
+          if (requestId !== ttsRequestIdRef.current) return;
+          toast.info("Audio cache gagal diputar; memakai Browser Native.");
+          speakNativeFallback(spokenText, requestId);
+        }
+        return;
+      }
+      if (cachedMode) {
+        speakNativeFallback(
+          spokenText,
+          requestId,
+          "Audio belum tersedia di shared cache; menggunakan Browser Native.",
+        );
+        return;
+      }
+
+      try {
+        const audio = await generateKokoroAudio(spokenText, {
+          voice: userVoice,
+          compute: data.settings.ttsCompute || "auto",
+          speed: 0.88,
+          onStatus: (status) => {
+            if (requestId === ttsRequestIdRef.current) setTtsStatus(status);
+          },
+        });
+        if (requestId !== ttsRequestIdRef.current) return;
+        setTtsStatus({
+          phase: "cache-upload",
+          message: "Audio siap; mengunggah ke shared cache…",
+        });
+        try {
+          await saveSharedTtsAudio({
+            contentType: context.type,
+            item,
+            voiceId: userVoice,
+            audio,
+          });
+          if (requestId === ttsRequestIdRef.current)
+            setTtsStatus({
+              phase: "cache-upload",
+              message: "Audio disimpan untuk digunakan bersama.",
+            });
+        } catch (uploadError) {
+          if (requestId === ttsRequestIdRef.current)
+            toast.info(
+              "Audio diputar lokal, tetapi belum dapat disimpan ke shared cache.",
+            );
+        }
+        if (requestId === ttsRequestIdRef.current)
+          await playCachedAudio(audio, requestId);
+      } catch (error) {
+        if (requestId !== ttsRequestIdRef.current) return;
+        setTtsStatus({
+          phase: "error",
+          message: error.message || "Kokoro gagal membuat audio.",
+        });
+        if ("speechSynthesis" in window) {
+          toast.error(
+            "Kokoro belum tersedia. Memakai Browser Native untuk kali ini.",
+          );
+          try {
+            speakWithBrowser(spokenText, requestId);
+          } catch {
+            toast.error(error.message || "Gagal memutar suara.");
+          }
+        } else {
+          toast.error(error.message || "Gagal memutar suara.");
+        }
+      }
+      return;
+    }
+
+    if (!forceKokoro && cachedMode) {
+      // Dynamic tutor replies are deliberately not persisted in the shared cache.
+      speakNativeFallback(
+        sourceText,
+        requestId,
+        "Balasan tutor tidak disimpan ke cache; menggunakan Browser Native.",
+      );
+      return;
+    }
+
     setTtsStatus({ phase: "initialize", message: "Menyiapkan Kokoro…" });
     try {
-      await speakKokoro(text, {
-        voice: data.settings.voice || "af_heart",
+      await speakKokoro(sourceText, {
+        voice: userVoice,
         compute: data.settings.ttsCompute || "auto",
         speed: 0.88,
         onStatus: (status) => {
@@ -805,9 +1017,8 @@ function App() {
           "Kokoro belum tersedia. Memakai Browser Native untuk kali ini.",
         );
         try {
-          speakWithBrowser(text, requestId);
+          speakWithBrowser(sourceText, requestId);
         } catch {
-          // The original Kokoro error is the useful one to report.
           toast.error(error.message || "Gagal memutar suara.");
         }
       } else {

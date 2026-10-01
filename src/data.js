@@ -12,6 +12,7 @@ export const initialData = {
   settings: {
     tts: "kokoro",
     voice: "af_heart",
+    useCachedVoice: true,
     nativeVoice: "",
     ttsCompute: "auto",
     ttsEngineVersion: 1,

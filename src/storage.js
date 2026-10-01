@@ -68,6 +68,14 @@ async function importBackup(file) {
     importedSettings.ttsCompute = "auto";
     importedSettings.ttsEngineVersion = 1;
   }
+  if (
+    !["af_heart", "am_puck", "bf_emma", "bm_george"].includes(
+      importedSettings.voice,
+    )
+  )
+    importedSettings.voice = "af_heart";
+  importedSettings.useCachedVoice =
+    raw.settings?.useCachedVoice === false ? false : true;
   const data = {
     ...initialData,
     ...raw,

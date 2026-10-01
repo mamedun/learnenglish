@@ -266,7 +266,9 @@ export default function PracticePage(p) {
             </div>
             <button
               className="round-play"
-              onClick={() => speak(unit.prompt)}
+              onClick={() =>
+                speak(unit.prompt, { type: "speaking", item: unit })
+              }
               aria-label={
                 ttsBusy ? "Menyiapkan audio pertanyaan" : "Dengarkan pertanyaan"
               }

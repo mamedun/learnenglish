@@ -13,6 +13,8 @@ import secrets
 import urllib.error
 import urllib.parse
 import urllib.request
+import io
+import wave
 
 BASE = os.getenv('SMOKE_API_BASE', 'http://127.0.0.1:8788/learnenglish/api').rstrip('/')
 assert urllib.parse.urlparse(BASE).hostname in ('127.0.0.1', 'localhost'), 'Smoke test may only touch a local server'
@@ -56,7 +58,7 @@ def request(client, path, method='GET', payload=None, expected=200, origin=None,
     return body
 
 
-def request_form(client, path, fields, expected=200):
+def request_form(client, path, fields, expected=200, files=None):
     boundary = f'----SpeakUpSmoke{secrets.token_hex(8)}'
     chunks = []
     for key, value in fields.items():
@@ -64,6 +66,15 @@ def request_form(client, path, fields, expected=200):
             f'--{boundary}\r\n'.encode(),
             f'Content-Disposition: form-data; name="{key}"\r\n\r\n'.encode(),
             str(value).encode(),
+            b'\r\n',
+        ])
+    for key, value in (files or {}).items():
+        filename, content, mime = value
+        chunks.extend([
+            f'--{boundary}\r\n'.encode(),
+            f'Content-Disposition: form-data; name="{key}"; filename="{filename}"\r\n'.encode(),
+            f'Content-Type: {mime}\r\n\r\n'.encode(),
+            content,
             b'\r\n',
         ])
     chunks.append(f'--{boundary}--\r\n'.encode())
@@ -78,6 +89,29 @@ def request_form(client, path, fields, expected=200):
     body = json.load(response)
     assert response.status == expected, f'POST {path} form: expected {expected}, got {response.status}: {body}'
     return body
+
+
+def request_bytes(client, path, expected=200):
+    headers = {}
+    if client.access_token:
+        headers['Authorization'] = f'Bearer {client.access_token}'
+    req = urllib.request.Request(f'{BASE}/{path}', headers=headers, method='GET')
+    try:
+        response = client.opener.open(req)
+    except urllib.error.HTTPError as error:
+        response = error
+    body = response.read()
+    assert response.status == expected, f'GET {path}: expected {expected}, got {response.status}: {body[:200]!r}'
+    return body, response.headers.get('Content-Type', '')
+
+def tiny_wav():
+    output = io.BytesIO()
+    with wave.open(output, 'wb') as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(24000)
+        wav.writeframes(b'\x00\x00' * 240)
+    return output.getvalue()
 
 
 def refresh_cookie(client):
@@ -116,6 +150,11 @@ assert len(admin_catalog['levels']) == 6
 assert sum(len(l['units']) for l in admin_catalog['levels']) == 48
 assert len(admin_catalog['listening']) == 18
 assert sum(len(l['questions']) for l in admin_catalog['listening']) == 36
+for item in [unit for level in admin_catalog['levels'] for unit in level['units']] + admin_catalog['listening']:
+    assert item['defaultVoice'] == 'af_heart'
+    assert item['ttsSegments'] == []
+    assert len(item['ttsRevision']) == 64
+assert request(admin, 'admin/tts-cache')['cache']['limit_bytes'] == 1024 ** 3
 published = request(admin, 'catalog')
 assert 'answer' not in published['listening'][0]['questions'][0]
 assert 'explain' not in published['listening'][0]['questions'][0]
@@ -124,6 +163,7 @@ assert 'answer' in admin_catalog['listening'][0]['questions'][0]
 user_email = f'smoke-{secrets.token_hex(4)}@example.invalid'
 learner = request(regular, 'register', 'POST', {'name': 'Smoke Learner', 'email': user_email, 'password': 'example-password-2026'}, expected=201)['user']
 assert learner['plan'] == 'regular' and not learner['must_change_password']
+request(regular, 'admin/tts-cache', expected=403)
 assert request(regular, 'app-config')['settings']['speech_input_mode'] in ('live_transcribe', 'ai_audio')
 assert len(request(regular, 'catalog')['listening']) == 18
 read_aloud_probe = request_form(regular, 'assess-audio', {'task_mode': 'read_aloud', 'consent': '1'}, expected=422)
@@ -161,12 +201,47 @@ request(regular, 'listening/check', 'POST', {'lesson_id': lesson['id'], 'questio
 
 # Create, modify, archive and restore speaking content; the seed IDs remain stable.
 unit = dict(admin_catalog['levels'][0]['units'][0]); unit.pop('id')
-unit.update(title='Smoke speaking quest', sortOrder=100, image='', imageContext='', published=True)
+unit.update(
+    title='Smoke speaking quest', sortOrder=100, image='', imageContext='', published=True,
+    defaultVoice='bf_emma',
+    ttsSegments=[
+        {'speaker': 'Maya', 'voice': 'bf_emma', 'text': 'Hello there.'},
+        {'speaker': 'Leo', 'voice': 'am_puck', 'text': 'Good morning.'},
+    ],
+)
 request(admin, 'admin/units', 'POST', {**unit, 'image': 'https://example.com/inject.jpg'}, expected=422)
 unit_id = request(admin, 'admin/units', 'POST', unit, expected=201)['id']
 assert any(x['id'] == unit_id for x in request(admin, 'catalog')['levels'][0]['units'])
-unit.update(title='Edited speaking quest', published=False)
+stored_unit = next(
+    item for level in request(admin, 'admin/catalog')['levels'] for item in level['units']
+    if item['id'] == unit_id
+)
+assert stored_unit['defaultVoice'] == 'bf_emma' and len(stored_unit['ttsSegments']) == 2
+assert len(stored_unit['ttsRevision']) == 64
+wav_data = tiny_wav()
+request_form(
+    admin,
+    'tts-cache',
+    {'type': 'speaking', 'id': unit_id, 'revision': stored_unit['ttsRevision'], 'voice': 'af_heart'},
+    expected=201,
+    files={'audio': ('smoke.wav', wav_data, 'audio/wav')},
+)
+request_form(
+    regular,
+    'tts-cache',
+    {'type': 'speaking', 'id': unit_id, 'revision': stored_unit['ttsRevision'], 'voice': 'multi'},
+    expected=403,
+)
+cache_path = 'tts-cache?' + urllib.parse.urlencode({
+    'type': 'speaking', 'id': unit_id, 'revision': stored_unit['ttsRevision'], 'voice': 'af_heart',
+})
+shared_audio, shared_mime = request_bytes(regular, cache_path)
+assert shared_audio.startswith(b'RIFF') and 'wav' in shared_mime
+assert request(admin, 'admin/tts-cache')['cache']['bytes'] == len(wav_data)
+unit.update(title='Edited speaking quest', prompt=unit['prompt'] + ' Updated.', published=False)
 request(admin, f'admin/units/{unit_id}', 'PUT', unit)
+request(regular, cache_path, expected=404)
+assert request(admin, 'admin/tts-cache')['cache']['items'] == 0
 assert all(x['id'] != unit_id for x in request(admin, 'catalog')['levels'][0]['units'])
 assert any(x['id'] == unit_id and not x['published'] for x in request(admin, 'admin/catalog')['levels'][0]['units'])
 request(admin, f'admin/units/{unit_id}', 'PUT', {**unit, 'published': True})
@@ -174,18 +249,45 @@ request(admin, f'admin/units/{unit_id}', 'DELETE')
 assert all(x['id'] != unit_id for x in request(admin, 'catalog')['levels'][0]['units'])
 
 # Listening writes question + key together transactionally and checks keys server-side.
-new_lesson = {'level': 'A1', 'title': 'Smoke listening quest', 'objective': 'Hear a detail', 'script': 'Maya orders one cup of tea.', 'image': '', 'sortOrder': 100, 'published': True, 'questions': [{'prompt': 'What did Maya order?', 'options': ['Tea', 'Coffee'], 'answer': 0, 'explain': 'She orders tea.'}]}
+new_lesson = {
+    'level': 'A1', 'title': 'Smoke listening quest', 'objective': 'Hear a detail',
+    'script': 'Maya orders one cup of tea.', 'image': '', 'sortOrder': 100, 'published': True,
+    'defaultVoice': 'bm_george',
+    'ttsSegments': [
+        {'speaker': 'Maya', 'voice': 'bf_emma', 'text': 'May I have one cup of tea?'},
+        {'speaker': 'Server', 'voice': 'bm_george', 'text': 'Certainly.'},
+    ],
+    'questions': [{'prompt': 'What did Maya order?', 'options': ['Tea', 'Coffee'], 'answer': 0, 'explain': 'She orders tea.'}],
+}
 request(admin, 'admin/listening', 'POST', {**new_lesson, 'questions': [{**new_lesson['questions'][0], 'answer': 4}]}, expected=422)
 new_id = request(admin, 'admin/listening', 'POST', new_lesson, expected=201)['id']
 check_lesson = next(l for l in request(regular, 'catalog')['listening'] if l['id'] == new_id)
 assert 'answer' not in check_lesson['questions'][0]
+assert check_lesson['defaultVoice'] == 'bm_george' and len(check_lesson['ttsSegments']) == 2
 new_question_id = check_lesson['questions'][0]['id']
 assert request(regular, 'listening/check', 'POST', {'lesson_id': new_id, 'question_id': new_question_id, 'answer': 0})['correct']
+request_form(
+    regular,
+    'tts-cache',
+    {'type': 'listening', 'id': new_id, 'revision': check_lesson['ttsRevision'], 'voice': 'bm_george'},
+    expected=201,
+    files={'audio': ('listening.wav', tiny_wav(), 'audio/wav')},
+)
+listening_cache_path = 'tts-cache?' + urllib.parse.urlencode({
+    'type': 'listening', 'id': new_id, 'revision': check_lesson['ttsRevision'], 'voice': 'bm_george',
+})
+shared_audio, shared_mime = request_bytes(admin, listening_cache_path)
+assert shared_audio.startswith(b'RIFF') and 'wav' in shared_mime
+new_lesson['script'] += ' She pays in cash.'
 new_lesson['questions'][0]['answer'] = 1
 request(admin, f'admin/listening/{new_id}', 'PUT', new_lesson)
+request(admin, listening_cache_path, expected=404)
+assert request(admin, 'admin/tts-cache')['cache']['items'] == 0
 assert not request(regular, 'listening/check', 'POST', {'lesson_id': new_id, 'question_id': next(l for l in request(regular, 'catalog')['listening'] if l['id'] == new_id)['questions'][0]['id'], 'answer': 0})['correct']
 request(admin, f'admin/listening/{new_id}', 'DELETE')
 assert all(l['id'] != new_id for l in request(regular, 'catalog')['listening'])
+cleared_cache = request(admin, 'admin/tts-cache/clear', 'POST')
+assert cleared_cache['ok'] and cleared_cache['cache']['items'] == 0
 
 level = dict(admin_catalog['levels'][0]); level['label'] = 'Fondasi (smoke edit)'
 request(admin, f"admin/levels/{level['id']}", 'PUT', level)
@@ -279,4 +381,4 @@ assert request(regular, 'progress')['progress'] is None
 request(regular, 'logout', 'POST')
 request(regular, 'progress', expected=401)
 request(regular, 'auth/refresh', 'POST', expected=401)
-print('PASS: JWT + rotating refresh/cookies, password/logout revocation, roles, admin user CRUD, seed 6/48/18/36, catalog CRUD, server answer checks, progress, global provider/input mode, encrypted Free API Key pool/token settings, CORS, lockdown, registration.')
+print('PASS: JWT + rotating refresh/cookies, password/logout revocation, roles, admin user CRUD, seed 6/48/18/36, catalog CRUD and TTS revision/invalidation, shared WAV cache upload/playback/clear, server answer checks, progress, global provider/input mode, encrypted Free API Key pool/token settings, CORS, lockdown, registration.')

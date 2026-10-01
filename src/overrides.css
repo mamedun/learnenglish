@@ -1457,3 +1457,212 @@
   width: 12px;
   height: 12px;
 }
+
+/* Authored multi-speaker audio and server-side Kokoro cache controls. */
+.dialogue-editor {
+  margin: 8px 0 20px;
+  padding: 16px;
+  border: 1px solid #e5e0f0;
+  border-radius: 14px;
+  background: #faf9ff;
+}
+.dialogue-editor-head,
+.dialogue-turn-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.dialogue-editor-head b {
+  display: block;
+  color: #403861;
+  font-size: 13px;
+}
+.dialogue-editor-head small {
+  display: block;
+  margin-top: 4px;
+  color: #89839d;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+.dialogue-editor-head .outline-btn {
+  flex: none;
+  white-space: nowrap;
+}
+.dialogue-hint,
+.studio-cache-hint,
+.studio-cache-status {
+  color: #77708f;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.dialogue-hint {
+  margin: 12px 0;
+}
+.dialogue-turn {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid #e9e5f2;
+  border-radius: 11px;
+  background: #fff;
+}
+.dialogue-turn-head {
+  margin-bottom: 10px;
+}
+.dialogue-turn-head strong {
+  color: #4a4267;
+  font-size: 12px;
+}
+.dialogue-turn-head > div {
+  display: flex;
+  gap: 4px;
+}
+.dialogue-turn-head button {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 1px solid #e9e5f2;
+  border-radius: 8px;
+  color: #6f668e;
+  background: #fff;
+}
+.dialogue-turn-head button:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+.dialogue-turn .studio-field {
+  margin-bottom: 10px;
+}
+.studio-cache-generator {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 14px;
+  margin: 18px 0 4px;
+  padding: 15px;
+  border: 1px solid #ded8f3;
+  border-radius: 12px;
+  background: linear-gradient(120deg, #faf8ff, #f5fbf7);
+}
+.studio-cache-generator > div b {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #4f427d;
+  font-size: 13px;
+}
+.studio-cache-generator > div small {
+  display: block;
+  margin-top: 4px;
+  color: #89839d;
+  font-size: 11px;
+  line-height: 1.45;
+}
+.studio-cache-generator .studio-cache-hint,
+.studio-cache-generator .studio-cache-status {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+.studio-cache-status {
+  color: #487253;
+  font-weight: 700;
+}
+.studio-cache-generator .outline-btn {
+  white-space: nowrap;
+}
+
+@media (max-width: 650px) {
+  .dialogue-editor-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .studio-cache-generator {
+    grid-template-columns: 1fr;
+  }
+  .studio-cache-generator .outline-btn {
+    justify-content: center;
+  }
+}
+
+.admin-audio-cache {
+  max-width: 900px;
+}
+.admin-audio-cache-card {
+  max-width: 700px;
+}
+.admin-audio-cache-title,
+.admin-audio-cache-meta,
+.admin-audio-cache-numbers {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.admin-audio-cache-title {
+  justify-content: flex-start;
+}
+.admin-audio-cache-title b {
+  display: block;
+  color: #393355;
+  font-size: 15px;
+}
+.admin-audio-cache-title small {
+  display: block;
+  margin-top: 4px;
+  color: #89849b;
+  font-size: 12px;
+}
+.admin-audio-cache-numbers {
+  justify-content: flex-start;
+  align-items: baseline;
+  margin-top: 22px;
+}
+.admin-audio-cache-numbers strong {
+  color: #453c6c;
+  font-size: 25px;
+}
+.admin-audio-cache-numbers span,
+.admin-audio-cache-meta {
+  color: #8a849d;
+  font-size: 12px;
+}
+.admin-audio-cache-meter {
+  overflow: hidden;
+  height: 12px;
+  margin-top: 12px;
+  border-radius: 99px;
+  background: #ece9f5;
+}
+.admin-audio-cache-meter i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #6c58d6, #6ba779);
+  transition: width 0.2s ease;
+}
+.admin-audio-cache-meta {
+  margin-top: 8px;
+}
+.admin-audio-cache-card .info-box {
+  margin-top: 18px;
+}
+.admin-audio-cache-clear {
+  margin-top: 18px;
+}
+
+.cached-voice-toggle {
+  margin: 14px 0 16px;
+  padding: 13px 0;
+  border-top: 1px solid #ebe7f3;
+  border-bottom: 1px solid #ebe7f3;
+}
+.settings-card .voice-row select:disabled {
+  opacity: 0.58;
+  cursor: not-allowed;
+}
+.cached-voice-toggle button:focus-visible {
+  outline: 3px solid #8b7cf1;
+  outline-offset: 3px;
+}

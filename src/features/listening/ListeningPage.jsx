@@ -66,7 +66,7 @@ export default function ListeningPage({
       setShowScript(true);
       return;
     }
-    speak(active.script);
+    speak(active.script, { type: "listening", item: active });
   }
   async function check(question) {
     const key = keyFor(question);
@@ -154,11 +154,12 @@ export default function ListeningPage({
         <div>
           <b>Audio lesson & privasi mic</b>
           <span>
-            Naskah dibacakan dengan TTS pilihanmu. Latihan speaking memakai mode
-            global admin: transkripsi browser read-only atau rekaman yang
-            dikirim ke AI hanya setelah persetujuan. Web Speech dapat
-            menggunakan layanan vendor browser; audio tidak diarsipkan oleh
-            SpeakUp.
+            Audio memakai cache bersama sesuai voice default materi atau TTS
+            pilihanmu. Cache miss saat mode cached aktif memakai Browser Native.
+            Latihan speaking memakai mode global admin: transkripsi browser
+            read-only atau rekaman yang dikirim ke AI hanya setelah persetujuan.
+            Web Speech dapat menggunakan layanan vendor browser; audio tidak
+            diarsipkan oleh SpeakUp.
           </span>
         </div>
       </div>
@@ -245,7 +246,9 @@ export default function ListeningPage({
             </span>
             <div>
               <b>Ready to listen?</b>
-              <small>Original script · {active.level} · TTS perangkat</small>
+              <small>
+                Original script · {active.level} · shared audio / TTS
+              </small>
             </div>
             <button className="btn-primary" onClick={play} disabled={ttsBusy}>
               {ttsBusy ? (
@@ -364,7 +367,7 @@ export default function ListeningPage({
           </div>
           <ListeningSpeakingTask
             lesson={active}
-            speak={speak}
+            speak={(text) => speak(text, { type: "listening", item: active })}
             ttsStatus={ttsStatus}
             speechInputMode={speechInputMode}
             speechScoringMode={speechScoringMode}

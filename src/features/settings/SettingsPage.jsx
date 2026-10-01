@@ -140,11 +140,39 @@ export default function SettingsPage({
             </div>
             {data.settings.tts !== "native" ? (
               <>
-                <label className="field-label">KOKORO VOICE</label>
+                <div className="toggle-row cached-voice-toggle">
+                  <span>
+                    <b>Gunakan cached voice</b>
+                    <small>
+                      Untuk prompt/cue card dan naskah listening. Aktif: putar
+                      WAV bersama; cache miss memakai Browser Native. Nonaktif:
+                      cek cache dulu, lalu Kokoro lokal membuat dan mengunggah
+                      WAV saat miss. Balasan tutor dinamis tidak disimpan.
+                    </small>
+                  </span>
+                  <button
+                    type="button"
+                    className={`switch ${data.settings.useCachedVoice !== false ? "on" : ""}`}
+                    aria-label="Gunakan cached voice"
+                    aria-pressed={data.settings.useCachedVoice !== false}
+                    onClick={() =>
+                      update(
+                        "useCachedVoice",
+                        data.settings.useCachedVoice === false,
+                      )
+                    }
+                  >
+                    <i />
+                  </button>
+                </div>
+                <label className="field-label">
+                  KOKORO VOICE · SAAT CACHE NONAKTIF
+                </label>
                 <div className="voice-row">
                   <select
                     className="text-field"
                     value={data.settings.voice || "af_heart"}
+                    disabled={data.settings.useCachedVoice !== false}
                     onChange={(e) => update("voice", e.target.value)}
                   >
                     {KOKORO_VOICES.map((voice) => (
@@ -158,6 +186,7 @@ export default function SettingsPage({
                     onClick={() =>
                       speak(
                         "Hello! It is lovely to practice English with you today.",
+                        { forceKokoro: true },
                       )
                     }
                     disabled={ttsBusy}

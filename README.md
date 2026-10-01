@@ -8,7 +8,7 @@ Aplikasi React **JSX** + Vite dan API PHP/SQLite untuk latihan bahasa Inggris ya
 - **Pilihan dependensi:** Zustand dipakai karena state sesi dan belajar digunakan lintas halaman. `lucide-react` dan **Sonner** sudah menyediakan ikon/toast; tidak ditambah React-Toastify. `fetch` yang ada mendukung file biner, error, dan retry sehingga axios belum diperlukan. ECharts, TanStack Table, React Player, dan react-pdf belum diperlukan: belum ada grafik kompleks/tabel besar/video terverifikasi/PDF. Tambahkan hanya saat fiturnya benar-benar ada.
 - **Konten:** SQLite menyimpan 6 jenjang A1–C2, 48 unit speaking, 18 lesson listening, 36 soal, dan kunci. `api/seeds/catalog.json` digunakan sekali saat katalog kosong. Studio Admin mengedit/publikasi/arsip langsung di SQLite; kunci listening tidak dikirim ke katalog peserta dan dicek melalui `POST listening/check`.
 - **Batas produk:** Regular mendapat listening; Premium/Admin mendapat AI Speaking/Live. Audio arsip memerlukan persetujuan terpisah dari pengiriman audio ke AI. XP/streak/badge adalah motivasi, bukan skor IELTS atau proteksi anti-cheat. Bank video tetap kosong sampai sumber dan kunci soal diverifikasi. Lihat [IELTS_COURSE_DESIGN.md](./IELTS_COURSE_DESIGN.md) dan [IMAGE_PROMPTS.md](./IMAGE_PROMPTS.md).
-- **TTS:** Kokoro melalui TTS.Rocks menjadi default browser untuk semua akun, dengan suara pilihan, WebGPU/WASM, preload, dan cache model di IndexedDB. Browser Native tetap dapat dipilih. Model pertama kali diunduh ke perangkat.
+- **TTS:** Kokoro melalui TTS.Rocks tetap menjadi engine default; Browser Native tetap dapat dipilih. Empat suara Kokoro tersedia (Heart-American, Puck-American, Emma-British, George-British) dengan WebGPU/WASM dan model lokal IndexedDB. Preferensi **Gunakan cached voice** default aktif: audio authored yang dibuat Admin dipakai bersama, dan cache miss memakai Browser Native. Jika dinonaktifkan, aplikasi mengecek shared cache dulu lalu merender WAV secara lokal dan mengunggahnya pada cache miss. Cache server 1 GB memakai LRU; prompt/cue card/script yang diedit menginvalidasi WAV item terkait. Balasan AI tutor dinamis tidak disimpan.
 - **AI global & input speaking:** Admin memilih satu provider global (Clario atau Free API Key) dan mode live transcription browser (adapter Web Speech API mengikuti pola `paulmagadi/speech-to-text-converter`) vs rekaman yang dikirim setelah persetujuan. Gemini Live tetap memakai alurnya sendiri. Adapter Free API Key mengikuti contoh `VocalAI English Studio`: server memilih node acak dari pool HTTPS SG1–SG10, membuat JWT HS256 (claim `iss`, `sub`, `exp`, `apiKey`) atau memakai manual token, lalu mengirim `Authorization: Bearer`, `X-API-Key`, dan multipart FormData (`prompt`, `audio`) ke `/chat`. API key/JWT secret/manual token disimpan terenkripsi di server; config PHP memakai nama `FREE_*`, dan pengaturan tersimpan dari versi sebelumnya tetap terbaca. Nilai default credential dari sample tidak disalin ke repo. Tidak ada fallback ke Clario. Latihan read-aloud membandingkan kata dengan tanda baca diabaikan; kecocokan 90% menyelesaikan speaking.
 
 ### Login yang bertahan tanpa menyimpan token di browser storage
@@ -30,7 +30,7 @@ cp api/config.example.php api/config.php
 chmod 600 api/config.php
 ```
 
-Edit file privat itu, minimal `APP_ENCRYPTION_KEY` (>=32 karakter acak), `ADMIN_EMAIL` dan `ADMIN_PASSWORD` bootstrap jika admin belum ada, `DATA_DB_PATH`, `UPLOADS_DIR`, dan `CORS_ALLOWED_ORIGINS`. Untuk database yang sudah ada, gunakan path **absolut** ke file yang benar (misalnya `__DIR__ . '/db/data.db'`); path relatif dalam config diartikan relatif terhadap `api/`, bukan working directory PHP. Akun admin hanya dibuat jika email tersebut belum ada; perubahan password di config tidak mereset akun. Setelah login awal admin wajib mengganti password (baru minimal 12 karakter); hapus password bootstrap dari config sesudahnya.
+Edit file privat itu, minimal `APP_ENCRYPTION_KEY` (>=32 karakter acak), `ADMIN_EMAIL` dan `ADMIN_PASSWORD` bootstrap jika admin belum ada, `DATA_DB_PATH`, `UPLOADS_DIR`, `TTS_CACHE_DIR`, dan `CORS_ALLOWED_ORIGINS`. `TTS_CACHE_DIR` menyimpan WAV Kokoro bersama (metadata di SQLite) dengan hard limit 1 GB dan eviction least-recently-used; arahkan ke folder privat di luar web root bila memungkinkan. Untuk database yang sudah ada, gunakan path **absolut** ke file yang benar (misalnya `__DIR__ . '/db/data.db'`); path relatif dalam config diartikan relatif terhadap `api/`, bukan working directory PHP. Akun admin hanya dibuat jika email tersebut belum ada; perubahan password di config tidak mereset akun. Setelah login awal admin wajib mengganti password (baru minimal 12 karakter); hapus password bootstrap dari config sesudahnya.
 
 **Jangan commit atau kirim `api/config.php` ke web sebagai file publik.** Apache `.htaccess` menghalangi akses langsung ke config, helper, seed, DB, dan upload. Di Nginx `.htaccess` tidak berlaku: tambahkan deny untuk config dan folder privat. Idealnya simpan DB/upload di luar web root melalui path di `api/config.php`.
 
@@ -74,12 +74,12 @@ Jika Vite masih mem-proxy ke `https://rikisample.test` dan alamat tersebut 503, 
    location ^~ /learnenglish/api/db/      { return 404; }
    location ^~ /learnenglish/api/uploads/ { return 404; }
    location ^~ /learnenglish/api/seeds/   { return 404; }
-   location ~* ^/learnenglish/api/(?:config(?:\.example)?|bootstrap|catalog|auth|router)\.php$ { return 404; }
+   location ~* ^/learnenglish/api/(?:config(?:\.example)?|bootstrap|catalog|auth|router|tts_cache)\.php$ { return 404; }
    location ~* ^/learnenglish/(?:\.env.*|.*\.(?:db|sqlite|sqlite3|log)(?:-wal|-shm)?)$ { return 404; }
    ```
 
 4. Gunakan HTTPS. Untuk frontend/API pada origin yang sama biarkan `SESSION_SAMESITE=Lax` dan `VITE_API_BASE_URL` kosong; untuk beda origin HTTPS, konfigurasi `CORS_ALLOWED_ORIGINS` (daftar origin frontend), `SESSION_SAMESITE=None`, dan URL API frontend `VITE_API_BASE_URL` saat build. Header `Authorization` diizinkan untuk CORS origin terdaftar.
-5. Atur PHP `upload_max_filesize=16M`, `post_max_size=16M`, `max_execution_time=90` untuk evaluasi WAV ber-consent (batas aplikasi 12 MB). API key provider dienkripsi dengan AES-256-GCM menggunakan `APP_ENCRYPTION_KEY`; backup kunci itu secara privat.
+5. Atur PHP `upload_max_filesize=26M`, `post_max_size=28M`, `max_execution_time=90` untuk cache WAV Kokoro (maksimal 25 MB) dan evaluasi audio ber-consent (batas aplikasi 12 MB). Pastikan folder `TTS_CACHE_DIR` writable oleh proses PHP dan tidak dapat diakses langsung; bila lokasinya berada di web root Nginx, deny URL folder tersebut seperti aturan `uploads` di atas. API key provider dienkripsi dengan AES-256-GCM menggunakan `APP_ENCRYPTION_KEY`; backup kunci itu secara privat.
 6. Uji `health`, pendaftaran/login, reload/refresh, logout, progres Regular, perubahan password admin, Studio, batas Premium, dan akses audio berdasarkan kepemilikan. Respons health yang sehat tidak sendiri membuktikan semua fitur/konfigurasi provider telah diuji.
 
 ## Endpoint penting (`/learnenglish/api/`)
@@ -87,6 +87,7 @@ Jika Vite masih mem-proxy ke `https://rikisample.test` dan alamat tersebut 503, 
 - `GET health`, `GET me`, `POST register/login/logout`, `POST auth/refresh`, `POST account/password`
 - `GET catalog` (tanpa kunci untuk peserta), `POST listening/check` (koreksi oleh server)
 - `GET/PUT/DELETE progress`; `GET admin/catalog`, `POST/PUT/DELETE admin/units` dan `admin/listening`, `PUT admin/levels/{id}`
+- `GET/POST tts-cache` (WAV Kokoro bersama, terikat ke revisi konten); `GET admin/tts-cache`, `POST admin/tts-cache/clear`
 - `GET/POST/PUT admin/settings`, `GET/POST/PUT/DELETE admin/users`, `GET app-config`; `POST/GET/DELETE audio`, `POST assess-audio`, `POST chat`, `POST live-token`, `POST live-assessment`, `GET models`
 
 ## Pengujian tanpa menyentuh database pengguna

@@ -3,6 +3,7 @@ import Swal from "sweetalert2";
 import { toast } from "sonner";
 import {
   ArrowRight,
+  AudioLines,
   BookOpen,
   Check,
   Headphones,
@@ -13,7 +14,14 @@ import {
   Trash2,
 } from "lucide-react";
 import { apiJson } from "../../api";
+import {
+  generateKokoroAudio,
+  generateKokoroCompositeAudio,
+  KOKORO_VOICES,
+} from "../../lib/ttsRocks";
+import { saveSharedTtsAudio } from "../../lib/ttsCache";
 import ModuleLoading from "../../components/ModuleLoading";
+import DialogueEditor from "./DialogueEditor";
 
 const emptyQuestion = () => ({
   prompt: "",
@@ -28,6 +36,8 @@ const unitDraft = (level) => ({
   emoji: "💬",
   duration: "3–4 menit",
   prompt: "",
+  defaultVoice: "af_heart",
+  ttsSegments: [],
   objective: "",
   part: "IELTS-style Part 1 · familiar topics",
   questionType: "Short personal questions",
@@ -44,6 +54,8 @@ const listeningDraft = (level) => ({
   title: "",
   objective: "",
   script: "",
+  defaultVoice: "af_heart",
+  ttsSegments: [],
   image: "",
   sortOrder: 100,
   published: true,
@@ -97,6 +109,8 @@ export default function ContentStudio({ onCatalogChange }) {
   const [search, setSearch] = useState("");
   const [draft, setDraft] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [generatingCache, setGeneratingCache] = useState(false);
+  const [generationStatus, setGenerationStatus] = useState("");
   const [error, setError] = useState("");
 
   async function refresh(selectedType, selectedId) {
@@ -144,7 +158,25 @@ export default function ContentStudio({ onCatalogChange }) {
   const editing = draft?.value;
   const change = (key, value) =>
     setDraft((d) => ({ ...d, value: { ...d.value, [key]: value } }));
-  const pick = (type, item) => setDraft({ type, value: structuredClone(item) });
+  const pick = (type, item) => {
+    setGenerationStatus("");
+    setDraft({ type, value: structuredClone(item) });
+  };
+  const persistedItem =
+    editing?.id && draft?.type === "unit"
+      ? catalog?.levels
+          .flatMap((level) => level.units)
+          .find((item) => item.id === editing.id)
+      : editing?.id && draft?.type === "lesson"
+        ? catalog?.listening.find((item) => item.id === editing.id)
+        : null;
+  const audioSourceField = draft?.type === "unit" ? "prompt" : "script";
+  const audioSourceChanged =
+    draft?.type !== "level" &&
+    (!persistedItem ||
+      editing?.[audioSourceField] !== persistedItem?.[audioSourceField] ||
+      JSON.stringify(editing?.ttsSegments || []) !==
+        JSON.stringify(persistedItem?.ttsSegments || []));
   const create = () =>
     pick(
       tab === "speaking" ? "unit" : "lesson",
@@ -194,6 +226,73 @@ export default function ContentStudio({ onCatalogChange }) {
       setBusy(false);
     }
   }
+  async function generateCache() {
+    if (!editing?.id || audioSourceChanged || generatingCache) return;
+    const contentType = draft.type === "unit" ? "speaking" : "listening";
+    const sourceText = editing.ttsSegments?.length
+      ? editing.ttsSegments.map((turn) => turn.text).join(" ")
+      : editing[draft.type === "unit" ? "prompt" : "script"];
+    const item = {
+      id: editing.id,
+      ttsRevision: editing.ttsRevision,
+    };
+    if (!item.ttsRevision) {
+      toast.error("Muat ulang materi sebelum membuat shared cache.");
+      return;
+    }
+    const onStatus = (status) => {
+      if (status?.message) setGenerationStatus(status.message);
+    };
+    setGeneratingCache(true);
+    setGenerationStatus("Menyiapkan model Kokoro di browser admin…");
+    try {
+      for (let index = 0; index < KOKORO_VOICES.length; index += 1) {
+        const voice = KOKORO_VOICES[index];
+        setGenerationStatus(
+          `Suara ${index + 1}/${KOKORO_VOICES.length}: ${voice.name}…`,
+        );
+        const audio = await generateKokoroAudio(sourceText, {
+          voice: voice.id,
+          compute: "auto",
+          onStatus,
+        });
+        await saveSharedTtsAudio({
+          contentType,
+          item,
+          voiceId: voice.id,
+          audio,
+        });
+      }
+      if (editing.ttsSegments?.length >= 2) {
+        setGenerationStatus(
+          "Merender dialog multi-speaker dengan jeda singkat…",
+        );
+        const audio = await generateKokoroCompositeAudio(editing.ttsSegments, {
+          compute: "auto",
+          pauseMs: 280,
+          onStatus,
+        });
+        await saveSharedTtsAudio({
+          contentType,
+          item,
+          voiceId: "multi",
+          audio,
+        });
+      }
+      setGenerationStatus("Shared Kokoro audio siap untuk akun bersama.");
+      toast.success(
+        editing.ttsSegments?.length >= 2
+          ? "Empat voice tunggal dan dialog multi-speaker tersimpan di cache bersama."
+          : "Empat voice tersimpan di cache bersama.",
+      );
+    } catch (generationError) {
+      setGenerationStatus(generationError.message || "Pembuatan cache gagal.");
+      toast.error(generationError.message || "Pembuatan cache gagal.");
+    } finally {
+      setGeneratingCache(false);
+    }
+  }
+
   async function archive() {
     if (!editing?.id || draft.type === "level") return;
     const confirm = await Swal.fire({
@@ -475,6 +574,25 @@ export default function ContentStudio({ onCatalogChange }) {
                     }
                     required
                   />
+                  <label className="studio-field">
+                    <span>Default Kokoro voice · cached mode</span>
+                    <select
+                      value={editing.defaultVoice || "af_heart"}
+                      onChange={(event) =>
+                        change("defaultVoice", event.target.value)
+                      }
+                    >
+                      {KOKORO_VOICES.map((voice) => (
+                        <option key={voice.id} value={voice.id}>
+                          {voice.name} · {voice.accent} ({voice.id})
+                        </option>
+                      ))}
+                    </select>
+                    <small>
+                      Voice ini menjadi default untuk audio tunggal; dialog
+                      multi-speaker memakai voice pada tiap giliran.
+                    </small>
+                  </label>
                   {draft.type === "unit" ? (
                     <>
                       <Input
@@ -490,6 +608,11 @@ export default function ContentStudio({ onCatalogChange }) {
                         multiline
                         rows={5}
                         required
+                      />
+                      <DialogueEditor
+                        segments={editing.ttsSegments || []}
+                        defaultVoice={editing.defaultVoice || "af_heart"}
+                        onChange={(segments) => change("ttsSegments", segments)}
                       />
                       <div className="studio-two">
                         <Input
@@ -561,6 +684,11 @@ export default function ContentStudio({ onCatalogChange }) {
                         rows={7}
                         required
                         hint="Dibacakan oleh TTS perangkat; soal harus dapat dijawab dari naskah ini."
+                      />
+                      <DialogueEditor
+                        segments={editing.ttsSegments || []}
+                        defaultVoice={editing.defaultVoice || "af_heart"}
+                        onChange={(segments) => change("ttsSegments", segments)}
                       />
                       <div className="question-editor">
                         <div className="question-title">
@@ -713,8 +841,62 @@ export default function ContentStudio({ onCatalogChange }) {
                   </label>
                 </>
               )}
+              {draft.type !== "level" && (
+                <section className="studio-cache-generator">
+                  <div>
+                    <b>
+                      <AudioLines size={16} /> Shared Kokoro cache
+                    </b>
+                    <small>
+                      {editing.ttsSegments?.length >= 2
+                        ? "Membuat empat voice tunggal lalu satu file dialog multi-speaker."
+                        : "Membuat empat voice Kokoro secara serial di browser admin."}
+                    </small>
+                  </div>
+                  <button
+                    type="button"
+                    className="outline-btn"
+                    disabled={
+                      busy ||
+                      generatingCache ||
+                      !editing.id ||
+                      audioSourceChanged
+                    }
+                    onClick={generateCache}
+                  >
+                    {generatingCache ? (
+                      <>
+                        <span className="spinner" /> Membuat cache…
+                      </>
+                    ) : (
+                      <>
+                        <AudioLines size={15} /> Generate voice cache
+                      </>
+                    )}
+                  </button>
+                  {audioSourceChanged && editing.id && (
+                    <p className="studio-cache-hint">
+                      Simpan perubahan prompt/naskah atau giliran dialog dulu
+                      agar cache dibuat untuk versi materi yang benar.
+                    </p>
+                  )}
+                  {!editing.id && (
+                    <p className="studio-cache-hint">
+                      Simpan item baru sebelum membuat audio cache.
+                    </p>
+                  )}
+                  {generationStatus && (
+                    <p className="studio-cache-status" role="status">
+                      {generationStatus}
+                    </p>
+                  )}
+                </section>
+              )}
               <div className="studio-actions">
-                <button className="btn-primary" disabled={busy}>
+                <button
+                  className="btn-primary"
+                  disabled={busy || generatingCache}
+                >
                   {busy ? (
                     <>
                       <span className="spinner" /> Menyimpan...
@@ -729,7 +911,7 @@ export default function ContentStudio({ onCatalogChange }) {
                   <button
                     type="button"
                     className="danger-button"
-                    disabled={busy}
+                    disabled={busy || generatingCache}
                     onClick={archive}
                   >
                     <Trash2 size={15} /> Arsipkan
