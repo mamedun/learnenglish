@@ -29,8 +29,10 @@ export function speechRecognitionErrorMessage(code, brave = isBraveBrowser()) {
 export function useSpeechRecognition({ language = "en-US" } = {}) {
   const [transcript, setTranscript] = useState("");
   const [listening, setListening] = useState(false);
-  const [supported, setSupported] = useState(false);
-  const [braveDetected, setBraveDetected] = useState(false);
+  const [supported, setSupported] = useState(() =>
+    Boolean(getRecognitionConstructor()),
+  );
+  const [braveDetected, setBraveDetected] = useState(() => isBraveBrowser());
   const recognitionRef = useRef(null);
   const prefixRef = useRef("");
 

@@ -1373,6 +1373,15 @@ button:disabled {
   border-color: #e9f2e9;
   color: #5e8a62;
 }
+.aside-steps div.step-current {
+  color: #315c45;
+  font-weight: 700;
+}
+.aside-steps div.step-current > span {
+  border-color: #6a9b71;
+  background: #f2f7f1;
+  color: #315c45;
+}
 .tips-aside {
   background: #fffaf1;
   border-color: #f2ebdc;

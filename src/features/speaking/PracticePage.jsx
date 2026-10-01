@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatTime } from "../../lib/formatTime";
+import { getPracticeLessonProgress } from "./lessonProgress";
 import { isTtsBusy } from "../../lib/ttsRocks";
 import {
   speechRecognitionErrorMessage,
@@ -107,19 +108,51 @@ export default function PracticePage(p) {
     speechInputMode = "live_transcribe",
     resetRecording,
   } = p;
-  const liveTranscription = speechInputMode !== "ai_audio";
+  const [useAudioFallback, setUseAudioFallback] = useState(false);
+  const currentUnitIdRef = useRef(unit.id);
+  currentUnitIdRef.current = unit.id;
+  const liveTranscription = speechInputMode !== "ai_audio" && !useAudioFallback;
   const recognizer = useSpeechRecognition({ language: "en-US" });
   const [showPrompt, setShowPrompt] = useState(false);
+  const [scenarioComplete, setScenarioComplete] = useState(() =>
+    Boolean(completed?.has?.(unit.id)),
+  );
   const transcribing = liveTranscription && recognizer.listening;
+  const liveRecognitionUnavailable =
+    liveTranscription && (!recognizer.supported || recognizer.braveDetected);
+  const responseCaptured = liveTranscription
+    ? Boolean(transcript.trim()) && !transcribing
+    : Boolean(audioBlob);
+  const lessonProgress = getPracticeLessonProgress({
+    scenarioComplete,
+    responseCaptured,
+    feedbackCount: turns.length,
+    retryCaptured: turns.length > 1 || (turns.length > 0 && responseCaptured),
+    completed: Boolean(completed?.has?.(unit.id)),
+  });
   const ttsBusy = isTtsBusy(ttsStatus);
   useEffect(() => {
     setShowPrompt(false);
+    setUseAudioFallback(false);
     recognizer.reset();
     p.setTranscript("");
     p.resetRecording?.();
     // Reset the input when switching lesson or when the admin changes the global mode.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [unit.id, speechInputMode]);
+  useEffect(() => {
+    setScenarioComplete(Boolean(completed?.has?.(unit.id)));
+  }, [unit.id]);
+  const previousTurnCount = useRef(turns.length);
+  useEffect(() => {
+    if (turns.length > previousTurnCount.current) {
+      // Clear Web Speech API's internal transcript as well as App state so a retry
+      // never submits the previous answer a second time.
+      recognizer.reset();
+      p.setTranscript("");
+    }
+    previousTurnCount.current = turns.length;
+  }, [turns.length, recognizer.reset, p.setTranscript]);
   useEffect(() => {
     if (liveTranscription) p.setTranscript(recognizer.transcript);
   }, [recognizer.transcript, liveTranscription, p.setTranscript]);
@@ -250,7 +283,11 @@ export default function PracticePage(p) {
               )}
               <button
                 className="text-button question-reveal"
-                onClick={() => setShowPrompt((visible) => !visible)}
+                onClick={() => {
+                  const nextVisible = !showPrompt;
+                  setShowPrompt(nextVisible);
+                  if (nextVisible) setScenarioComplete(true);
+                }}
                 aria-expanded={showPrompt}
               >
                 {showPrompt ? (
@@ -267,7 +304,14 @@ export default function PracticePage(p) {
             <button
               className="round-play"
               onClick={() =>
-                speak(unit.prompt, { type: "speaking", item: unit })
+                speak(unit.prompt, {
+                  type: "speaking",
+                  item: unit,
+                  onPlaybackComplete: () => {
+                    if (currentUnitIdRef.current === unit.id)
+                      setScenarioComplete(true);
+                  },
+                })
               }
               aria-label={
                 ttsBusy ? "Menyiapkan audio pertanyaan" : "Dengarkan pertanyaan"
@@ -316,7 +360,10 @@ export default function PracticePage(p) {
               <h3>Jawab dengan suaramu</h3>
             </div>
             <span className="privacy-mini">
-              <ShieldCheck size={14} /> Audio dikirim hanya dengan persetujuan
+              <ShieldCheck size={14} />
+              {liveTranscription
+                ? "Transkrip browser · audio tidak dikirim ke AI aplikasi"
+                : "Audio dikirim hanya setelah persetujuan"}
             </span>
           </div>
           <div className="mic-stage">
@@ -338,18 +385,22 @@ export default function PracticePage(p) {
                 disabled={
                   processing ||
                   permission === "requesting" ||
-                  (liveTranscription &&
-                    (!recognizer.supported || recognizer.braveDetected))
+                  !scenarioComplete ||
+                  liveRecognitionUnavailable
                 }
                 aria-pressed={recording || transcribing}
                 aria-label={
                   permission === "requesting"
                     ? "Meminta akses mikrofon"
-                    : recording || transcribing
-                      ? "Selesai bicara"
-                      : liveTranscription
-                        ? "Mulai bicara"
-                        : "Mulai merekam"
+                    : !scenarioComplete
+                      ? "Dengarkan atau tampilkan soal terlebih dahulu"
+                      : liveRecognitionUnavailable
+                        ? "Live transcription tidak tersedia; pilih rekaman AI"
+                        : recording || transcribing
+                          ? "Selesai bicara"
+                          : liveTranscription
+                            ? "Mulai bicara"
+                            : "Mulai merekam"
                 }
               >
                 {permission === "requesting" && !liveTranscription ? (
@@ -397,20 +448,26 @@ export default function PracticePage(p) {
                 <b className="recording-label">
                   {permission === "requesting" && !liveTranscription
                     ? "Meminta akses mikrofon…"
-                    : liveTranscription
-                      ? "Ketuk untuk mulai bicara"
-                      : "Ketuk untuk mulai merekam"}
+                    : !scenarioComplete
+                      ? "Dengarkan atau tampilkan soal terlebih dahulu"
+                      : liveRecognitionUnavailable
+                        ? "Live transcription tidak tersedia di browser ini"
+                        : liveTranscription
+                          ? "Ketuk untuk mulai bicara"
+                          : "Ketuk untuk mulai merekam"}
                 </b>
                 <span className="record-hint">
                   {permission === "requesting" && !liveTranscription
                     ? "Pilih Izinkan pada dialog browser jika diminta"
-                    : liveTranscription
-                      ? recognizer.braveDetected
-                        ? "Live transcription tidak tersedia di Brave; gunakan Google Chrome"
-                        : recognizer.supported
-                          ? "Transkrip muncul langsung dan tidak dapat diedit"
-                          : "Transkripsi langsung tidak didukung browser ini"
-                      : "Audio baru dikirim setelah kamu menyetujui proses AI"}
+                    : !scenarioComplete
+                      ? "Putar audio atau tampilkan teks soal untuk membuka mikrofon"
+                      : liveTranscription
+                        ? recognizer.braveDetected
+                          ? "Live transcription tidak tersedia di Brave; gunakan rekaman AI atau Google Chrome"
+                          : recognizer.supported
+                            ? "Transkrip muncul langsung dan tidak dapat diedit"
+                            : "Transkripsi langsung tidak didukung browser ini"
+                        : "Audio baru dikirim setelah kamu menyetujui proses AI"}
                 </span>
               </>
             )}
@@ -472,14 +529,34 @@ export default function PracticePage(p) {
               </div>
             )}
           </div>
-          {liveTranscription && recognizer.braveDetected && (
+          {liveTranscription && liveRecognitionUnavailable && (
             <div className="speech-browser-warning" role="note">
               <Languages size={16} />
-              <span>
-                Brave tidak dapat mengakses layanan live speech recognition yang
-                digunakan browser ini. Buka AI Lesson di Google Chrome, atau
-                minta admin mengaktifkan mode rekaman AI.
-              </span>
+              <div className="speech-browser-warning-content">
+                <span>
+                  {recognizer.braveDetected
+                    ? "Brave tidak dapat mengakses live transcription. Gunakan Google Chrome, atau rekam audio untuk transkrip dan feedback AI."
+                    : "Browser ini tidak mendukung live transcription. Rekam audio untuk mendapatkan transkrip dan feedback AI."}
+                </span>
+                <button
+                  className="text-button"
+                  onClick={() => {
+                    recognizer.reset();
+                    p.setTranscript("");
+                    setUseAudioFallback(true);
+                    toast.info(
+                      "Mode rekaman AI aktif untuk lesson ini. Audio baru dikirim setelah kamu menyetujui.",
+                    );
+                  }}
+                  disabled={processing || recording || transcribing}
+                >
+                  Gunakan rekaman AI untuk lesson ini
+                </button>
+                <small>
+                  Audio tidak dikirim sampai kamu menekan Kirim jawaban dan
+                  menyetujui pemrosesan.
+                </small>
+              </div>
             </div>
           )}
           {liveTranscription ? (
@@ -535,7 +612,12 @@ export default function PracticePage(p) {
             </span>
             <button
               className="btn-primary"
-              onClick={submitTurn}
+              onClick={() =>
+                submitTurn({
+                  forceAiAudio:
+                    speechInputMode !== "ai_audio" && useAudioFallback,
+                })
+              }
               disabled={
                 processing ||
                 transcribing ||
@@ -697,7 +779,7 @@ export default function PracticePage(p) {
           </div>
           <div className="lesson-progress-ring">
             <div>
-              <b>{turns.length ? Math.min(100, turns.length * 25) : 0}%</b>
+              <b>{lessonProgress.percentage}%</b>
               <small>selesai</small>
             </div>
             <svg viewBox="0 0 100 100">
@@ -707,24 +789,34 @@ export default function PracticePage(p) {
                 cx="50"
                 cy="50"
                 r="43"
-                style={{ strokeDashoffset: 270 - turns.length * 18 }}
+                style={{
+                  strokeDashoffset: 270 - lessonProgress.percentage * 2.7,
+                }}
               />
             </svg>
           </div>
-          <div className="aside-progress-label">
+          <div
+            className="aside-progress-label"
+            aria-live="polite"
+            aria-atomic="true"
+          >
             <b>{unit.title}</b>
-            <span>{turns.length} dari 4 langkah</span>
+            <span>{lessonProgress.completedCount} dari 4 langkah</span>
           </div>
           <div className="aside-steps">
-            {[
-              "Dengarkan skenario",
-              "Rekam jawaban",
-              "Lihat feedback",
-              "Coba lagi / lanjut",
-            ].map((s, i) => (
-              <div className={i < turns.length + 1 ? "step-done" : ""} key={s}>
-                <span>{i < turns.length ? <Check size={12} /> : i + 1}</span>
-                {s}
+            {lessonProgress.steps.map((step, i) => (
+              <div
+                className={[
+                  step.done ? "step-done" : "",
+                  step.current ? "step-current" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                key={step.label}
+                aria-current={step.current ? "step" : undefined}
+              >
+                <span>{step.done ? <Check size={12} /> : i + 1}</span>
+                {step.label}
               </div>
             ))}
           </div>
@@ -750,9 +842,9 @@ export default function PracticePage(p) {
           <div>
             <b>Privasi & audio</b>
             <p>
-              Rekaman hanya dikirim untuk evaluasi AI setelah persetujuan satu
-              kali. Arsip audio memerlukan persetujuan terpisah;
-              SpeechRecognition browser tidak digunakan.
+              {liveTranscription
+                ? "Live transcription memakai layanan SpeechRecognition browser; transkrip hanya-baca dan audio tidak dikirim ke provider AI aplikasi."
+                : "Rekaman dikirim untuk transkripsi dan feedback AI hanya setelah persetujuan. Arsip audio memerlukan persetujuan terpisah."}
             </p>
           </div>
         </div>

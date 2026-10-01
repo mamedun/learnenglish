@@ -519,9 +519,9 @@ function App() {
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
   }
-  async function submitTurn() {
+  async function submitTurn({ forceAiAudio = false } = {}) {
     const inputMode = appConfig.speech_input_mode || "live_transcribe";
-    const useServerAudio = inputMode === "ai_audio";
+    const useServerAudio = forceAiAudio || inputMode === "ai_audio";
     const submittedTranscript = transcript.trim();
     if (useServerAudio && !audioBlob) {
       toast.error("Rekam jawaban terlebih dahulu, lalu ketuk selesai merekam.");
@@ -801,7 +801,12 @@ function App() {
     });
   }
 
-  function speakWithBrowser(text, requestId, fallbackReason = "") {
+  function speakWithBrowser(
+    text,
+    requestId,
+    fallbackReason = "",
+    onPlaybackComplete,
+  ) {
     const synth = window.speechSynthesis;
     if (!synth) throw new Error("Text-to-speech tidak didukung browser ini.");
     synth.cancel();
@@ -828,8 +833,9 @@ function App() {
         });
     };
     utterance.onend = () => {
-      if (requestId === ttsRequestIdRef.current)
-        setTtsStatus({ phase: "ready", message: "Browser Native siap." });
+      if (requestId !== ttsRequestIdRef.current) return;
+      setTtsStatus({ phase: "ready", message: "Browser Native siap." });
+      onPlaybackComplete?.();
     };
     utterance.onerror = (event) => {
       if (requestId !== ttsRequestIdRef.current) return;
@@ -849,9 +855,9 @@ function App() {
     synth.speak(utterance);
   }
 
-  function speakNativeFallback(text, requestId, message) {
+  function speakNativeFallback(text, requestId, message, onPlaybackComplete) {
     try {
-      speakWithBrowser(text, requestId, message);
+      speakWithBrowser(text, requestId, message, onPlaybackComplete);
       return true;
     } catch (error) {
       if (requestId === ttsRequestIdRef.current)
@@ -866,6 +872,13 @@ function App() {
     if (!sourceText) return;
     const requestId = ++ttsRequestIdRef.current;
     stopCurrentSpeech();
+    const notifyPlaybackComplete = () => {
+      if (
+        requestId === ttsRequestIdRef.current &&
+        typeof options?.onPlaybackComplete === "function"
+      )
+        options.onPlaybackComplete();
+    };
     const engine = data.settings.tts || "kokoro";
     const cachedMode = data.settings.useCachedVoice !== false;
     const forceKokoro = options?.forceKokoro === true;
@@ -886,7 +899,7 @@ function App() {
 
     if (engine === "native") {
       try {
-        speakWithBrowser(spokenText, requestId);
+        speakWithBrowser(spokenText, requestId, "", notifyPlaybackComplete);
       } catch (error) {
         setTtsStatus({ phase: "error", message: error.message });
         toast.error(error.message || "Browser TTS gagal diputar.");
@@ -917,6 +930,7 @@ function App() {
             spokenText,
             requestId,
             "Shared cache tidak tersedia; menggunakan Browser Native.",
+            notifyPlaybackComplete,
           );
           return;
         }
@@ -925,10 +939,16 @@ function App() {
       if (cachedAudio) {
         try {
           await playCachedAudio(cachedAudio, requestId);
+          notifyPlaybackComplete();
         } catch {
           if (requestId !== ttsRequestIdRef.current) return;
           toast.info("Audio cache gagal diputar; memakai Browser Native.");
-          speakNativeFallback(spokenText, requestId);
+          speakNativeFallback(
+            spokenText,
+            requestId,
+            undefined,
+            notifyPlaybackComplete,
+          );
         }
         return;
       }
@@ -937,6 +957,7 @@ function App() {
           spokenText,
           requestId,
           "Audio belum tersedia di shared cache; menggunakan Browser Native.",
+          notifyPlaybackComplete,
         );
         return;
       }
@@ -973,8 +994,10 @@ function App() {
               "Audio diputar lokal, tetapi belum dapat disimpan ke shared cache.",
             );
         }
-        if (requestId === ttsRequestIdRef.current)
+        if (requestId === ttsRequestIdRef.current) {
           await playCachedAudio(audio, requestId);
+          notifyPlaybackComplete();
+        }
       } catch (error) {
         if (requestId !== ttsRequestIdRef.current) return;
         setTtsStatus({
@@ -986,7 +1009,7 @@ function App() {
             "Kokoro belum tersedia. Memakai Browser Native untuk kali ini.",
           );
           try {
-            speakWithBrowser(spokenText, requestId);
+            speakWithBrowser(spokenText, requestId, "", notifyPlaybackComplete);
           } catch {
             toast.error(error.message || "Gagal memutar suara.");
           }
@@ -1017,6 +1040,7 @@ function App() {
           if (requestId === ttsRequestIdRef.current) setTtsStatus(status);
         },
       });
+      notifyPlaybackComplete();
     } catch (error) {
       if (requestId !== ttsRequestIdRef.current) return;
       setTtsStatus({
@@ -1028,7 +1052,7 @@ function App() {
           "Kokoro belum tersedia. Memakai Browser Native untuk kali ini.",
         );
         try {
-          speakWithBrowser(sourceText, requestId);
+          speakWithBrowser(sourceText, requestId, "", notifyPlaybackComplete);
         } catch {
           toast.error(error.message || "Gagal memutar suara.");
         }
