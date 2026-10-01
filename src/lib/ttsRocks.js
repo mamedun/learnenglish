@@ -8,6 +8,7 @@ const MODEL_KEY = "kokoro-82M-v1.0";
 let scriptPromise;
 let initPromise;
 let configuredDevice = "";
+let inferenceQueue = Promise.resolve();
 let activeConfig = { compute: "auto", onStatus: () => {} };
 
 const BUSY_TTS_PHASES = new Set([
@@ -360,7 +361,11 @@ function wavFromFloat32(samples, sampleRate) {
 
 function getGeneratedSamples(result) {
   const candidate =
-    result?.data ?? result?.audio?.data ?? result?.audio ?? result?.waveform;
+    result?.data ??
+    result?.audio?.data ??
+    result?.audio?.audio ??
+    result?.audio ??
+    result?.waveform;
   if (candidate instanceof Float32Array) return candidate;
   if (ArrayBuffer.isView(candidate))
     return new Float32Array(
@@ -370,6 +375,67 @@ function getGeneratedSamples(result) {
     );
   if (Array.isArray(candidate)) return Float32Array.from(candidate);
   return null;
+}
+
+function serializeKokoroInference(operation) {
+  const result = inferenceQueue.then(operation, operation);
+  inferenceQueue = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+}
+
+async function collectStreamedSamples(
+  TTS,
+  text,
+  { voice, speed, onChunk } = {},
+) {
+  if (
+    typeof TTS.TextSplitterStream !== "function" ||
+    typeof TTS.kokoroTtsInstance?.stream !== "function"
+  ) {
+    throw new Error("Streaming Kokoro tidak tersedia di browser ini.");
+  }
+
+  const splitter = new TTS.TextSplitterStream();
+  splitter.push(String(text || "").trim());
+  splitter.close();
+  const stream = TTS.kokoroTtsInstance.stream(splitter, {
+    voice,
+    speed,
+    streamAudio: false,
+  });
+  const chunks = [];
+  let totalSamples = 0;
+  let sampleRate = null;
+
+  for await (const part of stream) {
+    if (!part?.audio) continue;
+    const samples = getGeneratedSamples(part);
+    const partSampleRate = getGeneratedSampleRate(part);
+    if (!samples?.length)
+      throw new Error("Kokoro tidak menghasilkan waveform audio yang valid.");
+    if (sampleRate !== null && sampleRate !== partSampleRate)
+      throw new Error(
+        "Kokoro menghasilkan sample rate audio yang tidak cocok.",
+      );
+    sampleRate = partSampleRate;
+    chunks.push(samples);
+    totalSamples += samples.length;
+    onChunk?.(chunks.length);
+  }
+
+  if (!totalSamples || !sampleRate)
+    throw new Error("Kokoro tidak menghasilkan waveform audio yang valid.");
+
+  const combined = new Float32Array(totalSamples);
+  let offset = 0;
+  for (const chunk of chunks) {
+    combined.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return { samples: combined, sampleRate };
 }
 
 function getGeneratedSampleRate(result) {
@@ -401,17 +467,31 @@ export async function generateKokoroAudio(
     progress: null,
     device,
     voice,
-    message: `Membuat audio Kokoro (${voice})…`,
+    message: `Menunggu giliran engine Kokoro (${voice})…`,
   });
-  const generated = await TTS.kokoroTtsInstance.generate(source, {
-    voice,
-    speed,
-  });
-  const samples = getGeneratedSamples(generated);
-  const sampleRate = getGeneratedSampleRate(generated);
-  if (!samples?.length || sampleRate < 8_000 || sampleRate > 96_000)
+
+  const generated = await serializeKokoroInference(() =>
+    collectStreamedSamples(TTS, source, {
+      voice,
+      speed,
+      onChunk: (chunk) =>
+        emitStatus(onStatus, {
+          phase: "generate",
+          progress: null,
+          device,
+          voice,
+          message: `Membuat audio Kokoro (${voice})… bagian ${chunk}`,
+        }),
+    }),
+  );
+  if (
+    !generated.samples.length ||
+    generated.sampleRate < 8_000 ||
+    generated.sampleRate > 96_000
+  ) {
     throw new Error("Kokoro tidak menghasilkan waveform audio yang valid.");
-  return wavFromFloat32(samples, sampleRate);
+  }
+  return wavFromFloat32(generated.samples, generated.sampleRate);
 }
 
 export async function generateKokoroCompositeAudio(
@@ -425,52 +505,71 @@ export async function generateKokoroCompositeAudio(
     throw new Error("Dialog multi-voice perlu sedikitnya dua giliran.");
   for (const turn of turns) assertVoice(turn.voice || "af_heart");
   const { TTS, device } = await prepare(compute, onStatus);
-  const parts = [];
-  let totalSamples = 0;
-  let sampleRate = 24_000;
-  const pauseSamples = Math.max(0, Math.round((pauseMs / 1000) * sampleRate));
 
-  for (let i = 0; i < turns.length; i += 1) {
-    const turn = turns[i];
-    const voice = turn.voice || "af_heart";
+  return serializeKokoroInference(async () => {
+    const parts = [];
+    let totalSamples = 0;
+    let sampleRate = null;
+
+    for (let i = 0; i < turns.length; i += 1) {
+      const turn = turns[i];
+      const voice = turn.voice || "af_heart";
+      emitStatus(onStatus, {
+        phase: "generate",
+        progress: Math.round((i / turns.length) * 100),
+        device,
+        voice,
+        message: `Membuat giliran ${i + 1}/${turns.length} (${voice})…`,
+      });
+      const generated = await collectStreamedSamples(
+        TTS,
+        String(turn.text).trim(),
+        {
+          voice,
+          speed,
+          onChunk: (chunk) =>
+            emitStatus(onStatus, {
+              phase: "generate",
+              progress: null,
+              device,
+              voice,
+              message: `Membuat giliran ${i + 1}/${turns.length} (${voice})… bagian ${chunk}`,
+            }),
+        },
+      );
+      if (sampleRate !== null && generated.sampleRate !== sampleRate)
+        throw new Error(
+          "Kokoro menghasilkan sample rate audio yang tidak cocok.",
+        );
+      sampleRate = generated.sampleRate;
+      parts.push(generated.samples);
+      totalSamples += generated.samples.length;
+
+      if (i < turns.length - 1 && pauseMs > 0) {
+        const pauseSamples = Math.round((pauseMs / 1000) * sampleRate);
+        if (pauseSamples > 0) {
+          parts.push(new Float32Array(pauseSamples));
+          totalSamples += pauseSamples;
+        }
+      }
+    }
+
+    if (!sampleRate || !totalSamples)
+      throw new Error("Kokoro tidak menghasilkan waveform audio yang valid.");
+    const combined = new Float32Array(totalSamples);
+    let offset = 0;
+    for (const part of parts) {
+      combined.set(part, offset);
+      offset += part.length;
+    }
     emitStatus(onStatus, {
       phase: "generate",
-      progress: Math.round((i / turns.length) * 100),
+      progress: 100,
       device,
-      voice,
-      message: `Membuat giliran ${i + 1}/${turns.length} (${voice})…`,
+      message: "Menggabungkan giliran dialog…",
     });
-    const generated = await TTS.kokoroTtsInstance.generate(
-      String(turn.text).trim(),
-      { voice, speed },
-    );
-    const audioSamples = getGeneratedSamples(generated);
-    const audioRate = getGeneratedSampleRate(generated);
-    if (!audioSamples?.length || audioRate !== sampleRate)
-      throw new Error(
-        "Kokoro menghasilkan sample rate audio yang tidak cocok.",
-      );
-    parts.push(audioSamples);
-    totalSamples += audioSamples.length;
-    if (i < turns.length - 1 && pauseSamples) {
-      parts.push(new Float32Array(pauseSamples));
-      totalSamples += pauseSamples;
-    }
-  }
-
-  const combined = new Float32Array(totalSamples);
-  let offset = 0;
-  for (const part of parts) {
-    combined.set(part, offset);
-    offset += part.length;
-  }
-  emitStatus(onStatus, {
-    phase: "generate",
-    progress: 100,
-    device,
-    message: "Menggabungkan giliran dialog…",
+    return wavFromFloat32(combined, sampleRate);
   });
-  return wavFromFloat32(combined, sampleRate);
 }
 
 export async function getKokoroCacheInfo() {

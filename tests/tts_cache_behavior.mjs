@@ -11,6 +11,7 @@ const [
   cacheApi,
   courseware,
   catalog,
+  ttsRocks,
 ] = await Promise.all([
   read("src/app/App.jsx"),
   read("src/features/settings/SettingsPage.jsx"),
@@ -20,6 +21,7 @@ const [
   read("api/tts_cache.php"),
   read("api/courseware.php"),
   read("api/catalog.php"),
+  read("src/lib/ttsRocks.js"),
 ]);
 
 assert.match(app, /const engine = isSmallViewport \? "native"/);
@@ -39,7 +41,12 @@ assert.match(
 
 assert.match(generator, /KOKORO_VOICES\.map/);
 assert.match(generator, /Promise\.allSettled/);
+assert.match(generator, /engine Kokoro memproses bergiliran/);
 assert.match(generator, /generateKokoroCompositeAudio/);
+assert.match(ttsRocks, /serializeKokoroInference/);
+assert.match(ttsRocks, /new TTS\.TextSplitterStream\(\)/);
+assert.match(ttsRocks, /kokoroTtsInstance\.stream\(splitter/);
+assert.doesNotMatch(ttsRocks, /kokoroTtsInstance\.generate/);
 assert.match(generator, /Generate ulang mengganti file lama/);
 assert.match(legacyStudio, /<SharedTtsCacheGenerator/);
 assert.match(courseStudio, /<SharedTtsCacheGenerator/);
@@ -66,5 +73,5 @@ assert.match(courseware, /tts_cache_delete_course\(\$pdo, \$courseId\)/);
 assert.match(catalog, /tts_cache_delete_content\(\$contentType, \$id\)/);
 
 console.log(
-  "PASS: authored lessons use cache-first auto voice selection, mobile uses Browser Native, admin batch generation is parallel, and cache writes invalidate stale course content.",
+  "PASS: authored lessons use cache-first auto voice selection, mobile uses Browser Native, Admin inference is chunked and serialized, and cache writes invalidate stale content.",
 );

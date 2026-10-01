@@ -63,15 +63,18 @@ export default function SharedTtsCacheGenerator({
 
     setGenerating(true);
     onGeneratingChange(true);
-    setStatus(`Membuat ${jobs.length} file audio secara paralel…`);
-    const onModelStatus = (modelStatus) => {
-      if (modelStatus?.message) setStatus(modelStatus.message);
+    setStatus(
+      `Menjalankan batch ${jobs.length} audio; engine Kokoro memproses bergiliran…`,
+    );
+    const onModelStatus = (job) => (modelStatus) => {
+      if (modelStatus?.message)
+        setStatus(`${job.label}: ${modelStatus.message}`);
     };
     let completed = 0;
     try {
       const results = await Promise.allSettled(
         jobs.map(async (job) => {
-          const audio = await job.generate(onModelStatus);
+          const audio = await job.generate(onModelStatus(job));
           await saveSharedTtsAudio({
             contentType,
             item: cacheItem,
@@ -93,11 +96,18 @@ export default function SharedTtsCacheGenerator({
       const succeeded = jobs.length - failed.length;
       if (failed.length) {
         const failedNames = failed.map((job) => job.label).join(", ");
+        const firstError = String(
+          failed[0].error?.message ||
+            failed[0].error ||
+            "Kesalahan tidak diketahui.",
+        )
+          .replace(/\s+/g, " ")
+          .slice(0, 180);
         setStatus(
-          `${succeeded}/${jobs.length} file tersimpan; gagal: ${failedNames}.`,
+          `${succeeded}/${jobs.length} file tersimpan; gagal: ${failedNames}. ${firstError}`,
         );
         toast.error(
-          `${succeeded}/${jobs.length} cache tersimpan. ${failedNames} gagal dibuat atau diunggah.`,
+          `${succeeded}/${jobs.length} cache tersimpan. ${failed[0].label}: ${firstError}`,
         );
       } else {
         setStatus(
@@ -125,7 +135,8 @@ export default function SharedTtsCacheGenerator({
           <AudioLines size={16} /> Shared audio cache
         </b>
         <small>
-          Membuat empat voice tunggal secara paralel
+          Membuat empat voice tunggal dalam satu batch; engine memproses
+          bergiliran agar tetap stabil
           {hasMultiSpeaker
             ? " bersama satu audio dialog multi-speaker."
             : "."}{" "}
