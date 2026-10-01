@@ -374,6 +374,10 @@ assert request(regular, 'catalog')['levels'][0]['label'] == 'Fondasi (smoke edit
 # Admin can lock registration and users out, then restore access.
 settings = request(admin, 'admin/settings')['settings']
 merchant_static_qris = static_qris()
+merchant_static_fields = parse_qris(merchant_static_qris)
+assert merchant_static_fields['60'] == 'JAKARTA BARAT'
+assert merchant_static_fields['63'] == 'E24E'
+assert qris_crc16(merchant_static_qris[:-4]) == merchant_static_fields['63']
 config = {
     'ai_provider': 'clario',
     'speech_input_mode': 'ai_audio',
@@ -419,9 +423,11 @@ created_at = datetime.fromisoformat(purchase['created_at'])
 expires_at = datetime.fromisoformat(purchase['expires_at'])
 assert 86390 <= (expires_at - created_at).total_seconds() <= 86410
 qris_fields = parse_qris(purchase['qris_payload'])
-static_fields = parse_qris(merchant_static_qris)
+static_fields = merchant_static_fields
 assert qris_fields['01'] == '12' and qris_fields['53'] == '360'
 assert qris_fields['26'] == static_fields['26'] and qris_fields['51'] == static_fields['51']
+assert qris_fields['59'] == static_fields['59']
+assert qris_fields['60'] == 'JAKARTA BARAT'
 assert qris_fields['54'] == f"{purchase['total_amount']:.2f}"
 assert qris_fields['63'] == qris_crc16(purchase['qris_payload'][:-4])
 request(regular, f"shop/purchases/{purchase['id']}/contacted", 'POST', {})

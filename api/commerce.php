@@ -226,7 +226,9 @@ function qris_crc16(string $payload): string
 
 function qris_dynamic_payload(string $staticPayload, int $amount): string
 {
-    $payload = preg_replace('/\s+/', '', trim($staticPayload)) ?? '';
+    // Whitespace inside EMVCo values (for example, "JAKARTA BARAT") is data.
+    // Trim only paste padding around the complete payload; never normalize its body.
+    $payload = trim($staticPayload);
     if ($amount < 1 || !str_starts_with($payload, '000201')) throw new InvalidArgumentException('QRIS harus diawali 000201 dan nominal lebih dari nol.');
     $items = qris_parse_tlv($payload);
     if (!$items || end($items)['tag'] !== '63' || end($items)['value'] === '' || strlen(end($items)['value']) !== 4) {

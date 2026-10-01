@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { apiJson } from "../../api";
 import { toast } from "sonner";
+import CourseContentEditor from "./CourseContentEditor";
 import "./CourseStudio.css";
 
 const NEW_COURSE = {
@@ -74,6 +75,7 @@ const unitTemplate = (modality, index, categoryId) => ({
       ? {
           objective: "",
           script: "",
+          defaultVoice: "af_heart",
           questions: [
             {
               prompt: "Pertanyaan baru",
@@ -163,6 +165,7 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
   const [moduleDrafts, setModuleDrafts] = useState({});
   const [selectedUnitId, setSelectedUnitId] = useState("");
   const [contentText, setContentText] = useState("");
+  const [contentView, setContentView] = useState("visual");
   const [categoryIndex, setCategoryIndex] = useState(0);
   const [userSearch, setUserSearch] = useState("");
   const [userSort, setUserSort] = useState("name");
@@ -336,6 +339,38 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
     displayedUnits.find((unit) => unit.id === selectedUnitId) ||
     displayedUnits[0] ||
     null;
+  const contentParseState = useMemo(() => {
+    try {
+      const parsed = contentText.trim() ? JSON.parse(contentText) : {};
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new Error("Isi harus berupa JSON object.");
+      }
+      return { content: parsed, error: "" };
+    } catch (error) {
+      const savedContent = selectedUnit?.content;
+      return {
+        content:
+          savedContent &&
+          typeof savedContent === "object" &&
+          !Array.isArray(savedContent)
+            ? savedContent
+            : {},
+        error: error.message,
+      };
+    }
+  }, [contentText, selectedUnit?.content]);
+  const contentDraft = contentParseState.content;
+  const contentParseError = contentParseState.error;
+  function patchContent(patch) {
+    if (contentParseError) {
+      setContentView("json");
+      toast.error(
+        "Perbaiki JSON yang belum valid sebelum memakai editor visual.",
+      );
+      return;
+    }
+    setContentText(JSON.stringify({ ...contentDraft, ...patch }, null, 2));
+  }
   function selectStudioTab(nextTab) {
     setTab(nextTab);
     if (MODE_LABEL[nextTab]) {
@@ -1424,63 +1459,70 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
                                 placeholder="Instruksi khusus untuk mode ini"
                               />
                             </label>
-                            <label className="span-2">
-                              Ilustrasi / video / YouTube / URL eksternal
-                              <input
-                                className="text-field"
-                                value={selectedUnit.mediaUrl || ""}
-                                onChange={(event) =>
-                                  patchUnit("mediaUrl", event.target.value)
-                                }
-                                placeholder="https://… (YouTube, MP4, gambar)"
-                              />
-                            </label>
-                            <div className="course-media-preview span-2">
-                              <div className="course-media-preview-title">
-                                Preview media · 16:9
-                              </div>
-                              {previewKind === "youtube" ? (
-                                <iframe
-                                  src={youtubeEmbed(selectedUnit.mediaUrl)}
-                                  title="Preview video"
-                                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                                  allowFullScreen
-                                />
-                              ) : previewKind === "video" ? (
-                                <video src={selectedUnit.mediaUrl} controls />
-                              ) : previewKind === "image" ? (
-                                <a
-                                  href={selectedUnit.mediaUrl}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                >
-                                  <img
-                                    src={selectedUnit.mediaUrl}
-                                    alt="Preview media"
+                            {modality !== "live_lesson" && (
+                              <>
+                                <label className="span-2">
+                                  Ilustrasi / video / YouTube / URL eksternal
+                                  <input
+                                    className="text-field"
+                                    value={selectedUnit.mediaUrl || ""}
+                                    onChange={(event) =>
+                                      patchUnit("mediaUrl", event.target.value)
+                                    }
+                                    placeholder="https://… (YouTube, MP4, gambar)"
                                   />
-                                  <span>
-                                    <ExternalLink size={14} /> Buka media
-                                    eksternal
-                                  </span>
-                                </a>
-                              ) : previewKind === "external" ? (
-                                <a
-                                  href={selectedUnit.mediaUrl}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                >
-                                  <div className="course-media-empty">
-                                    <ExternalLink size={14} />
-                                    <span>Buka URL media eksternal</span>
+                                </label>
+                                <div className="course-media-preview span-2">
+                                  <div className="course-media-preview-title">
+                                    Preview media · 16:9
                                   </div>
-                                </a>
-                              ) : (
-                                <div className="course-media-empty">
-                                  Media ilustrasi 16:9 · gambar, video, URL,
-                                  atau YouTube
+                                  {previewKind === "youtube" ? (
+                                    <iframe
+                                      src={youtubeEmbed(selectedUnit.mediaUrl)}
+                                      title="Preview video"
+                                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                      allowFullScreen
+                                    />
+                                  ) : previewKind === "video" ? (
+                                    <video
+                                      src={selectedUnit.mediaUrl}
+                                      controls
+                                    />
+                                  ) : previewKind === "image" ? (
+                                    <a
+                                      href={selectedUnit.mediaUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                    >
+                                      <img
+                                        src={selectedUnit.mediaUrl}
+                                        alt="Preview media"
+                                      />
+                                      <span>
+                                        <ExternalLink size={14} /> Buka media
+                                        eksternal
+                                      </span>
+                                    </a>
+                                  ) : previewKind === "external" ? (
+                                    <a
+                                      href={selectedUnit.mediaUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                    >
+                                      <div className="course-media-empty">
+                                        <ExternalLink size={14} />
+                                        <span>Buka URL media eksternal</span>
+                                      </div>
+                                    </a>
+                                  ) : (
+                                    <div className="course-media-empty">
+                                      Media ilustrasi 16:9 · gambar, video, URL,
+                                      atau YouTube
+                                    </div>
+                                  )}
                                 </div>
-                              )}
-                            </div>
+                              </>
+                            )}
                             <label className="course-published-toggle">
                               <input
                                 type="checkbox"
@@ -1496,25 +1538,93 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
                           </div>
                           <div className="course-content-help">
                             {modality === "listening"
-                              ? "Bank soal disimpan di content.questions. Setiap soal memiliki prompt, options, answer (indeks mulai 0), dan explain."
+                              ? "Atur tujuan, naskah, bank soal, dan suara. Dialog multi-speaker dapat memakai nama serta voice Kokoro berbeda di setiap giliran."
                               : modality === "ai_lesson"
-                                ? "Cue card ada pada content.prompt. Konten ttsSegments mendukung dialog multi-speaker dengan teks dan voice per segmen."
-                                : "Atur content.teacherRole, learnerRole, situation, opening, dan responseStyle. Live Teacher membuka percakapan lebih dulu."}
+                                ? "Buat cue card dan pengaturan latihan; dialog ttsSegments mendukung beberapa speaker dengan teks dan voice masing-masing."
+                                : "Atur role, situasi, pembuka teacher, dan gaya balasan. Live Teacher memulai percakapan berdasarkan topik yang dipilih."}
                           </div>
-                          <label className="course-json-label">
-                            {modality === "live_lesson"
-                              ? "KONTEN TOPIK · JSON OBJECT"
-                              : "KONTEN MATERI · JSON OBJECT"}
-                            <textarea
-                              className="course-json-editor"
-                              spellCheck={false}
-                              value={contentText}
-                              onChange={(event) =>
-                                setContentText(event.target.value)
-                              }
-                              rows={15}
-                            />
-                          </label>
+                          <div
+                            className="course-content-view-toggle"
+                            role="group"
+                            aria-label="Mode penyuntingan konten"
+                          >
+                            <button
+                              type="button"
+                              aria-pressed={contentView === "visual"}
+                              onClick={() => setContentView("visual")}
+                            >
+                              Editor visual
+                            </button>
+                            <button
+                              type="button"
+                              aria-pressed={contentView === "json"}
+                              onClick={() => setContentView("json")}
+                            >
+                              JSON
+                            </button>
+                            <button
+                              type="button"
+                              aria-pressed={contentView === "both"}
+                              onClick={() => setContentView("both")}
+                            >
+                              Berdampingan
+                            </button>
+                          </div>
+                          {contentParseError && (
+                            <div
+                              className="course-content-json-error"
+                              role="alert"
+                            >
+                              <span>
+                                JSON konten belum valid: {contentParseError}.
+                                Editor visual sementara tidak tersedia.
+                              </span>
+                              {contentView !== "json" && (
+                                <button
+                                  type="button"
+                                  onClick={() => setContentView("json")}
+                                >
+                                  Buka JSON untuk memperbaiki
+                                </button>
+                              )}
+                            </div>
+                          )}
+                          <div
+                            className={`course-content-authoring ${contentView === "both" ? "is-split" : ""}`}
+                          >
+                            {contentView !== "json" && (
+                              <div className="course-content-visual">
+                                {!contentParseError && (
+                                  <CourseContentEditor
+                                    modality={modality}
+                                    content={contentDraft}
+                                    onChange={patchContent}
+                                  />
+                                )}
+                              </div>
+                            )}
+                            {contentView !== "visual" && (
+                              <label className="course-json-label course-content-json-panel">
+                                {modality === "live_lesson"
+                                  ? "KONTEN TOPIK · JSON OBJECT"
+                                  : "KONTEN MATERI · JSON OBJECT"}
+                                <textarea
+                                  className="course-json-editor"
+                                  aria-label={
+                                    modality === "live_lesson"
+                                      ? "Konten topik dalam JSON"
+                                      : "Konten materi dalam JSON"
+                                  }
+                                  spellCheck={false}
+                                  value={contentText}
+                                  onChange={(event) =>
+                                    setContentText(event.target.value)
+                                  }
+                                  rows={18}
+                                />
+                              </label>
+                            )}
+                          </div>
                           <div className="course-editor-actions course-module-save">
                             <button
                               className="btn-primary"

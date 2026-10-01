@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
-const [api, commerce, app, shop, admin, users, purchases, live] =
+const [api, commerce, app, shop, admin, users, purchases, live, smoke] =
   await Promise.all([
     read("api/index.php"),
     read("api/commerce.php"),
@@ -12,6 +12,7 @@ const [api, commerce, app, shop, admin, users, purchases, live] =
     read("src/features/admin/AdminUsersPanel.jsx"),
     read("src/features/admin/AdminPurchasesPanel.jsx"),
     read("src/features/live/LivePage.jsx"),
+    read("tests/smoke_api.py"),
   ]);
 
 assert.match(commerce, /wallet_admin_update/);
@@ -26,7 +27,10 @@ assert.match(commerce, /mode === 'set' \? \$value : \$current \+ \$value/);
 assert.match(commerce, /random_int\(1, 999\)/);
 assert.match(commerce, /time\(\) \+ 86400/);
 assert.match(commerce, /purchase_validity_hours/);
-assert.match(commerce, /\$diamondRate = max\(1, \(int\)app_setting\("diamond_price_idr", "100"\)\)/);
+assert.match(
+  commerce,
+  /\$diamondRate = max\(1, \(int\)app_setting\("diamond_price_idr", "100"\)\)/,
+);
 assert.match(commerce, /intdiv\(\$baseAmount, \$diamondRate\)/);
 assert.match(commerce, /\$baseAmount % 5000 !== 0/);
 assert.match(commerce, /qris_dynamic_payload\(\$staticText, \$total\)/);
@@ -36,9 +40,17 @@ assert.ok(
   "QRIS TLV builder must validate two-digit tags with a working digit-class regex",
 );
 assert.ok(
-  commerce.includes(`preg_replace('/${phpBackslash}s+/', '', trim($staticPayload))`),
-  "QRIS conversion must strip whitespace from copied merchant payloads",
+  commerce.includes("$payload = trim($staticPayload);"),
+  "QRIS conversion may trim paste padding but must preserve whitespace inside EMVCo values",
 );
+assert.ok(
+  !commerce.includes(
+    `preg_replace('/${phpBackslash}s+/', '', trim($staticPayload))`,
+  ),
+  "QRIS conversion must not delete meaningful whitespace inside merchant fields",
+);
+assert.match(smoke, /merchant_static_fields\['60'\] == 'JAKARTA BARAT'/);
+assert.match(smoke, /merchant_static_fields\['63'\] == 'E24E'/);
 assert.match(commerce, /\$baseAmount \+ \$tax \+ \$adminFee \+ \$code/);
 assert.match(commerce, /expire_diamond_purchases\(\);/);
 assert.match(commerce, /UPDATE diamond_purchases SET status='paid'/);
@@ -60,7 +72,10 @@ assert.match(liveBilling, /if \(!\$unlimited && \$reserveCost > 0\)/);
 assert.match(liveBilling, /diamonds=diamonds-10/);
 assert.match(liveBilling, /'unlimited_access'=>\$unlimited/);
 assert.match(liveBilling, /reserved_blocks'\]\s*<\s*1/);
-assert.match(liveBilling, /\$nextMinutes = min\(\$blockMinutes,max\(0,\$maxMinutes-\$reservedMinutes\)\)/);
+assert.match(
+  liveBilling,
+  /\$nextMinutes = min\(\$blockMinutes,max\(0,\$maxMinutes-\$reservedMinutes\)\)/,
+);
 assert.match(liveBilling, /\$elapsed < 240/);
 assert.match(liveBilling, /\$elapsed >= \(int\)\$session\['max_seconds'\]/);
 const settle = commerce.slice(liveEnd);

@@ -1973,11 +1973,14 @@ function App() {
     const cachedMode = data.settings.useCachedVoice !== false;
     const forceKokoro = options?.forceKokoro === true;
     const context = options?.type && options?.item ? options : null;
-    const segments = Array.isArray(context?.item?.ttsSegments)
+    const authoredSegments = Array.isArray(context?.item?.ttsSegments)
       ? context.item.ttsSegments.filter((turn) =>
           String(turn?.text || "").trim(),
         )
       : [];
+    // A single remaining turn is an in-progress dialog edit, not a complete
+    // multi-speaker script; keep speaking the lesson's full prompt instead.
+    const segments = authoredSegments.length >= 2 ? authoredSegments : [];
     const spokenText = toPlainText(
       segments.length
         ? segments.map((turn) => String(turn.text).trim()).join(" ")

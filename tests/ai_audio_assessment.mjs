@@ -36,6 +36,10 @@ assert.ok(
   "audio consent must precede upload",
 );
 assert.match(app, /canCompletePracticeLesson\(passedCount, points\)/);
+assert.match(
+  app,
+  /const segments = authoredSegments\.length >= 2 \? authoredSegments : \[\]/,
+);
 assert.match(app, /failedTurnToRetry/);
 assert.match(app, /previous\.slice\(0, -1\), item/);
 assert.match(app, /passed:\s*practiceStars >= 4/);
@@ -90,7 +94,10 @@ assert.match(
   api.slice(audioStart, liveTokenStart),
   /\$audioDiamondCost=match\(\$mode\)/,
 );
-assert.match(api.slice(audioStart, liveTokenStart), /'read_aloud_direct'=>\$policy\['cost_listening_direct_audio'\]/);
+assert.match(
+  api.slice(audioStart, liveTokenStart),
+  /'read_aloud_direct'=>\$policy\['cost_listening_direct_audio'\]/,
+);
 assert.match(
   api.slice(audioStart, liveTokenStart),
   /\$mode==='read_aloud_direct'/,

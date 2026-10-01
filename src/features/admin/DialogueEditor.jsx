@@ -28,20 +28,20 @@ export default function DialogueEditor({
       ]);
       return;
     }
+    const previousVoice = turns.at(-1)?.voice;
+    const nextVoice =
+      KOKORO_VOICES.find((voice) => voice.id !== previousVoice)?.id ||
+      defaultVoice;
     onChange([
       ...turns,
       {
         speaker: `Speaker ${turns.length + 1}`,
-        voice: defaultVoice,
+        voice: nextVoice,
         text: "",
       },
     ]);
   }
   function removeTurn(index) {
-    if (turns.length <= 2) {
-      onChange([]);
-      return;
-    }
     onChange(turns.filter((_, i) => i !== index));
   }
 
@@ -51,8 +51,8 @@ export default function DialogueEditor({
         <div>
           <b>Dialog multi-speaker · {turns.length} giliran</b>
           <small>
-            Opsional. Urutan baris menjadi urutan audio; dialog digabung menjadi
-            satu file dengan jeda singkat.
+            Opsional. Tambahkan sedikitnya dua giliran untuk memakai dialog
+            multi-speaker; urutannya menjadi satu audio dengan jeda singkat.
           </small>
         </div>
         <button
@@ -66,9 +66,9 @@ export default function DialogueEditor({
       </div>
       {turns.length > 0 && (
         <p className="dialogue-hint">
-          Saat cache aktif, murid mendengar file dialog bersama. Jika belum ada,
-          pemutaran beralih ke Browser Native. Dengan cache nonaktif, Kokoro
-          memakai satu suara pilihan murid untuk seluruh naskah.
+          {turns.length < 2
+            ? "Tambahkan minimal satu giliran lagi agar segmen ini menjadi dialog multi-speaker. Sementara itu, audio tetap memakai naskah utama dan suara default."
+            : "Saat cache aktif, murid mendengar file dialog bersama. Jika belum ada, pemutaran beralih ke Browser Native. Dengan cache nonaktif, Kokoro memakai satu suara pilihan murid untuk seluruh naskah."}
         </p>
       )}
       {turns.map((turn, index) => (
