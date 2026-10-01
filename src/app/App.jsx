@@ -50,6 +50,7 @@ import {
 } from "../lib/ttsRocks";
 import { getSharedTtsAudio, saveSharedTtsAudio } from "../lib/ttsCache";
 import {
+  encodePcm16Base64,
   getGeminiLiveMessageError,
   parseGeminiLiveMessage,
 } from "../lib/geminiLiveProtocol";
@@ -123,7 +124,8 @@ function App() {
   const liveSetupTimerRef = useRef(null);
   const ttsRequestIdRef = useRef(0);
   const ttsAudioRef = useRef(null);
-  const liveContextRef = useRef(null);
+  const liveInputContextRef = useRef(null);
+  const liveOutputContextRef = useRef(null);
   const liveStreamRef = useRef(null);
   const liveSourceRef = useRef(null);
   const liveProcessorRef = useRef(null);
@@ -367,7 +369,10 @@ function App() {
       const liveWs = liveWsRef.current;
       liveWsRef.current = null;
       liveWs?.close();
-      void liveContextRef.current?.close();
+      void liveInputContextRef.current?.close();
+      void liveOutputContextRef.current?.close();
+      liveInputContextRef.current = null;
+      liveOutputContextRef.current = null;
       if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
     },
     [],
@@ -1319,22 +1324,6 @@ Because this is a live audio conversation, notice pronunciation or word stress o
       liveCurrentSpeakerRef.current = null;
   }
 
-  function pcmBase64(input, fromRate) {
-    const ratio = fromRate / 16e3;
-    const length = Math.floor(input.length / ratio);
-    const bytes = new Uint8Array(length * 2);
-    const view = new DataView(bytes.buffer);
-    for (let i = 0; i < length; i++) {
-      const sample = Math.max(-1, Math.min(1, input[Math.floor(i * ratio)]));
-      view.setInt16(i * 2, sample < 0 ? sample * 32768 : sample * 32767, true);
-    }
-    let binary = "";
-    for (let i = 0; i < bytes.length; i += 32768)
-      binary += String.fromCharCode(
-        ...bytes.subarray(i, Math.min(i + 32768, bytes.length)),
-      );
-    return btoa(binary);
-  }
   function playLiveAudio(base64) {
     try {
       const raw = atob(base64);
@@ -1343,7 +1332,7 @@ Because this is a live audio conversation, notice pronunciation or word stress o
         const value = raw.charCodeAt(i * 2) | (raw.charCodeAt(i * 2 + 1) << 8);
         pcm[i] = value >= 32768 ? value - 65536 : value;
       }
-      const ctx = liveContextRef.current;
+      const ctx = liveOutputContextRef.current;
       if (!ctx || !pcm.length) return;
       const audio = ctx.createBuffer(1, pcm.length, 24e3);
       const channel = audio.getChannelData(0);
@@ -1353,9 +1342,13 @@ Because this is a live audio conversation, notice pronunciation or word stress o
       source.connect(ctx.destination);
       const now = ctx.currentTime;
       livePlayheadRef.current = Math.max(livePlayheadRef.current, now);
+      if (ctx.state === "suspended") void ctx.resume().catch(() => {});
       source.start(livePlayheadRef.current);
       livePlayheadRef.current += audio.duration;
-    } catch {}
+    } catch (error) {
+      console.error("Gagal memutar audio respons Gemini Live:", error);
+      setLiveStatus("Gemini mengirim audio, tetapi browser gagal memutarnya.");
+    }
   }
   function clearLiveSetupTimer() {
     if (liveSetupTimerRef.current !== null) {
@@ -1382,9 +1375,14 @@ Because this is a live audio conversation, notice pronunciation or word stress o
         ws.close();
       } catch {}
     }
-    const ctx = liveContextRef.current;
-    liveContextRef.current = null;
-    if (ctx && ctx.state !== "closed") void ctx.close().catch(() => {});
+    const inputContext = liveInputContextRef.current;
+    liveInputContextRef.current = null;
+    if (inputContext && inputContext.state !== "closed")
+      void inputContext.close().catch(() => {});
+    const outputContext = liveOutputContextRef.current;
+    liveOutputContextRef.current = null;
+    if (outputContext && outputContext.state !== "closed")
+      void outputContext.close().catch(() => {});
   }
   function failLiveConnection(message) {
     cleanupFailedLiveConnection();
@@ -1417,9 +1415,29 @@ Because this is a live audio conversation, notice pronunciation or word stress o
       liveCurrentSpeakerRef.current = null;
       livePlayheadRef.current = 0;
       setLiveSeconds(0);
+      const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextCtor)
+        throw new Error("Browser ini tidak mendukung pemrosesan audio Live.");
+      let inputContext;
+      try {
+        inputContext = new AudioContextCtor({ sampleRate: 16_000 });
+      } catch {
+        inputContext = new AudioContextCtor();
+      }
+      liveInputContextRef.current = inputContext;
+      const outputContext = new AudioContextCtor();
+      liveOutputContextRef.current = outputContext;
+      livePlayheadRef.current = 0;
+      setLiveStatus("Mengaktifkan perangkat audio…");
+      await Promise.all([inputContext.resume(), outputContext.resume()]);
+      if (inputContext.state !== "running" || outputContext.state !== "running")
+        throw new Error(
+          "Browser menahan pemrosesan audio. Izinkan audio di tab ini lalu mulai ulang Live.",
+        );
       setLiveStatus("Meminta akses mikrofon…");
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
+          channelCount: 1,
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
@@ -1443,12 +1461,6 @@ Because this is a live audio conversation, notice pronunciation or word stress o
         !tokenData.token.trim()
       )
         throw new Error("Server tidak mengembalikan token Gemini Live.");
-      const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
-      if (!AudioContextCtor)
-        throw new Error("Browser ini tidak mendukung pemrosesan audio Live.");
-      const ctx = new AudioContextCtor();
-      liveContextRef.current = ctx;
-      await ctx.resume();
       const model = String(tokenData.model || "gemini-3.8-live").replace(
         /^models\//,
         "",
@@ -1456,9 +1468,11 @@ Because this is a live audio conversation, notice pronunciation or word stress o
       const ws = new WebSocket(
         `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContentConstrained?access_token=${encodeURIComponent(tokenData.token)}`,
       );
+      ws.binaryType = "arraybuffer";
       liveWsRef.current = ws;
       setLiveStatus("Menghubungkan ke Gemini Live…");
       let setupCompleted = false;
+      let currentTurnHasAudio = false;
       liveSetupTimerRef.current = window.setTimeout(() => {
         if (liveWsRef.current !== ws) return;
         failLiveConnection(
@@ -1473,7 +1487,14 @@ Because this is a live audio conversation, notice pronunciation or word stress o
             JSON.stringify({
               setup: {
                 model: `models/${model}`,
-                generationConfig: { responseModalities: ["AUDIO"] },
+                generationConfig: {
+                  responseModalities: ["AUDIO"],
+                  speechConfig: {
+                    voiceConfig: {
+                      prebuiltVoiceConfig: { voiceName: "Kore" },
+                    },
+                  },
+                },
                 inputAudioTranscription: {},
                 outputAudioTranscription: {},
                 sessionResumption: {},
@@ -1507,30 +1528,59 @@ Because this is a live audio conversation, notice pronunciation or word stress o
         if (msg.setupComplete && !setupCompleted) {
           setupCompleted = true;
           clearLiveSetupTimer();
-          setLiveStatus("Connected · speaking");
+          setLiveStatus("Connected · waiting for speech");
           setLiveOn(true);
           setLiveLoading(false);
           try {
-            const src = ctx.createMediaStreamSource(stream);
-            const proc = ctx.createScriptProcessor(4096, 1, 1);
-            const mute = ctx.createGain();
+            const src = inputContext.createMediaStreamSource(stream);
+            const proc = inputContext.createScriptProcessor(1024, 1, 1);
+            const mute = inputContext.createGain();
             mute.gain.value = 0;
             src.connect(proc);
             proc.connect(mute);
-            mute.connect(ctx.destination);
+            mute.connect(inputContext.destination);
+            let firstFrameSent = false;
+            let speechDetected = false;
+            const microphoneWatchdog = window.setTimeout(() => {
+              if (liveWsRef.current === ws && !firstFrameSent) {
+                setLiveStatus("Connected · microphone audio is not flowing");
+                toast.error(
+                  "Gemini terhubung, tetapi browser belum mengirim audio mikrofon. Periksa izin dan perangkat mikrofon.",
+                );
+              }
+            }, 5000);
             proc.onaudioprocess = (e) => {
               if (ws.readyState !== WebSocket.OPEN) return;
-              const data2 = pcmBase64(
-                e.inputBuffer.getChannelData(0),
-                ctx.sampleRate,
-              );
-              ws.send(
-                JSON.stringify({
-                  realtimeInput: {
-                    audio: { data: data2, mimeType: "audio/pcm;rate=16000" },
-                  },
-                }),
-              );
+              const samples = e.inputBuffer.getChannelData(0);
+              const data2 = encodePcm16Base64(samples, inputContext.sampleRate);
+              try {
+                ws.send(
+                  JSON.stringify({
+                    realtimeInput: {
+                      audio: { data: data2, mimeType: "audio/pcm;rate=16000" },
+                    },
+                  }),
+                );
+              } catch (error) {
+                failLiveConnection(
+                  error?.message || "Audio gagal dikirim ke Gemini Live.",
+                );
+                return;
+              }
+              if (!firstFrameSent) {
+                firstFrameSent = true;
+                window.clearTimeout(microphoneWatchdog);
+                setLiveStatus("Connected · microphone stream active");
+              }
+              if (!speechDetected) {
+                let peak = 0;
+                for (let i = 0; i < samples.length; i++)
+                  peak = Math.max(peak, Math.abs(samples[i]));
+                if (peak >= 0.012) {
+                  speechDetected = true;
+                  setLiveStatus("Voice detected · waiting for Gemini response");
+                }
+              }
             };
             liveSourceRef.current = src;
             liveProcessorRef.current = proc;
@@ -1543,17 +1593,34 @@ Because this is a live audio conversation, notice pronunciation or word stress o
         }
         const c = msg.serverContent;
         if (c) {
-          if (c.inputTranscription?.text)
-            appendLiveTranscriptChunk("learner", c.inputTranscription.text);
+          const inputText =
+            c.inputTranscription?.text || c.interimInputTranscription?.text;
+          if (inputText) {
+            appendLiveTranscriptChunk("learner", inputText);
+            setLiveStatus("Live · learner speech received");
+          }
           if (c.inputTranscription?.finished)
             finishLiveTranscriptLine("learner");
-          if (c.outputTranscription?.text)
+          if (c.outputTranscription?.text) {
             appendLiveTranscriptChunk("coach", c.outputTranscription.text);
+            setLiveStatus("Gemini is responding…");
+          }
           if (c.outputTranscription?.finished)
             finishLiveTranscriptLine("coach");
-          if (c.turnComplete) finishLiveTranscriptLine(null);
-          for (const part of c.modelTurn?.parts || [])
-            if (part.inlineData?.data) playLiveAudio(part.inlineData.data);
+          if (c.turnComplete) {
+            currentTurnHasAudio = false;
+            finishLiveTranscriptLine(null);
+            setLiveStatus("Connected · waiting for speech");
+          }
+          for (const part of c.modelTurn?.parts || []) {
+            if (part.inlineData?.data) {
+              if (!currentTurnHasAudio) {
+                currentTurnHasAudio = true;
+                setLiveStatus("Gemini is speaking…");
+              }
+              playLiveAudio(part.inlineData.data);
+            }
+          }
         }
       };
       ws.onerror = () => {
@@ -1672,9 +1739,15 @@ Because this is a live audio conversation, notice pronunciation or word stress o
         ws.close();
       } catch {}
     }
-    const ctx = liveContextRef.current;
-    liveContextRef.current = null;
-    if (ctx) await ctx.close().catch(() => {});
+    const inputContext = liveInputContextRef.current;
+    liveInputContextRef.current = null;
+    const outputContext = liveOutputContextRef.current;
+    liveOutputContextRef.current = null;
+    await Promise.all(
+      [inputContext, outputContext]
+        .filter((context) => context && context.state !== "closed")
+        .map((context) => context.close().catch(() => {})),
+    );
     setLiveOn(false);
     const transcript = buildLearnerAssessmentTranscript(
       liveTranscriptLinesRef.current,

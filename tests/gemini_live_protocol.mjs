@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  encodePcm16Base64,
   getGeminiLiveMessageError,
   parseGeminiLiveMessage,
 } from "../src/lib/geminiLiveProtocol.js";
@@ -31,6 +32,21 @@ assert.equal(
   "Invalid Live model",
 );
 assert.equal(getGeminiLiveMessageError({ setupComplete: {} }), null);
+
+function decodePcm16(encoded) {
+  const binary = atob(encoded);
+  return Array.from(binary, (character) => character.charCodeAt(0));
+}
+assert.deepEqual(decodePcm16(encodePcm16Base64([-1, 0, 1], 16_000)), [
+  0, 128, 0, 0, 255, 127,
+]);
+const downsampledBytes = decodePcm16(
+  encodePcm16Base64([-1, -0.5, 0, 0.5, 1, 0], 48_000),
+);
+const downsampledView = new DataView(Uint8Array.from(downsampledBytes).buffer);
+assert.equal(downsampledView.getInt16(0, true), -32768);
+assert.equal(downsampledView.getInt16(2, true), 16384);
+assert.throws(() => encodePcm16Base64([0], 0), RangeError);
 
 console.log(
   "PASS: Gemini Live text/binary WebSocket frames decode, and server errors are surfaced.",

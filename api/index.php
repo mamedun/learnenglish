@@ -1054,7 +1054,10 @@ if($action==='live-token'&&$method==='POST'){
     $instruction='You are Maya, a supportive English speaking coach. Conduct an IELTS-inspired practice conversation at the learner’s level. Ask one concise follow-up at a time, encourage elaboration, and keep the conversation natural. This is practice, not an official IELTS test. Do not claim official scores. The session is limited to 20 minutes.';
     $setup=[
         'model'=>'models/'.$model,
-        'generationConfig'=>['responseModalities'=>['AUDIO']],
+        'generationConfig'=>[
+            'responseModalities'=>['AUDIO'],
+            'speechConfig'=>['voiceConfig'=>['prebuiltVoiceConfig'=>['voiceName'=>'Kore']]],
+        ],
         'inputAudioTranscription'=>new stdClass(),
         'outputAudioTranscription'=>new stdClass(),
         'sessionResumption'=>new stdClass(),
