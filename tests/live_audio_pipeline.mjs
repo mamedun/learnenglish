@@ -33,6 +33,8 @@ assert.match(
   /encodePcm16Base64\(samples, inputContext\.sampleRate\)/,
 );
 assert.match(beginLive, /mimeType: "audio\/pcm;rate=16000"/);
+assert.match(beginLive, /clientContent:\s*\{/);
+assert.match(beginLive, /activeLiveTopic\.opening/);
 assert.match(beginLive, /interimInputTranscription\?\.text/);
 assert.match(beginLive, /playLiveAudio\(part\.inlineData\.data\)/);
 assert.match(beginLive, /microphoneWatchdog/);

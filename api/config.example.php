@@ -21,6 +21,10 @@ return [
     'CLARIO_MODEL' => 'clario/gemini-3.7-flash',
     'GEMINI_LIVE_MODEL' => 'gemini-3.8-live',
     'CLARIO_API_KEY' => '',
+    'GEMINI_AI_API_KEY' => '', // Separate server-side text/audio AI key; distinct from Gemini Live.
+    'GEMINI_AI_MODEL' => 'gemini-2.5-flash',
+    'OPENROUTER_API_KEY' => '',
+    'OPENROUTER_MODEL' => 'google/gemini-2.5-flash',
     'FREE_API_KEY' => '',
     'FREE_JWT_SECRET' => '',
     'FREE_TTL_MIN' => 30,

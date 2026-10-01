@@ -49,6 +49,8 @@ export default function AdminPage({
     clario_base_url: "https://clariohub.id/v1",
     clario_fallback_url: "https://api-direct.clariohub.id/v1",
     clario_model: "clario/gemini-3.7-flash",
+    gemini_ai_model: "gemini-2.5-flash",
+    openrouter_model: "google/gemini-2.5-flash",
     free_pool: FREE_DEFAULT_POOL,
     free_ttl_min: 30,
     free_sub: "api-client",
@@ -57,9 +59,12 @@ export default function AdminPage({
     gemini_live_model: "",
   });
   const [models, setModels] = useState([]);
+  const [modelsProvider, setModelsProvider] = useState("");
   const [busy, setBusy] = useState(false);
   const [ready, setReady] = useState(false);
   const [apiKey, setApiKey] = useState("");
+  const [geminiAiKey, setGeminiAiKey] = useState("");
+  const [openrouterKey, setOpenrouterKey] = useState("");
   const [geminiKey, setGeminiKey] = useState("");
   const [freeApiKey, setFreeApiKey] = useState("");
   const [freeJwtSecret, setFreeJwtSecret] = useState("");
@@ -73,13 +78,26 @@ export default function AdminPage({
     try {
       const s = await apiJson("admin/settings");
       setSettings(s.settings);
-      if (s.settings?.ai_provider === "clario") {
-        const m = await apiJson("models").catch(() => ({}));
-        setModels(
-          (m.data || m.models || [])
-            .map((x) => (typeof x === "string" ? x : x.id))
-            .filter((x) => String(x).startsWith("clario/")),
-        );
+      const selectedProvider = s.settings?.ai_provider || "";
+      setModelsProvider(selectedProvider === "free" ? "" : selectedProvider);
+      if (selectedProvider && selectedProvider !== "free") {
+        const catalog = await apiJson("models").catch(() => ({}));
+        if (catalog.provider && catalog.provider !== selectedProvider) {
+          setModels([]);
+          setModelsProvider("");
+        } else {
+          setModels(
+            [
+              ...new Set(
+                (catalog.data || catalog.models || [])
+                  .map((model) =>
+                    typeof model === "string" ? model : model?.id,
+                  )
+                  .filter((model) => typeof model === "string" && model !== ""),
+              ),
+            ].slice(0, 500),
+          );
+        }
       } else {
         setModels([]);
       }
@@ -93,6 +111,33 @@ export default function AdminPage({
   }, []);
   function change(k, v) {
     setSettings((p) => ({ ...p, [k]: v }));
+  }
+  async function refreshModels(provider) {
+    if (settings.ai_provider !== provider || modelsProvider !== provider)
+      return;
+    try {
+      const response = await apiFetch("models");
+      const catalog = await response.json();
+      if (!response.ok)
+        throw new Error(catalog.error || "Katalog model gagal diambil.");
+      if (catalog.provider && catalog.provider !== provider)
+        throw new Error(
+          "Provider server berubah. Simpan pengaturan lalu muat ulang katalog model.",
+        );
+      setModelsProvider(provider);
+      setModels(
+        [
+          ...new Set(
+            (catalog.data || catalog.models || [])
+              .map((model) => (typeof model === "string" ? model : model?.id))
+              .filter((model) => typeof model === "string" && model !== ""),
+          ),
+        ].slice(0, 500),
+      );
+      toast.success(`Katalog model ${provider} diperbarui.`);
+    } catch (error) {
+      toast.error(error.message || "Katalog gagal diambil.");
+    }
   }
   async function uploadStaticQr(event) {
     const image = event.target.files?.[0];
@@ -151,6 +196,8 @@ export default function AdminPage({
           free_api_key: freeApiKey,
           free_jwt_secret: freeJwtSecret,
           free_manual_token: freeManualToken,
+          gemini_ai_api_key: geminiAiKey,
+          openrouter_api_key: openrouterKey,
           gemini_api_key: geminiKey,
         }),
       });
@@ -160,6 +207,8 @@ export default function AdminPage({
       setFreeApiKey("");
       setFreeJwtSecret("");
       setFreeManualToken("");
+      setGeminiAiKey("");
+      setOpenrouterKey("");
       setGeminiKey("");
       await loadSettings();
       onSpeechScoringModeChange?.(settings.speech_scoring_mode || "local");
@@ -338,6 +387,10 @@ export default function AdminPage({
                   }
                 >
                   <option value="clario">Clario · OpenAI-compatible API</option>
+                  <option value="gemini">Gemini · Server API premium</option>
+                  <option value="openrouter">
+                    OpenRouter · Multi-model API
+                  </option>
                   <option value="free">Free API Key · SG1–SG10</option>
                 </select>
                 <ChevronDown size={16} />
@@ -674,7 +727,13 @@ export default function AdminPage({
                 >
                   {[
                     ...new Set(
-                      [settings.clario_model, ...models].filter(Boolean),
+                      [
+                        settings.clario_model,
+                        ...(settings.ai_provider === "clario" &&
+                        modelsProvider === "clario"
+                          ? models
+                          : []),
+                      ].filter(Boolean),
                     ),
                   ].map((m) => (
                     <option key={m}>{m}</option>
@@ -684,37 +743,183 @@ export default function AdminPage({
               </div>
               <button
                 className="outline-btn model-refresh"
-                disabled={settings.ai_provider !== "clario"}
-                onClick={() =>
-                  apiFetch("models")
-                    .then((r) => r.json())
-                    .then((j) =>
-                      setModels(
-                        (j.data || [])
-                          .map((m) => m.id)
-                          .filter((x) => x?.startsWith("clario/")),
-                      ),
-                    )
-                    .catch(() => toast.error("Katalog gagal diambil."))
+                disabled={
+                  settings.ai_provider !== "clario" ||
+                  modelsProvider !== "clario"
                 }
+                onClick={() => refreshModels("clario")}
               >
                 <RotateCcw size={14} /> Refresh katalog model
               </button>
+              {settings.ai_provider === "gemini" && (
+                <>
+                  <div className="admin-divider" />
+                  <div className="setting-title">
+                    <div className="setting-icon lilac">
+                      <Cloud size={18} />
+                    </div>
+                    <div>
+                      <b>Gemini · Server AI premium</b>
+                      <small>
+                        Provider aktif; key Server AI terpisah dari Gemini Live
+                      </small>
+                    </div>
+                  </div>
+                  <label className="field-label" htmlFor="gemini-ai-key">
+                    GEMINI SERVER AI API KEY{" "}
+                    {settings.gemini_ai_key_masked && (
+                      <span className="key-current">
+                        · Tersimpan {settings.gemini_ai_key_masked}
+                      </span>
+                    )}
+                  </label>
+                  <input
+                    id="gemini-ai-key"
+                    className="text-field"
+                    type="password"
+                    autoComplete="new-password"
+                    value={geminiAiKey}
+                    onChange={(event) => setGeminiAiKey(event.target.value)}
+                    placeholder={
+                      settings.gemini_ai_key_configured
+                        ? "Kosongkan untuk mempertahankan key"
+                        : "Tempel Gemini API key Server AI"
+                    }
+                  />
+                  <label className="field-label" htmlFor="gemini-ai-model">
+                    MODEL TUTOR GEMINI
+                  </label>
+                  <div className="select-wrap">
+                    <select
+                      id="gemini-ai-model"
+                      className="text-field"
+                      value={settings.gemini_ai_model || "gemini-2.5-flash"}
+                      onChange={(event) =>
+                        change("gemini_ai_model", event.target.value)
+                      }
+                    >
+                      {[
+                        ...new Set([
+                          settings.gemini_ai_model || "gemini-2.5-flash",
+                          ...(modelsProvider === "gemini" ? models : []),
+                        ]),
+                      ].map((model) => (
+                        <option key={model} value={model}>
+                          {model}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown size={16} />
+                  </div>
+                  <small className="field-hint">
+                    Pilih model generateContent; evaluasi audio memerlukan model
+                    Gemini multimodal.
+                  </small>
+                  <button
+                    className="outline-btn model-refresh"
+                    disabled={
+                      settings.ai_provider !== "gemini" ||
+                      modelsProvider !== "gemini"
+                    }
+                    onClick={() => refreshModels("gemini")}
+                  >
+                    <RotateCcw size={14} /> Refresh katalog Gemini
+                  </button>
+                </>
+              )}
+              {settings.ai_provider === "openrouter" && (
+                <>
+                  <div className="admin-divider" />
+                  <div className="setting-title">
+                    <div className="setting-icon blue">
+                      <Cloud size={18} />
+                    </div>
+                    <div>
+                      <b>OpenRouter · API premium</b>
+                      <small>
+                        OpenAI-compatible endpoint · key disimpan terenkripsi
+                      </small>
+                    </div>
+                  </div>
+                  <label className="field-label" htmlFor="openrouter-api-key">
+                    OPENROUTER API KEY{" "}
+                    {settings.openrouter_key_masked && (
+                      <span className="key-current">
+                        · Tersimpan {settings.openrouter_key_masked}
+                      </span>
+                    )}
+                  </label>
+                  <input
+                    id="openrouter-api-key"
+                    className="text-field"
+                    type="password"
+                    autoComplete="new-password"
+                    value={openrouterKey}
+                    onChange={(event) => setOpenrouterKey(event.target.value)}
+                    placeholder={
+                      settings.openrouter_key_configured
+                        ? "Kosongkan untuk mempertahankan key"
+                        : "Tempel OpenRouter API key"
+                    }
+                  />
+                  <label className="field-label" htmlFor="openrouter-model">
+                    MODEL TUTOR OPENROUTER
+                  </label>
+                  <div className="select-wrap">
+                    <select
+                      id="openrouter-model"
+                      className="text-field"
+                      value={
+                        settings.openrouter_model || "google/gemini-2.5-flash"
+                      }
+                      onChange={(event) =>
+                        change("openrouter_model", event.target.value)
+                      }
+                    >
+                      {[
+                        ...new Set([
+                          settings.openrouter_model ||
+                            "google/gemini-2.5-flash",
+                          ...(modelsProvider === "openrouter" ? models : []),
+                        ]),
+                      ].map((model) => (
+                        <option key={model} value={model}>
+                          {model}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown size={16} />
+                  </div>
+                  <small className="field-hint">
+                    Model teks dapat memakai OpenRouter; evaluasi audio
+                    memerlukan model yang mendukung input_audio.
+                  </small>
+                  <button
+                    className="outline-btn model-refresh"
+                    disabled={
+                      settings.ai_provider !== "openrouter" ||
+                      modelsProvider !== "openrouter"
+                    }
+                    onClick={() => refreshModels("openrouter")}
+                  >
+                    <RotateCcw size={14} /> Refresh katalog OpenRouter
+                  </button>
+                </>
+              )}
               <div className="admin-divider" />
               <div className="setting-title">
                 <div className="setting-icon lilac">
                   <AudioLines size={18} />
                 </div>
                 <div>
-                  <b>Gemini Live</b>
+                  <b>Gemini Live · real-time voice</b>
                   <small>
-                    Long-lived key terenkripsi; browser menerima token Live
-                    sementara
+                    Key ini khusus sesi Live, terpisah dari Gemini Server AI
                   </small>
                 </div>
               </div>
               <label className="field-label">
-                GEMINI API KEY{" "}
+                GEMINI LIVE API KEY{" "}
                 {settings.gemini_key_masked && (
                   <span className="key-current">
                     · Tersimpan {settings.gemini_key_masked}

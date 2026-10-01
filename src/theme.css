@@ -2509,3 +2509,93 @@ img {
   cursor: pointer;
   padding: 0;
 }
+
+/* Live Lesson contrast and learner-selectable topic controls. */
+.live-panel .live-conversation-title {
+  color: #ffffff;
+  text-shadow: 0 1px 2px #17113d66;
+}
+.live-panel .live-conversation-description {
+  color: #e8e9f6 !important;
+}
+.live-topic {
+  width: min(100%, 510px);
+  max-width: 510px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 14px;
+  padding: 14px 16px;
+  background: #fbfcff;
+  border: 1px solid #d9deeb;
+  box-shadow: 0 5px 16px #17113d16;
+}
+.live-topic > label {
+  grid-column: 1 / -1;
+  color: #46516a;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+}
+.live-topic-content {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+.live-topic-select {
+  width: 100%;
+  min-width: 0;
+  padding: 9px 34px 9px 11px;
+  border: 1px solid #aab4c7;
+  border-radius: 9px;
+  background: #ffffff;
+  color: #18213a;
+  font:
+    700 14px Manrope,
+    sans-serif;
+  cursor: pointer;
+  color-scheme: light;
+}
+.live-topic-select:focus-visible {
+  outline: 3px solid #8879ed;
+  outline-offset: 2px;
+  border-color: #5f50cb;
+}
+.live-topic-select:disabled {
+  color: #27324a;
+  background: #f0f2f7;
+  cursor: not-allowed;
+  opacity: 1;
+}
+.live-topic-select option {
+  color: #18213a;
+  background: #ffffff;
+}
+.live-topic-content small {
+  color: #515d72;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.live-topic .live-status-mini {
+  align-self: center;
+  margin: 0;
+  padding: 6px 8px;
+  border-radius: 99px;
+  background: #e7f4ed;
+  color: #245b42;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-align: center;
+}
+@media (max-width: 560px) {
+  .live-topic {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .live-topic .live-status-mini {
+    justify-self: start;
+  }
+  .live-panel .live-conversation-title {
+    font-size: 22px;
+  }
+}

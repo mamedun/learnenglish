@@ -19,6 +19,7 @@ import {
   Zap,
 } from "lucide-react";
 import { initialData } from "../data";
+import { DEFAULT_LIVE_TOPIC_ID, getLiveTopic } from "../data/liveTopics";
 import { awardXP } from "../gamification";
 import { deleteAllRecordings, exportBackup, importBackup } from "../storage";
 import { apiFetch, apiJson, apiUrl, refreshSession } from "../api";
@@ -129,6 +130,8 @@ function App() {
   const [elapsed, setElapsed] = useState(0);
   const [showLessonList, setShowLessonList] = useState(false);
   const [liveOn, setLiveOn] = useState(false);
+  const [liveTopicId, setLiveTopicId] = useState(DEFAULT_LIVE_TOPIC_ID);
+  const activeLiveTopic = getLiveTopic(liveTopicId);
   const [liveSeconds, setLiveSeconds] = useState(0);
   const [liveLines, setLiveLines] = useState([]);
   const [liveStatus, setLiveStatus] = useState("Ready");
@@ -759,7 +762,11 @@ function App() {
     try {
       const latestConfig = await apiJson("app-config");
       const settings = latestConfig?.settings;
-      if (!["clario", "free"].includes(settings?.ai_provider))
+      if (
+        !["clario", "free", "gemini", "openrouter"].includes(
+          settings?.ai_provider,
+        )
+      )
         throw new Error("Provider AI global terbaru tidak dapat dipastikan.");
       currentConfig = {
         ...appConfig,
@@ -1664,13 +1671,15 @@ function App() {
           .getVoices()
           .filter((v) => v.lang.toLowerCase().startsWith("en"))
       : [];
-  const liveInstruction = `You are Maya, a patient, encouraging English teacher and conversation coach. Help the learner build grammatical accuracy, natural phrasing, vocabulary, and clear pronunciation while keeping the conversation warm and natural.
+  const liveInstruction = `You are Maya, a patient and encouraging English teacher. You are now role-playing as ${activeLiveTopic.teacherRole}. The learner is ${activeLiveTopic.learnerRole}. Stay in this role and keep the scenario focused on “${activeLiveTopic.label}”: ${activeLiveTopic.situation}
+
+Start the conversation yourself as soon as the session is ready. Do not wait for the learner to speak first and do not ask them to choose a topic. Open warmly with this natural first question: “${activeLiveTopic.opening}” Then let the learner answer and continue the role-play with one concise, relevant open question at a time.
 
 Speak entirely in English. Keep every spoken answer, correction, and explanation in English; never switch to Indonesian or mix languages. If the learner uses an Indonesian word because they are stuck, gently give its English equivalent and invite them to try it in a sentence.
 
-Listen actively to grammar, sentence structure, word choice, collocations, and unnatural literal translations. Let the learner finish their thought before correcting. When there is a meaningful mistake, quote the learner's actual phrase, give a natural corrected version, and add one brief, simple explanation. For example, gently change “I go to mall yesterday” to “I went to the mall yesterday” and explain the past tense and article, but only when the learner actually makes that kind of mistake. Focus on at most one or two important points at a time. Do not invent mistakes; if the learner's wording is already natural, respond normally. Ask them to repeat a correction when useful, then keep the conversation moving with one concise, open-ended follow-up question.
+After each learner turn, listen for actual grammar, sentence structure, pronoun choice (for example, I/he/she/they), word choice, and unnatural phrasing. When you notice a meaningful issue, briefly use this helpful pattern: “Instead of saying [the learner’s actual words], it’s better to say [a natural correction].” Give a short, friendly reason when useful, then continue the role-play. Correct the most useful one or two issues in that turn without interrupting the learner or turning the conversation into a lecture. Never invent an error or change the learner’s meaning. If their grammar, pronouns, sentence structure, and phrasing are already good, give specific praise for what they said well and keep the conversation moving.
 
-Because this is a live audio conversation, notice pronunciation or word stress only when a problem is clearly audible. Offer a simple sound or stress hint and invite a retry; never guess or assign a pronunciation score from transcript text. Keep your replies concise, supportive, and suitable for spoken conversation. This is practice, not an official IELTS test; do not claim official scores. The session is limited to 10 minutes. Start with a warm English greeting and ask what topic the learner would like to discuss.`;
+Because this is live audio, comment on pronunciation or word stress only when a problem is clearly audible. If a sound is clearly mispronounced, kindly say the word naturally, give a short sound hint, and invite a retry. If pronunciation is clear, offer specific praise. Never guess pronunciation from text alone or assign a pronunciation score. Keep replies concise, natural, supportive, and suitable for spoken conversation. This is practice, not an official IELTS test; do not claim official scores. The session is limited to 10 minutes.`;
 
   function appendLiveTranscriptChunk(who, chunk) {
     const incoming = String(chunk ?? "");
@@ -1962,9 +1971,26 @@ Because this is a live audio conversation, notice pronunciation or word stress o
               body: JSON.stringify({ session_id: billingSessionId }),
             });
             if (liveWsRef.current !== ws) return;
+            ws.send(
+              JSON.stringify({
+                clientContent: {
+                  turns: [
+                    {
+                      role: "user",
+                      parts: [
+                        {
+                          text: `Begin the selected role-play now. You are Maya, acting as ${activeLiveTopic.teacherRole}. The learner is ${activeLiveTopic.learnerRole}. Start by greeting them naturally and asking: “${activeLiveTopic.opening}” Do not ask them to choose a different topic.`,
+                        },
+                      ],
+                    },
+                  ],
+                  turnComplete: true,
+                },
+              }),
+            );
             liveBillingStartedRef.current = true;
             liveStartedAtRef.current = Date.now();
-            setLiveStatus("Connected · waiting for speech");
+            setLiveStatus("Maya is opening the topic…");
             setLiveOn(true);
             setLiveLoading(false);
           } catch (error) {
@@ -2600,6 +2626,9 @@ Because this is a live audio conversation, notice pronunciation or word stress o
                   liveAssessment={liveAssessment}
                   liveAssessmentFailed={liveAssessmentFailed}
                   diamonds={user.diamonds}
+                  liveTopicId={liveTopicId}
+                  liveTopic={activeLiveTopic}
+                  onLiveTopicChange={setLiveTopicId}
                   beginLive={beginLive}
                   endLive={endLive}
                   retryLiveAssessment={retryLiveAssessment}

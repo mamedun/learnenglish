@@ -6,6 +6,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { formatTime } from "../../lib/formatTime";
+import { LIVE_TOPICS } from "../../data/liveTopics";
 
 export default function LivePage({
   liveOn,
@@ -16,6 +17,9 @@ export default function LivePage({
   liveAssessment,
   liveAssessmentFailed = false,
   diamonds = 0,
+  liveTopicId,
+  liveTopic,
+  onLiveTopicChange = () => {},
   beginLive,
   endLive,
   retryLiveAssessment = () => {},
@@ -67,20 +71,39 @@ export default function LivePage({
             <i />
           </div>
         </div>
-        <h2>
+        <h2 className="live-conversation-title">
           {liveOn
             ? "You\u2019re in the conversation"
             : "Your conversation starts here"}
         </h2>
-        <p>
+        <p className="live-conversation-description">
           {liveOn
-            ? "Speak naturally; audio streams directly from your browser to Gemini."
-            : `Session status: ${liveStatus}. A 5-minute block reserves 10 diamonds; each started minute used costs 2, up to 10 minutes.`}
+            ? "Speak naturally; Maya will guide the role-play and give a quick, helpful correction after each turn."
+            : "Pilih topik. Maya akan membuka percakapan dengan pertanyaan sesuai peran dan topik pilihanmu."}
         </p>
         <div className="live-topic">
-          <span>TOPIK HARI INI</span>
-          <b>Meeting someone new</b>
-          <span className="live-status-mini">{liveStatus}</span>
+          <label htmlFor="live-topic-select">TOPIK HARI INI</label>
+          <div className="live-topic-content">
+            <select
+              id="live-topic-select"
+              className="live-topic-select"
+              value={liveTopicId || liveTopic?.id || LIVE_TOPICS[0].id}
+              onChange={(event) => onLiveTopicChange(event.target.value)}
+              disabled={liveOn || liveLoading}
+            >
+              {LIVE_TOPICS.map((topic) => (
+                <option key={topic.id} value={topic.id}>
+                  {topic.label}
+                </option>
+              ))}
+            </select>
+            <small>
+              {liveTopic?.description || LIVE_TOPICS[0].description}
+            </small>
+          </div>
+          <span className="live-status-mini">
+            {liveOn ? "SEDANG BERLANGSUNG" : liveStatus}
+          </span>
         </div>
         <button
           className={liveOn ? "btn-end" : "btn-live-start"}

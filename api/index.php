@@ -152,12 +152,18 @@ function config_values():array{
     $provider=app_setting('ai_provider',(string)cfg('AI_PROVIDER_DEFAULT','clario'));
     // Normalize legacy provider/config names so existing deployments keep working.
     if($provider==='ichanlabs')$provider='free';
-    if(!in_array($provider,['clario','free'],true))$provider='clario';
+    if(!in_array($provider,['clario','free','gemini','openrouter'],true))$provider='clario';
     $clarioUrl=app_setting('clario_base_url',cfg('CLARIO_BASE_URL','https://clariohub.id/v1'));
     $fallback=app_setting('clario_fallback_url',cfg('CLARIO_FALLBACK_BASE_URL','https://api-direct.clariohub.id/v1'));
     $clarioKey=decrypt_secret(app_setting('clario_key_enc',''));
     if($clarioKey==='')$clarioKey=cfg('CLARIO_API_KEY');
     $clarioModel=app_setting('clario_model',cfg('CLARIO_MODEL','clario/gemini-3.7-flash'));
+    $geminiAiKey=decrypt_secret(app_setting('gemini_ai_api_key_enc',''));
+    if($geminiAiKey==='')$geminiAiKey=(string)cfg('GEMINI_AI_API_KEY','');
+    $geminiAiModel=app_setting('gemini_ai_model',cfg('GEMINI_AI_MODEL','gemini-2.5-flash'));
+    $openrouterKey=decrypt_secret(app_setting('openrouter_api_key_enc',''));
+    if($openrouterKey==='')$openrouterKey=(string)cfg('OPENROUTER_API_KEY','');
+    $openrouterModel=app_setting('openrouter_model',cfg('OPENROUTER_MODEL','google/gemini-2.5-flash'));
     $freeApiKey=decrypt_secret(app_setting_compat('free_api_key_enc','ichan_api_key_enc'));
     if($freeApiKey==='')$freeApiKey=(string)cfg('FREE_API_KEY');
     if($freeApiKey==='')$freeApiKey=(string)cfg('ICHAN_API_KEY');
@@ -198,13 +204,22 @@ function config_values():array{
     if(!in_array($speechScoringMode,['local','ai'],true))$speechScoringMode='local';
     $speechSimilarityThreshold=(int)app_setting('speech_similarity_threshold','90');
     if($speechSimilarityThreshold<50||$speechSimilarityThreshold>100)$speechSimilarityThreshold=90;
+    $model=match($provider){
+        'gemini'=>(string)$geminiAiModel,
+        'openrouter'=>(string)$openrouterModel,
+        default=>(string)$clarioModel
+    };
     return [
         'provider'=>$provider,
         'base_url'=>rtrim((string)$clarioUrl,'/'),
         'fallback_url'=>rtrim((string)$fallback,'/'),
         'api_key'=>(string)$clarioKey,
-        'model'=>(string)$clarioModel,
+        'model'=>$model,
         'clario_model'=>(string)$clarioModel,
+        'gemini_ai_api_key'=>(string)$geminiAiKey,
+        'gemini_ai_model'=>(string)$geminiAiModel,
+        'openrouter_api_key'=>(string)$openrouterKey,
+        'openrouter_model'=>(string)$openrouterModel,
         'free_api_key'=>(string)$freeApiKey,
         'free_jwt_secret'=>(string)$freeJwtSecret,
         'free_manual_token'=>(string)$freeManualToken,
@@ -419,10 +434,95 @@ function parse_free_response(array $response):array{
     }
     return ['ok'=>true,'status'=>200,'reply'=>$reply,'transcript'=>$transcript];
 }
+function gemini_ai_request(array $body,array $config,int $timeout=25):array{
+    $apiKey=(string)($config['gemini_ai_api_key']??'');
+    if($apiKey==='')return ['status'=>503,'body'=>'','error'=>'Admin belum mengatur Gemini API key untuk Server AI.'];
+    $model=preg_replace('#^models/#','',trim((string)($config['gemini_ai_model']??'')));
+    if(!preg_match('/^[A-Za-z0-9._-]{2,120}$/',$model))return ['status'=>422,'body'=>'','error'=>'Model Gemini Server AI tidak valid.'];
+    $systemText=[];$contents=[];
+    foreach((array)($body['messages']??[]) as $message){
+        if(!is_array($message))continue;
+        $role=(string)($message['role']??'user');
+        $content=$message['content']??'';
+        $parts=[];
+        if(is_string($content)){
+            if(trim($content)!=='')$parts[]=['text'=>$content];
+        }elseif(is_array($content)){
+            foreach($content as $part){
+                if(!is_array($part))continue;
+                $type=(string)($part['type']??'');
+                if($type==='text'&&is_string($part['text']??null)){
+                    $parts[]=['text'=>$part['text']];
+                }elseif($type==='input_audio'&&is_array($part['input_audio']??null)){
+                    $audio=$part['input_audio'];$data=(string)($audio['data']??'');$format=strtolower((string)($audio['format']??'wav'));
+                    if($data==='')continue;
+                    $mime=match($format){'mp3'=>'audio/mpeg','m4a'=>'audio/mp4','ogg'=>'audio/ogg','webm'=>'audio/webm',default=>'audio/wav'};
+                    $parts[]=['inlineData'=>['mimeType'=>$mime,'data'=>$data]];
+                }
+            }
+        }
+        if(!$parts)continue;
+        if(in_array($role,['system','developer'],true)){
+            foreach($parts as $part)if(isset($part['text']))$systemText[]=$part['text'];
+            continue;
+        }
+        $contents[]=['role'=>$role==='assistant'?'model':'user','parts'=>$parts];
+    }
+    if(!$contents)return ['status'=>422,'body'=>'','error'=>'Gemini request tidak memuat pesan user yang dapat diproses.'];
+    $payload=['contents'=>$contents];
+    if($systemText)$payload['systemInstruction']=['parts'=>[['text'=>implode("\n\n",$systemText)]]];
+    $generation=[];
+    if(is_numeric($body['temperature']??null))$generation['temperature']=max(0,min(2,(float)$body['temperature']));
+    if(is_numeric($body['max_tokens']??null))$generation['maxOutputTokens']=max(1,min(8192,(int)$body['max_tokens']));
+    if($generation)$payload['generationConfig']=$generation;
+    $response=http_json(
+        'https://generativelanguage.googleapis.com/v1beta/models/'.rawurlencode($model).':generateContent',
+        ['Content-Type: application/json','x-goog-api-key: '.$apiKey],
+        $payload,
+        $timeout
+    );
+    if($response['status']<200||$response['status']>=300)return $response;
+    $decoded=json_decode((string)$response['body'],true);
+    $text='';
+    foreach((array)($decoded['candidates'][0]['content']['parts']??[]) as $part)
+        if(is_array($part)&&is_string($part['text']??null))$text.=$part['text'];
+    if($text===''){
+        $response['status']=502;
+        $response['error']='Gemini berhasil dihubungi tetapi tidak mengembalikan teks kandidat.';
+        return $response;
+    }
+    $usage=$decoded['usageMetadata']??[];
+    $normalized=[
+        'choices'=>[['message'=>['content'=>$text]]],
+        'usage'=>[
+            'prompt_tokens'=>(int)($usage['promptTokenCount']??0),
+            'completion_tokens'=>(int)($usage['candidatesTokenCount']??0),
+            'total_tokens'=>(int)($usage['totalTokenCount']??0)
+        ],
+        'model'=>$model
+    ];
+    $response['body']=json_encode($normalized,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES)?:'';
+    return $response;
+}
 function provider_request(string $path,?array $body=null,int $timeout=25):array{
     $c=config_values();
     if($c['provider']==='free')
-        return ['status'=>503,'body'=>'','error'=>'Endpoint JSON OpenAI-compatible tidak digunakan saat provider Free API Key aktif.'];
+        return ['status'=>503,'body'=>'','error'=>'Endpoint JSON provider lain tidak digunakan saat Free API Key aktif.'];
+    if($c['provider']==='gemini'){
+        if($path!=='/chat/completions'||$body===null)return ['status'=>400,'body'=>'','error'=>'Endpoint Gemini Server AI tidak valid.'];
+        return gemini_ai_request($body,$c,$timeout);
+    }
+    if($c['provider']==='openrouter'){
+        if($c['openrouter_api_key']==='')return ['status'=>503,'body'=>'','error'=>'Admin belum mengatur OpenRouter API key.'];
+        $base='https://openrouter.ai/api/v1';
+        if($path==='/chat/completions'&&$body!==null)$body['model']=$c['openrouter_model'];
+        if(!in_array($path,['/chat/completions','/models'],true))return ['status'=>400,'body'=>'','error'=>'Endpoint OpenRouter tidak valid.'];
+        return http_json($base.$path,[
+            'Authorization: Bearer '.$c['openrouter_api_key'],
+            'Content-Type: application/json',
+            'X-Title: SpeakUp English Coach'
+        ],$body,$timeout);
+    }
     if($c['api_key']==='')return ['status'=>503,'body'=>'','error'=>'Admin belum mengatur API key Clario.'];
     $headers=['Authorization: Bearer '.$c['api_key'],'Content-Type: application/json'];
     $r=http_json($c['base_url'].$path,$headers,$body,$timeout);
@@ -530,6 +630,12 @@ if($action==='admin/settings'&&$method==='GET'){
         'clario_model'=>$c['clario_model'],
         'clario_key_configured'=>$c['api_key']!=='',
         'clario_key_masked'=>$c['api_key']===''?'':'••••••••'.substr($c['api_key'],-4),
+        'gemini_ai_model'=>$c['gemini_ai_model'],
+        'gemini_ai_key_configured'=>$c['gemini_ai_api_key']!=='',
+        'gemini_ai_key_masked'=>$c['gemini_ai_api_key']===''?'':'••••••••'.substr($c['gemini_ai_api_key'],-4),
+        'openrouter_model'=>$c['openrouter_model'],
+        'openrouter_key_configured'=>$c['openrouter_api_key']!=='',
+        'openrouter_key_masked'=>$c['openrouter_api_key']===''?'':'••••••••'.substr($c['openrouter_api_key'],-4),
         'free_pool'=>implode("\n",$c['free_pool']),
         'free_api_key_configured'=>$c['free_api_key']!=='',
         'free_api_key_masked'=>$c['free_api_key']===''?'':'••••••••'.substr($c['free_api_key'],-4),
@@ -560,7 +666,7 @@ if($action==='admin/settings'&&in_array($method,['PUT','POST'],true)){
     $current=config_values();$payment=payment_settings();
     $provider=(string)($d['ai_provider']??$current['provider']);
     if($provider==='ichanlabs')$provider='free'; // Backward compatibility for older clients.
-    if(!in_array($provider,['clario','free'],true))respond(['error'=>'Server AI tidak valid.'],422);
+    if(!in_array($provider,['clario','free','gemini','openrouter'],true))respond(['error'=>'Server AI tidak valid.'],422);
     $speechMode=(string)($d['speech_input_mode']??$current['speech_input_mode']);
     if(!in_array($speechMode,['ai_audio','live_transcribe'],true))respond(['error'=>'Mode input speech tidak valid.'],422);
     $speechScoringMode=(string)($d['speech_scoring_mode']??$current['speech_scoring_mode']);
@@ -577,6 +683,10 @@ if($action==='admin/settings'&&in_array($method,['PUT','POST'],true)){
     }
     if(!preg_match('#^clario/[A-Za-z0-9._-]{2,100}$#',$clarioModel))
         respond(['error'=>'ID model Clario tidak valid.'],422);
+    $geminiAiModel=preg_replace('#^models/#','',trim((string)($d['gemini_ai_model']??$current['gemini_ai_model'])));
+    if(!preg_match('/^[A-Za-z0-9._-]{2,120}$/',$geminiAiModel))respond(['error'=>'ID model Gemini Server AI tidak valid.'],422);
+    $openrouterModel=trim((string)($d['openrouter_model']??$current['openrouter_model']));
+    if(!preg_match('#^[A-Za-z0-9][A-Za-z0-9._:/-]{1,180}$#',$openrouterModel))respond(['error'=>'ID model OpenRouter tidak valid.'],422);
     $freePool=validate_free_pool($d['free_pool']??$d['ichan_pool']??$current['free_pool']);
     $freeTtl=(int)($d['free_ttl_min']??$d['ichan_ttl_min']??$current['free_ttl_min']);
     if($freeTtl<1||$freeTtl>1440)respond(['error'=>'TTL token Free API Key harus 1–1440 menit.'],422);
@@ -593,20 +703,26 @@ if($action==='admin/settings'&&in_array($method,['PUT','POST'],true)){
     $freeApiKey=trim((string)($d['free_api_key']??$d['ichan_api_key']??''));
     $freeJwtSecret=trim((string)($d['free_jwt_secret']??$d['ichan_jwt_secret']??''));
     $freeManualToken=trim((string)($d['free_manual_token']??$d['ichan_manual_token']??''));
-    $gkey=trim((string)($d['gemini_api_key']??''));
+    $gkey=trim((string)($d['gemini_api_key']??'')); // Gemini Live key; separate from Gemini Server AI.
+    $geminiAiKey=trim((string)($d['gemini_ai_api_key']??''));
+    $openrouterKey=trim((string)($d['openrouter_api_key']??''));
     $effectiveFreeApiKey=$freeApiKey!==''?$freeApiKey:$current['free_api_key'];
     $effectiveJwtSecret=$freeJwtSecret!==''?$freeJwtSecret:$current['free_jwt_secret'];
     $effectiveManualToken=$freeManualToken!==''?$freeManualToken:$current['free_manual_token'];
-    if(strlen($freeApiKey)>1024||strlen($freeJwtSecret)>2048||strlen($freeManualToken)>8192)
-        respond(['error'=>'Credential Free API Key melebihi batas ukuran.'],422);
-    foreach([$freeApiKey,$freeJwtSecret,$freeManualToken] as $credential)
-        if(preg_match('/[\\x00-\\x1F\\x7F]/',$credential))respond(['error'=>'Credential Free API Key tidak boleh berisi karakter kontrol.'],422);
+    $effectiveGeminiAiKey=$geminiAiKey!==''?$geminiAiKey:$current['gemini_ai_api_key'];
+    $effectiveOpenrouterKey=$openrouterKey!==''?$openrouterKey:$current['openrouter_api_key'];
+    if(strlen($freeApiKey)>1024||strlen($freeJwtSecret)>2048||strlen($freeManualToken)>8192||strlen($geminiAiKey)>2048||strlen($openrouterKey)>2048)
+        respond(['error'=>'Salah satu credential provider melebihi batas ukuran.'],422);
+    foreach([$freeApiKey,$freeJwtSecret,$freeManualToken,$geminiAiKey,$openrouterKey] as $credential)
+        if(preg_match('/[\\x00-\\x1F\\x7F]/',$credential))respond(['error'=>'Credential provider tidak boleh berisi karakter kontrol.'],422);
     if($provider==='free'){
         if($effectiveFreeApiKey==='')respond(['error'=>'Free API Key wajib diisi.'],422);
         if($freeTokenMode==='auto'&&$effectiveJwtSecret==='')respond(['error'=>'JWT secret wajib diisi untuk token mode auto.'],422);
         if($freeTokenMode==='manual'&&$effectiveManualToken==='')respond(['error'=>'Manual token wajib diisi untuk token mode manual.'],422);
     }
-    if(($key!==''||$freeApiKey!==''||$freeJwtSecret!==''||$freeManualToken!==''||$gkey!=='')&&crypto_key()==='')
+    if($provider==='gemini'&&$effectiveGeminiAiKey==='')respond(['error'=>'Gemini API key Server AI wajib diisi.'],422);
+    if($provider==='openrouter'&&$effectiveOpenrouterKey==='')respond(['error'=>'OpenRouter API key wajib diisi.'],422);
+    if(($key!==''||$freeApiKey!==''||$freeJwtSecret!==''||$freeManualToken!==''||$gkey!==''||$geminiAiKey!==''||$openrouterKey!=='')&&crypto_key()==='')
         respond(['error'=>'APP_ENCRYPTION_KEY minimal 32 karakter wajib diatur sebelum menyimpan secret/token.'],503);
     $live=trim((string)($d['gemini_live_model']??$current['live_model']));
     $paymentQris=trim((string)($d['payment_qris_payload']??$payment['qris_payload']));
@@ -633,6 +749,8 @@ if($action==='admin/settings'&&in_array($method,['PUT','POST'],true)){
     put_setting('clario_base_url',rtrim($base,'/'));
     put_setting('clario_fallback_url',rtrim($fallback,'/'));
     put_setting('clario_model',$clarioModel);
+    put_setting('gemini_ai_model',$geminiAiModel);
+    put_setting('openrouter_model',$openrouterModel);
     put_setting('free_pool',json_encode($freePool,JSON_UNESCAPED_SLASHES));
     put_setting('free_ttl_min',(string)$freeTtl);
     put_setting('free_sub',$freeSub);
@@ -645,6 +763,8 @@ if($action==='admin/settings'&&in_array($method,['PUT','POST'],true)){
     if($freeApiKey!=='')put_setting('free_api_key_enc',encrypt_secret($freeApiKey));
     if($freeJwtSecret!=='')put_setting('free_jwt_secret_enc',encrypt_secret($freeJwtSecret));
     if($freeManualToken!=='')put_setting('free_manual_token_enc',encrypt_secret($freeManualToken));
+    if($geminiAiKey!=='')put_setting('gemini_ai_api_key_enc',encrypt_secret($geminiAiKey));
+    if($openrouterKey!=='')put_setting('openrouter_api_key_enc',encrypt_secret($openrouterKey));
     if($gkey!=='')put_setting('gemini_key_enc',encrypt_secret($gkey));
     respond(['ok'=>true,'message'=>'Konfigurasi global disimpan; kredensial dienkripsi di server.','ai_provider'=>$provider,'speech_input_mode'=>$speechMode,'speech_scoring_mode'=>$speechScoringMode,'speech_similarity_threshold'=>$speechSimilarityThreshold]);
 }
@@ -861,10 +981,33 @@ if($action==='models'&&$method==='GET'){
     require_user();
     $c=config_values();
     if($c['provider']==='free')respond(['data'=>[],'provider'=>'free']);
-    $r=provider_request('/models',null,15);
+    if($c['provider']==='gemini'){
+        if($c['gemini_ai_api_key']==='')respond(['error'=>'Atur Gemini API key Server AI terlebih dahulu.'],503);
+        $catalog=http_json('https://generativelanguage.googleapis.com/v1beta/models',[
+            'x-goog-api-key: '.$c['gemini_ai_api_key'],
+            'Content-Type: application/json'
+        ],null,20);
+        if($catalog['status']<200||$catalog['status']>=300)respond(['error'=>'Katalog Gemini gagal diambil.','detail'=>substr($catalog['body']?:$catalog['error'],0,500)],$catalog['status']?:502);
+        $json=json_decode($catalog['body'],true);$models=[];
+        foreach((array)($json['models']??[]) as $model){
+            if(!is_array($model)||!in_array('generateContent',(array)($model['supportedGenerationMethods']??[]),true))continue;
+            $id=preg_replace('#^models/#','',(string)($model['name']??''));
+            if($id!=='')$models[]=['id'=>$id,'name'=>(string)($model['displayName']??$id)];
+        }
+        respond(['data'=>$models,'provider'=>'gemini']);
+    }
+    $r=provider_request('/models',null,20);
     if($r['status']<200||$r['status']>=300)respond(['error'=>'Katalog model gagal diambil.','detail'=>substr($r['body']?:$r['error'],0,500)],$r['status']?:502);
     $j=json_decode($r['body'],true);
-    respond($j??['data'=>[]]);
+    if($c['provider']==='openrouter'){
+        $models=[];
+        foreach((array)($j['data']??[]) as $model)
+            if(is_array($model)&&is_string($model['id']??null))$models[]=['id'=>$model['id'],'name'=>(string)($model['name']??$model['id'])];
+        respond(['data'=>$models,'provider'=>'openrouter']);
+    }
+    $j=is_array($j)?$j:['data'=>[]];
+    $j['provider']='clario';
+    respond($j);
 }
 function ai_speech_similarity(string $expected, string $transcript, array $config): int
 {
@@ -878,7 +1021,7 @@ function ai_speech_similarity(string $expected, string $transcript, array $confi
         $content=(string)$parsed['reply'];
     }else{
         $body=[
-            'model'=>$config['clario_model'],
+            'model'=>$config['model'],
             'messages'=>[['role'=>'user','content'=>$prompt]],
             'max_tokens'=>5,
             'temperature'=>0,
@@ -1164,8 +1307,10 @@ if($action==='assess-audio'&&$method==='POST'){
             'assessment'=>$assessment
         ],'provider'=>'free','diamonds'=>$diamonds]);
     }
-    if(!in_array($mime,['audio/wav','audio/x-wav','audio/wave','application/octet-stream'],true))respond(['error'=>'Audio untuk Clario harus berupa WAV PCM.'],415);
-    if($config['api_key']==='')respond(['error'=>'Admin belum mengatur API key Clario.'],503);
+    if(!in_array($mime,['audio/wav','audio/x-wav','audio/wave','application/octet-stream'],true))respond(['error'=>'Audio untuk Server AI harus berupa WAV PCM.'],415);
+    if($config['provider']==='clario'&&$config['api_key']==='')respond(['error'=>'Admin belum mengatur API key Clario.'],503);
+    if($config['provider']==='gemini'&&$config['gemini_ai_api_key']==='')respond(['error'=>'Admin belum mengatur Gemini API key Server AI.'],503);
+    if($config['provider']==='openrouter'&&$config['openrouter_api_key']==='')respond(['error'=>'Admin belum mengatur OpenRouter API key.'],503);
     $raw=file_get_contents($file['tmp_name']);
     if($raw===false||strlen($raw)<100)respond(['error'=>'File audio kosong atau rusak.'],422);
     $walletReservation=wallet_reserve((int)$u['id'],$mode==='read_aloud'?1:5,$mode==='read_aloud'?'listening_ai_transcription':'ai_lesson_audio',$mode==='read_aloud'?'Listening Lab AI speech scoring (1 diamond).':'AI Lesson audio evaluation (5 diamonds).');
@@ -1190,7 +1335,7 @@ if($action==='assess-audio'&&$method==='POST'){
         'temperature'=>0.2,
         'stream'=>false
     ];
-    $clarioStarted=microtime(true);
+    $providerStarted=microtime(true);
     $response=provider_request('/chat/completions',$body,70);
     if($response['status']<200||$response['status']>=300){
         $responseBody=(string)($response['body']??'');
@@ -1199,17 +1344,18 @@ if($action==='assess-audio'&&$method==='POST'){
         $providerCode=is_scalar($providerError['code']??null)?strtolower((string)$providerError['code']):'';
         $inlineImageUnsupported=$providerCode==='inline_image_not_supported'||stripos($responseBody,'inline_image_not_supported')!==false;
         error_log(sprintf(
-            'SpeakUp assess-audio upstream failed: provider=clario http=%d elapsed_ms=%d code=%s transport=%s',
+            'SpeakUp assess-audio upstream failed: provider=%s http=%d elapsed_ms=%d code=%s transport=%s',
+            $config['provider'],
             (int)($response['status']??0),
-            (int)round((microtime(true)-$clarioStarted)*1000),
+            (int)round((microtime(true)-$providerStarted)*1000),
             $inlineImageUnsupported?'inline_image_not_supported':'provider_error',
             substr((string)($response['error']??''),0,120)
         ));
         if($inlineImageUnsupported)
             respond([
-                'error'=>'Clario menolak format audio untuk endpoint atau model yang dipilih.',
-                'detail'=>'Clario mengembalikan inline_image_not_supported untuk WAV input_audio. Petunjuk image_url hanya berlaku untuk gambar, bukan pengganti audio. Jangan kirim ulang payload yang sama; gunakan protokol/model audio yang secara eksplisit didukung Clario.',
-                'code'=>'clario_audio_input_unsupported'
+                'error'=>'Provider AI menolak format audio untuk endpoint atau model yang dipilih.',
+                'detail'=>'Provider mengembalikan inline_image_not_supported untuk WAV input_audio. Petunjuk image_url hanya berlaku untuk gambar, bukan pengganti audio. Jangan kirim ulang payload yang sama; pilih model audio yang didukung provider aktif.',
+                'code'=>'audio_input_unsupported'
             ],422);
         respond(['error'=>'Provider AI gagal memproses audio.','detail'=>substr($responseBody?:$response['error'],0,500)],$response['status']?:502);
     }
@@ -1361,7 +1507,8 @@ if($action==='live-assessment'&&$method==='POST'){
         $r=provider_request('/chat/completions',$body,25);
         if($r['status']<200||$r['status']>=300){
             error_log(sprintf(
-                'SpeakUp live-assessment upstream failed: provider=clario http=%d elapsed_ms=%d transport=%s',
+                'SpeakUp live-assessment upstream failed: provider=%s http=%d elapsed_ms=%d transport=%s',
+                $c['provider'],
                 (int)($r['status']??0),
                 (int)round((microtime(true)-$assessmentStarted)*1000),
                 substr((string)($r['error']??''),0,120)
