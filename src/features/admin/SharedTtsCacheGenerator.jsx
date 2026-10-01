@@ -15,6 +15,7 @@ export default function SharedTtsCacheGenerator({
   sourceChanged = false,
   disabled = false,
   onGeneratingChange = () => {},
+  onCacheGenerated = () => {},
 }) {
   const [generating, setGenerating] = useState(false);
   const [status, setStatus] = useState("");
@@ -84,6 +85,7 @@ export default function SharedTtsCacheGenerator({
             voiceId: job.key,
             audio,
           });
+          onCacheGenerated(job.key);
           completed += 1;
           setStatus(`${completed}/${jobs.length} file selesai · ${job.label}`);
           return job;

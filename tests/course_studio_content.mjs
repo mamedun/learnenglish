@@ -18,6 +18,12 @@ assert.match(
   studio,
   /JSON\.stringify\(\{ \.\.\.contentDraft, \.\.\.patch \}, null, 2\)/,
 );
+assert.match(studio, /admin\/tts-cache\/status\?course_id=/);
+assert.match(studio, /course-unit-audio-badge is-/);
+assert.match(studio, /getSharedTtsAudio\(contentType, item, "auto"\)/);
+assert.match(studio, /<CourseStudioAudioPreview/);
+assert.match(studio, /className="course-audio-preview-player"[\s\S]*?controls/);
+assert.match(studio, /onCacheGenerated=/);
 
 const mediaLabel = studio.indexOf(
   "Ilustrasi / video / YouTube / URL eksternal",
@@ -26,6 +32,15 @@ assert.notEqual(mediaLabel, -1);
 assert.ok(
   studio.lastIndexOf('modality !== "live_lesson" && (', mediaLabel) !== -1,
   "Live Lesson must not render the shared illustration/media field and preview",
+);
+const audioPreviewIndex = studio.indexOf("<CourseStudioAudioPreview");
+assert.notEqual(audioPreviewIndex, -1);
+assert.ok(
+  studio.lastIndexOf(
+    'modality !== "live_lesson" && selectedUnit &&',
+    audioPreviewIndex,
+  ) !== -1,
+  "Cached audio preview is restricted to Listening and AI Lesson",
 );
 
 assert.match(editor, /function ListeningEditor/);

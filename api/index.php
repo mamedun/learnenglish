@@ -593,6 +593,7 @@ if($action==='admin/catalog'&&$method==='GET'){require_admin();respond(catalog_d
 if($action==='tts-cache'&&$method==='GET'){$u=require_user();tts_cache_get_audio($u);}
 if($action==='tts-cache'&&$method==='POST'){$u=require_user();tts_cache_upload($u);}
 if($action==='admin/tts-cache'&&$method==='GET'){require_admin();respond(['cache'=>tts_cache_summary()]);}
+if($action==='admin/tts-cache/status'&&$method==='GET'){require_admin();respond(['status'=>tts_cache_course_status(db(),trim((string)($_GET['course_id']??'')))]);}
 if($action==='admin/tts-cache/clear'&&in_array($method,['POST','DELETE'],true)){origin_check();require_admin();rate_limit('admin-tts-cache-clear',10,3600);$deleted=tts_cache_clear_all();respond(['ok'=>true,'deleted'=>$deleted,'cache'=>tts_cache_summary()]);}
 if(preg_match('#^admin/levels/([A-C][12])$#',$action,$m)&&$method==='PUT'){
     origin_check();require_admin();catalog_save_level(db(),$m[1],read_json(8192));respond(['ok'=>true]);

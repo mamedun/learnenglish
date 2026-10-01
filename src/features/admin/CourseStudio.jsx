@@ -4,6 +4,7 @@ import {
   ArrowDownWideNarrow,
   ArrowUp,
   ArrowUpWideNarrow,
+  AudioLines,
   BookOpen,
   Check,
   ChevronDown,
@@ -12,6 +13,7 @@ import {
   Download,
   ExternalLink,
   FileUp,
+  Play,
   Plus,
   RefreshCw,
   Search,
@@ -21,6 +23,7 @@ import {
   X,
 } from "lucide-react";
 import { apiJson } from "../../api";
+import { getSharedTtsAudio } from "../../lib/ttsCache";
 import { toast } from "sonner";
 import CourseContentEditor from "./CourseContentEditor";
 import SharedTtsCacheGenerator from "./SharedTtsCacheGenerator";
@@ -123,6 +126,23 @@ function orderUnits(modality, units = []) {
       )
     : units;
 }
+function unitAudioContentChanged(modality, currentContent, savedContent) {
+  if (!savedContent) return true;
+  if (modality !== "listening" && modality !== "ai_lesson") return false;
+  const sourceField = modality === "ai_lesson" ? "prompt" : "script";
+  const currentSegments = Array.isArray(currentContent?.ttsSegments)
+    ? currentContent.ttsSegments
+    : [];
+  const savedSegments = Array.isArray(savedContent?.ttsSegments)
+    ? savedContent.ttsSegments
+    : [];
+  return (
+    currentContent?.[sourceField] !== savedContent?.[sourceField] ||
+    (currentContent?.defaultVoice || "af_heart") !==
+      (savedContent?.defaultVoice || "af_heart") ||
+    JSON.stringify(currentSegments) !== JSON.stringify(savedSegments)
+  );
+}
 function mediaKind(url = "") {
   const value = String(url).trim();
   if (/youtube\.com|youtu\.be/i.test(value)) return "youtube";
@@ -149,6 +169,161 @@ function youtubeEmbed(url = "") {
   }
 }
 
+function CourseStudioAudioPreview({
+  contentType,
+  item,
+  cacheStatus,
+  cacheStatusLoading,
+  cacheStatusError,
+  sourceChanged,
+  disabled,
+  onCacheMissing,
+}) {
+  const audioRef = useRef(null);
+  const audioUrlRef = useRef("");
+  const previewRequestRef = useRef(0);
+  const [audioUrl, setAudioUrl] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const cacheAvailable =
+    cacheStatus?.available === true &&
+    !cacheStatusLoading &&
+    !cacheStatusError &&
+    !sourceChanged;
+
+  function clearPreview() {
+    previewRequestRef.current += 1;
+    if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+    audioUrlRef.current = "";
+    setAudioUrl("");
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    if (sourceChanged) {
+      clearPreview();
+      setError("");
+    }
+  }, [item?.courseId, item?.id, item?.ttsRevision, sourceChanged]);
+
+  useEffect(
+    () => () => {
+      previewRequestRef.current += 1;
+      if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+    },
+    [],
+  );
+
+  async function loadPreview() {
+    if (!cacheAvailable || disabled || loading) return;
+    const requestId = ++previewRequestRef.current;
+    setLoading(true);
+    setError("");
+    try {
+      const audio = await getSharedTtsAudio(contentType, item, "auto");
+      if (requestId !== previewRequestRef.current) return;
+      if (!audio) {
+        setError(
+          "Audio cache tidak ditemukan. Muat ulang status atau generate kembali.",
+        );
+        onCacheMissing?.();
+        return;
+      }
+      if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+      const nextUrl = URL.createObjectURL(audio);
+      audioUrlRef.current = nextUrl;
+      setAudioUrl(nextUrl);
+    } catch (previewError) {
+      if (requestId === previewRequestRef.current)
+        setError(previewError.message || "Preview audio gagal dimuat.");
+    } finally {
+      if (requestId === previewRequestRef.current) setLoading(false);
+    }
+  }
+
+  async function playPreview() {
+    try {
+      await audioRef.current?.play();
+    } catch {
+      setError(
+        "Tekan tombol Play pada pemutar audio untuk mulai mendengarkan.",
+      );
+    }
+  }
+
+  return (
+    <section className="course-audio-preview">
+      <div className="course-audio-preview-heading">
+        <div>
+          <b>
+            <AudioLines size={15} /> Preview shared audio
+          </b>
+          <small>
+            {sourceChanged
+              ? "Simpan perubahan materi terlebih dahulu sebelum memakai cache."
+              : cacheAvailable
+                ? cacheStatus.voice === "multi"
+                  ? "Audio dialog gabungan multi-speaker siap didengarkan."
+                  : `Audio voice ${cacheStatus.voice} siap didengarkan.`
+                : cacheStatusLoading
+                  ? "Memeriksa status audio cache…"
+                  : cacheStatusError
+                    ? "Status audio cache belum dapat diperiksa."
+                    : "Belum ada audio cache untuk materi ini."}
+          </small>
+        </div>
+        <div className="course-audio-preview-actions">
+          <button
+            type="button"
+            className="outline-btn"
+            disabled={!cacheAvailable || disabled || loading}
+            onClick={loadPreview}
+          >
+            {loading ? (
+              <>
+                <span className="spinner" /> Memuat preview…
+              </>
+            ) : (
+              <>
+                <AudioLines size={14} />
+                {audioUrl ? "Muat ulang preview" : "Preview audio"}
+              </>
+            )}
+          </button>
+          {audioUrl && (
+            <button type="button" className="outline-btn" onClick={playPreview}>
+              <Play size={14} /> Putar
+            </button>
+          )}
+        </div>
+      </div>
+      {audioUrl && (
+        <audio
+          ref={audioRef}
+          className="course-audio-preview-player"
+          controls
+          preload="metadata"
+          src={audioUrl}
+          aria-label={`Preview audio ${item?.title || item?.id || "materi"}`}
+        />
+      )}
+      {error && (
+        <small className="course-audio-preview-error" role="alert">
+          {error}
+        </small>
+      )}
+      {!cacheAvailable &&
+        !cacheStatusLoading &&
+        !sourceChanged &&
+        !cacheStatusError && (
+          <small className="course-audio-preview-hint">
+            Generate satu audio pada materi ini untuk mengaktifkan preview.
+          </small>
+        )}
+    </section>
+  );
+}
+
 export default function CourseStudio({ onCatalogChange = () => {} }) {
   const [courses, setCourses] = useState([]);
   const [search, setSearch] = useState("");
@@ -166,6 +341,10 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
   const [modality, setModality] = useState("listening");
   const [moduleDrafts, setModuleDrafts] = useState({});
   const [selectedUnitId, setSelectedUnitId] = useState("");
+  const [ttsCacheStatus, setTtsCacheStatus] = useState({});
+  const [ttsCacheStatusLoading, setTtsCacheStatusLoading] = useState(false);
+  const [ttsCacheStatusError, setTtsCacheStatusError] = useState("");
+  const [ttsCacheStatusRefresh, setTtsCacheStatusRefresh] = useState(0);
   const [contentText, setContentText] = useState("");
   const [contentView, setContentView] = useState("visual");
   const [categoryIndex, setCategoryIndex] = useState(0);
@@ -216,6 +395,36 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
       active = false;
     };
   }, [selectedId, isNew]);
+  useEffect(() => {
+    if (!selectedId || isNew) {
+      setTtsCacheStatus({});
+      setTtsCacheStatusLoading(false);
+      setTtsCacheStatusError("");
+      return;
+    }
+    let active = true;
+    setTtsCacheStatus({});
+    setTtsCacheStatusLoading(true);
+    setTtsCacheStatusError("");
+    apiJson(
+      `admin/tts-cache/status?course_id=${encodeURIComponent(selectedId)}`,
+    )
+      .then((result) => {
+        if (active) setTtsCacheStatus(result.status || {});
+      })
+      .catch((error) => {
+        if (active)
+          setTtsCacheStatusError(
+            error.message || "Status audio cache gagal dimuat.",
+          );
+      })
+      .finally(() => {
+        if (active) setTtsCacheStatusLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [selectedId, isNew, ttsCacheStatusRefresh]);
   useEffect(() => {
     const units = orderUnits(modality, moduleDrafts[modality]?.units || []);
     const selected =
@@ -575,6 +784,7 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
         ),
       );
       toast.success(`${MODE_LABEL[modality]} tersimpan.`);
+      setTtsCacheStatusRefresh((current) => current + 1);
       onCatalogChange?.();
     } catch (error) {
       toast.error(error.message || "Materi gagal disimpan.");
@@ -1342,53 +1552,90 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
                         <div
                           className={`course-unit-list ${modality === "live_lesson" ? "course-live-topic-list" : ""}`}
                         >
-                          {displayedUnits.map((unit, index) =>
-                            modality === "live_lesson" ? (
-                              <div
-                                className="course-live-topic-row"
-                                key={unit.id}
-                              >
-                                <button
-                                  className={`course-live-topic-select ${unit.id === selectedUnitId ? "active" : ""}`}
-                                  onClick={() => setSelectedUnitId(unit.id)}
+                          {displayedUnits.map((unit, index) => {
+                            if (modality === "live_lesson") {
+                              return (
+                                <div
+                                  className="course-live-topic-row"
+                                  key={unit.id}
                                 >
-                                  <span className="course-unit-order">
-                                    {index + 1}
-                                  </span>
-                                  <span>
-                                    <b>{unit.title}</b>
-                                    <small>
-                                      {unit.subtitle || unit.id} ·{" "}
-                                      {unit.published ? "Published" : "Draft"}
-                                    </small>
-                                  </span>
-                                </button>
-                                <div className="course-live-topic-actions">
                                   <button
-                                    className="course-icon-action"
-                                    type="button"
-                                    aria-label={`Pindahkan ${unit.title} ke atas`}
-                                    title="Pindahkan ke atas"
-                                    disabled={index === 0}
-                                    onClick={() => moveUnit(unit.id, -1)}
+                                    className={`course-live-topic-select ${unit.id === selectedUnitId ? "active" : ""}`}
+                                    onClick={() => setSelectedUnitId(unit.id)}
                                   >
-                                    <ArrowUp size={14} />
+                                    <span className="course-unit-order">
+                                      {index + 1}
+                                    </span>
+                                    <span>
+                                      <b>{unit.title}</b>
+                                      <small>
+                                        {unit.subtitle || unit.id} ·{" "}
+                                        {unit.published ? "Published" : "Draft"}
+                                      </small>
+                                    </span>
                                   </button>
-                                  <button
-                                    className="course-icon-action"
-                                    type="button"
-                                    aria-label={`Pindahkan ${unit.title} ke bawah`}
-                                    title="Pindahkan ke bawah"
-                                    disabled={
-                                      index === displayedUnits.length - 1
-                                    }
-                                    onClick={() => moveUnit(unit.id, 1)}
-                                  >
-                                    <ArrowDown size={14} />
-                                  </button>
+                                  <div className="course-live-topic-actions">
+                                    <button
+                                      className="course-icon-action"
+                                      type="button"
+                                      aria-label={`Pindahkan ${unit.title} ke atas`}
+                                      title="Pindahkan ke atas"
+                                      disabled={index === 0}
+                                      onClick={() => moveUnit(unit.id, -1)}
+                                    >
+                                      <ArrowUp size={14} />
+                                    </button>
+                                    <button
+                                      className="course-icon-action"
+                                      type="button"
+                                      aria-label={`Pindahkan ${unit.title} ke bawah`}
+                                      title="Pindahkan ke bawah"
+                                      disabled={
+                                        index === displayedUnits.length - 1
+                                      }
+                                      onClick={() => moveUnit(unit.id, 1)}
+                                    >
+                                      <ArrowDown size={14} />
+                                    </button>
+                                  </div>
                                 </div>
-                              </div>
-                            ) : (
+                              );
+                            }
+
+                            const savedAudioUnit = courseData?.modules?.[
+                              modality
+                            ]?.units?.find((item) => item.id === unit.id);
+                            const draftAudioChanged =
+                              unit.id === selectedUnit?.id
+                                ? audioSourceChanged
+                                : unitAudioContentChanged(
+                                    modality,
+                                    unit.content,
+                                    savedAudioUnit?.content,
+                                  );
+                            const audioStatus =
+                              ttsCacheStatus[modality]?.[unit.id];
+                            const badgeState = draftAudioChanged
+                              ? "pending"
+                              : audioStatus?.available
+                                ? "ready"
+                                : ttsCacheStatusLoading
+                                  ? "checking"
+                                  : ttsCacheStatusError
+                                    ? "unknown"
+                                    : "missing";
+                            const badgeLabel = draftAudioChanged
+                              ? "Perubahan belum disimpan"
+                              : audioStatus?.available
+                                ? audioStatus.voice === "multi"
+                                  ? "Audio siap · multi"
+                                  : "Audio siap"
+                                : ttsCacheStatusLoading
+                                  ? "Memeriksa cache…"
+                                  : ttsCacheStatusError
+                                    ? "Status tidak tersedia"
+                                    : "Belum digenerate";
+                            return (
                               <button
                                 key={unit.id}
                                 className={
@@ -1399,16 +1646,27 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
                                 <span className="course-unit-order">
                                   {Number(unit.sortOrder) + 1}
                                 </span>
-                                <span>
+                                <span className="course-unit-card-info">
                                   <b>{unit.title}</b>
                                   <small>
                                     {unit.id} ·{" "}
                                     {unit.published ? "Published" : "Draft"}
                                   </small>
+                                  <span
+                                    className={`course-unit-audio-badge is-${badgeState}`}
+                                    title={
+                                      audioStatus?.available
+                                        ? `Audio cache ${audioStatus.voice}`
+                                        : badgeLabel
+                                    }
+                                  >
+                                    <AudioLines size={12} />
+                                    {badgeLabel}
+                                  </span>
                                 </span>
                               </button>
-                            ),
-                          )}
+                            );
+                          })}
                         </div>
                       )}
                       {selectedUnit ? (
@@ -1685,8 +1943,50 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
                               }
                               segments={draftSegments}
                               sourceChanged={audioSourceChanged}
-                              disabled={busy || isNew || generatingCache}
+                              disabled={
+                                busy || loading || isNew || generatingCache
+                              }
                               onGeneratingChange={setGeneratingCache}
+                              onCacheGenerated={() => {
+                                setTtsCacheStatusRefresh(
+                                  (current) => current + 1,
+                                );
+                                setTtsCacheStatusError("");
+                              }}
+                            />
+                          )}
+                          {modality !== "live_lesson" && selectedUnit && (
+                            <CourseStudioAudioPreview
+                              key={`${selectedId}:${modality}:${selectedUnit.id}:${selectedUnit.ttsRevision || "draft"}`}
+                              contentType={
+                                modality === "ai_lesson"
+                                  ? "speaking"
+                                  : "listening"
+                              }
+                              item={{
+                                ...selectedUnit,
+                                defaultVoice:
+                                  contentDraft.defaultVoice || "af_heart",
+                                courseId: selectedUnit.courseId || selectedId,
+                              }}
+                              cacheStatus={
+                                ttsCacheStatus[modality]?.[selectedUnit.id]
+                              }
+                              cacheStatusLoading={ttsCacheStatusLoading}
+                              cacheStatusError={ttsCacheStatusError}
+                              sourceChanged={audioSourceChanged}
+                              disabled={
+                                busy ||
+                                loading ||
+                                isNew ||
+                                generatingCache ||
+                                Boolean(contentParseError)
+                              }
+                              onCacheMissing={() =>
+                                setTtsCacheStatusRefresh(
+                                  (current) => current + 1,
+                                )
+                              }
                             />
                           )}
                           <div className="course-editor-actions course-module-save">

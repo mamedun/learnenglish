@@ -510,6 +510,12 @@ course_saved = request(
 )
 course_saved_unit = course_saved['content']['units'][0]
 course_revision = course_saved_unit['ttsRevision']
+course_status_path = f'admin/tts-cache/status?course_id={urllib.parse.quote(course_smoke_id)}'
+initial_course_cache_status = request(admin, course_status_path)['status']
+assert initial_course_cache_status['ai_lesson']['cache-unit']['available'] is False
+assert initial_course_cache_status['ai_lesson']['cache-unit']['voice'] == 'multi'
+assert initial_course_cache_status['listening'] == {}
+request(regular, course_status_path, expected=403)
 course_cache_fields = {
     'type': 'speaking', 'id': course_unit['id'],
     'revision': course_revision, 'course_id': course_smoke_id,
@@ -535,6 +541,9 @@ request_bytes(
     expected=404,
 )
 assert request(admin, 'admin/tts-cache')['cache']['items'] == 1
+course_cache_status = request(admin, course_status_path)['status']['ai_lesson']['cache-unit']
+assert course_cache_status['available'] is True and course_cache_status['voice'] == 'multi'
+assert course_cache_status['size'] == len(course_multi_wav)
 
 # Changing the title alone keeps the one composite cache.
 renamed_course_unit = {**course_unit, 'title': 'Renamed shared-cache prompt'}
@@ -546,6 +555,7 @@ request(
 )
 assert request_bytes(admin, course_auto)[0] == course_multi_wav
 assert request(admin, 'admin/tts-cache')['cache']['items'] == 1
+assert request(admin, course_status_path)['status']['ai_lesson']['cache-unit']['available'] is True
 
 # A single-voice priority change invalidates the current composite cache.
 priority_changed_course_unit = {
@@ -560,6 +570,8 @@ priority_changed_course = request(
 )
 request_bytes(admin, course_auto, expected=404)
 assert request(admin, 'admin/tts-cache')['cache']['items'] == 0
+priority_status = request(admin, course_status_path)['status']['ai_lesson']['cache-unit']
+assert priority_status['available'] is False and priority_status['voice'] == 'multi'
 priority_revision = priority_changed_course['content']['units'][0]['ttsRevision']
 assert priority_revision != course_revision
 priority_cache_fields = {**course_cache_fields, 'revision': priority_revision}
@@ -570,6 +582,7 @@ request_form(
     files={'audio': ('priority-changed-dialog.wav', priority_multi_wav, 'audio/wav')},
 )
 assert request_bytes(admin, priority_auto)[0] == priority_multi_wav
+assert request(admin, course_status_path)['status']['ai_lesson']['cache-unit']['available'] is True
 
 # Editing any dialog segment replaces and removes the previous composite cache.
 segments_changed_course_unit = {
@@ -590,6 +603,7 @@ segments_changed_course = request(
 )
 request_bytes(admin, priority_auto, expected=404)
 assert request(admin, 'admin/tts-cache')['cache']['items'] == 0
+assert request(admin, course_status_path)['status']['ai_lesson']['cache-unit']['available'] is False
 segments_revision = segments_changed_course['content']['units'][0]['ttsRevision']
 segments_cache_fields = {**course_cache_fields, 'revision': segments_revision}
 segments_auto = course_auto_path(segments_cache_fields)
@@ -599,6 +613,7 @@ request_form(
     files={'audio': ('segments-changed-dialog.wav', segments_multi_wav, 'audio/wav')},
 )
 assert request_bytes(admin, segments_auto)[0] == segments_multi_wav
+assert request(admin, course_status_path)['status']['ai_lesson']['cache-unit']['available'] is True
 
 # Changing the cue card and removing multi-speaker turns leaves one priority file.
 changed_course_unit = {
@@ -619,6 +634,8 @@ changed_course = request(
 )
 request_bytes(admin, segments_auto, expected=404)
 assert request(admin, 'admin/tts-cache')['cache']['items'] == 0
+changed_status = request(admin, course_status_path)['status']['ai_lesson']['cache-unit']
+assert changed_status['available'] is False and changed_status['voice'] == 'am_puck'
 changed_course_revision = changed_course['content']['units'][0]['ttsRevision']
 changed_cache_fields = {**course_cache_fields, 'revision': changed_course_revision}
 single_fallback_wav = tiny_wav(1700)
@@ -629,6 +646,8 @@ request_form(
 changed_auto_path = course_auto_path(changed_cache_fields)
 assert request_bytes(admin, changed_auto_path)[0] == single_fallback_wav
 assert request(admin, 'admin/tts-cache')['cache']['items'] == 1
+single_status = request(admin, course_status_path)['status']['ai_lesson']['cache-unit']
+assert single_status['available'] is True and single_status['voice'] == 'am_puck'
 
 # Removing the unit from the replacement-style Course Studio payload purges it.
 request(
@@ -638,6 +657,7 @@ request(
     {'categories': [course_category], 'units': []},
 )
 assert request(admin, 'admin/tts-cache')['cache']['items'] == 0
+assert request(admin, course_status_path)['status']['ai_lesson'] == {}
 
 # Re-create an audio cache and verify deleting its course purges that storage too.
 recreated_course = request(

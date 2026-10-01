@@ -91,6 +91,45 @@ function tts_cache_summary(): array
     ];
 }
 
+function tts_cache_course_status(PDO $pdo, string $courseId): array
+{
+    if (!preg_match('/^[A-Za-z0-9_-]{1,80}$/', $courseId))
+        respond(['error' => 'ID course tidak valid.'], 422);
+    if (!courseware_course_row($pdo, $courseId)) respond(['error' => 'Course tidak ditemukan.'], 404);
+
+    $prefix = $courseId . ':';
+    $cacheQuery = $pdo->prepare('SELECT cache_key,file_path,file_size FROM shared_tts_cache WHERE substr(content_id,1,?)=?');
+    $cacheQuery->execute([strlen($prefix), $prefix]);
+    $cacheByKey = [];
+    foreach ($cacheQuery->fetchAll() as $row) $cacheByKey[(string) $row['cache_key']] = $row;
+
+    $result = [];
+    foreach (['ai_lesson' => 'speaking', 'listening' => 'listening'] as $modality => $type) {
+        $modalityStatus = [];
+        foreach (courseware_units_for_modality($pdo, $courseId, $modality, true) as $unit) {
+            $unitId = (string) $unit['id'];
+            $content = is_array($unit['content'] ?? null) ? $unit['content'] : [];
+            $revision = (string) ($unit['ttsRevision'] ?? '');
+            $segments = is_array($content['ttsSegments'] ?? null) ? $content['ttsSegments'] : [];
+            $voice = tts_cache_expected_voice($pdo, $type, $unitId, $content, $segments);
+            $key = tts_cache_key($type, $prefix . $unitId, $revision, $voice);
+            $row = $cacheByKey[$key] ?? null;
+            $available = is_array($row) && is_file((string) $row['file_path']);
+            if (is_array($row) && !$available) {
+                $pdo->prepare('DELETE FROM shared_tts_cache WHERE cache_key=?')->execute([$key]);
+                unset($cacheByKey[$key]);
+            }
+            $modalityStatus[$unitId] = [
+                'available' => $available,
+                'voice' => $voice,
+                'size' => $available ? (int) $row['file_size'] : 0,
+            ];
+        }
+        $result[$modality] = (object) $modalityStatus;
+    }
+    return $result;
+}
+
 function tts_cache_content_segments(PDO $pdo, string $type, string $id): array
 {
     if ($type === 'speaking') {

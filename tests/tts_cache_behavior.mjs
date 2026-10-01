@@ -17,6 +17,7 @@ const [
   courseContentEditor,
   dialogueEditor,
   cacheApi,
+  apiIndex,
   courseware,
   catalog,
   ttsRocks,
@@ -29,6 +30,7 @@ const [
   read("src/features/admin/CourseContentEditor.jsx"),
   read("src/features/admin/DialogueEditor.jsx"),
   read("api/tts_cache.php"),
+  read("api/index.php"),
   read("api/courseware.php"),
   read("api/catalog.php"),
   read("src/lib/ttsRocks.js"),
@@ -177,6 +179,12 @@ assert.match(cacheApi, /count\(\$segments\) >= 2\s+\?\s+'multi'/);
 assert.match(cacheApi, /tts_cache_remove_other_entries/);
 assert.match(cacheApi, /if \(\$voice !== \$expectedVoice\)/);
 assert.match(cacheApi, /tts_cache_default_voice/);
+assert.match(cacheApi, /function tts_cache_course_status/);
+assert.match(
+  cacheApi,
+  /courseware_units_for_modality\(\$pdo, \$courseId, \$modality, true\)/,
+);
+assert.match(apiIndex, /admin\/tts-cache\/status[\s\S]*?require_admin\(\)/);
 assert.doesNotMatch(
   cacheApi,
   /foreach \(catalog_tts_voice_ids\(\) as \$candidateVoice\)/,
