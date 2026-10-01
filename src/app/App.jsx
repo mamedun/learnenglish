@@ -48,6 +48,10 @@ import {
   speakKokoro,
 } from "../lib/ttsRocks";
 import { getSharedTtsAudio, saveSharedTtsAudio } from "../lib/ttsCache";
+import {
+  getGeminiLiveMessageError,
+  parseGeminiLiveMessage,
+} from "../lib/geminiLiveProtocol";
 
 const AdminPage = lazy(() => import("../features/admin/AdminPage"));
 const ListeningPage = lazy(() => import("../features/listening/ListeningPage"));
@@ -109,6 +113,7 @@ function App() {
   const [liveLoading, setLiveLoading] = useState(false);
   const [liveAssessment, setLiveAssessment] = useState(null);
   const liveWsRef = useRef(null);
+  const liveSetupTimerRef = useRef(null);
   const ttsRequestIdRef = useRef(0);
   const ttsAudioRef = useRef(null);
   const liveContextRef = useRef(null);
@@ -336,9 +341,15 @@ function App() {
     () => () => {
       ttsRequestIdRef.current += 1;
       stopCurrentSpeech();
+      if (liveSetupTimerRef.current !== null) {
+        clearTimeout(liveSetupTimerRef.current);
+        liveSetupTimerRef.current = null;
+      }
       streamRef.current?.getTracks().forEach((t) => t.stop());
       liveStreamRef.current?.getTracks().forEach((t) => t.stop());
-      liveWsRef.current?.close();
+      const liveWs = liveWsRef.current;
+      liveWsRef.current = null;
+      liveWs?.close();
       void liveContextRef.current?.close();
       if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
     },
@@ -1230,6 +1241,42 @@ function App() {
       livePlayheadRef.current += audio.duration;
     } catch {}
   }
+  function clearLiveSetupTimer() {
+    if (liveSetupTimerRef.current !== null) {
+      window.clearTimeout(liveSetupTimerRef.current);
+      liveSetupTimerRef.current = null;
+    }
+  }
+  function cleanupFailedLiveConnection() {
+    clearLiveSetupTimer();
+    try {
+      liveProcessorRef.current?.disconnect();
+    } catch {}
+    liveProcessorRef.current = null;
+    try {
+      liveSourceRef.current?.disconnect();
+    } catch {}
+    liveSourceRef.current = null;
+    liveStreamRef.current?.getTracks().forEach((track) => track.stop());
+    liveStreamRef.current = null;
+    const ws = liveWsRef.current;
+    liveWsRef.current = null;
+    if (ws && ws.readyState !== WebSocket.CLOSED) {
+      try {
+        ws.close();
+      } catch {}
+    }
+    const ctx = liveContextRef.current;
+    liveContextRef.current = null;
+    if (ctx && ctx.state !== "closed") void ctx.close().catch(() => {});
+  }
+  function failLiveConnection(message) {
+    cleanupFailedLiveConnection();
+    setLiveOn(false);
+    setLiveLoading(false);
+    setLiveStatus(message);
+    toast.error(message);
+  }
   async function beginLive() {
     try {
       if (!hasPremiumAccess) {
@@ -1250,6 +1297,7 @@ function App() {
       setLiveAssessment(null);
       setLiveLines([]);
       liveTranscriptRef.current = "";
+      livePlayheadRef.current = 0;
       setLiveSeconds(0);
       setLiveStatus("Meminta akses mikrofon…");
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -1268,8 +1316,19 @@ function App() {
       });
       const tokenData = await tokenResp.json();
       if (!tokenResp.ok)
-        throw new Error(tokenData.error || "Token Gemini Live tidak tersedia.");
-      const ctx = new AudioContext();
+        throw new Error(
+          tokenData?.error || "Token Gemini Live tidak tersedia.",
+        );
+      if (
+        !tokenData ||
+        typeof tokenData.token !== "string" ||
+        !tokenData.token.trim()
+      )
+        throw new Error("Server tidak mengembalikan token Gemini Live.");
+      const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextCtor)
+        throw new Error("Browser ini tidak mendukung pemrosesan audio Live.");
+      const ctx = new AudioContextCtor();
       liveContextRef.current = ctx;
       await ctx.resume();
       const model = String(tokenData.model || "gemini-3.8-live").replace(
@@ -1281,27 +1340,59 @@ function App() {
       );
       liveWsRef.current = ws;
       setLiveStatus("Menghubungkan ke Gemini Live…");
-      ws.onopen = () => {
-        ws.send(
-          JSON.stringify({
-            setup: {
-              model: `models/${model}`,
-              generationConfig: { responseModalities: ["AUDIO"] },
-              inputAudioTranscription: {},
-              outputAudioTranscription: {},
-              sessionResumption: {},
-              systemInstruction: { parts: [{ text: liveInstruction }] },
-            },
-          }),
+      let setupCompleted = false;
+      liveSetupTimerRef.current = window.setTimeout(() => {
+        if (liveWsRef.current !== ws) return;
+        failLiveConnection(
+          "Gemini Live tidak mengonfirmasi konfigurasi dalam 30 detik. Periksa model dan Gemini API key di Admin, lalu coba lagi.",
         );
-      };
-      ws.onmessage = (event) => {
+      }, 30_000);
+      ws.onopen = () => {
+        if (liveWsRef.current !== ws) return;
+        setLiveStatus("Mengirim konfigurasi ke Gemini Live…");
         try {
-          const msg = JSON.parse(event.data);
-          if (msg.setupComplete) {
-            setLiveStatus("Connected \xB7 speaking");
-            setLiveOn(true);
-            setLiveLoading(false);
+          ws.send(
+            JSON.stringify({
+              setup: {
+                model: `models/${model}`,
+                generationConfig: { responseModalities: ["AUDIO"] },
+                inputAudioTranscription: {},
+                outputAudioTranscription: {},
+                sessionResumption: {},
+                systemInstruction: { parts: [{ text: liveInstruction }] },
+              },
+            }),
+          );
+        } catch (error) {
+          failLiveConnection(
+            error?.message || "Gagal mengirim konfigurasi Gemini Live.",
+          );
+        }
+      };
+      ws.onmessage = async (event) => {
+        let msg;
+        try {
+          // Match the working SDK/sample behavior: Live protocol frames may
+          // arrive as Blob or ArrayBuffer, not only as text strings.
+          msg = await parseGeminiLiveMessage(event.data);
+        } catch (error) {
+          console.error("Tidak dapat membaca pesan Gemini Live:", error);
+          return;
+        }
+        if (liveWsRef.current !== ws) return;
+        const serverError = getGeminiLiveMessageError(msg);
+        if (serverError) {
+          console.error("Gemini Live menolak sesi:", serverError);
+          failLiveConnection(`Gemini Live menolak sesi: ${serverError}`);
+          return;
+        }
+        if (msg.setupComplete && !setupCompleted) {
+          setupCompleted = true;
+          clearLiveSetupTimer();
+          setLiveStatus("Connected · speaking");
+          setLiveOn(true);
+          setLiveLoading(false);
+          try {
             const src = ctx.createMediaStreamSource(stream);
             const proc = ctx.createScriptProcessor(4096, 1, 1);
             const mute = ctx.createGain();
@@ -1325,60 +1416,64 @@ function App() {
             };
             liveSourceRef.current = src;
             liveProcessorRef.current = proc;
+          } catch (error) {
+            failLiveConnection(
+              error?.message || "Gagal mengaktifkan mikrofon Live.",
+            );
+            return;
           }
-          const c = msg.serverContent;
-          if (c) {
-            if (c.inputTranscription?.text) {
-              const text = String(c.inputTranscription.text);
-              liveTranscriptRef.current += `Learner: ${text}
-`;
-              setLiveLines((v) => [...v, { who: "learner", text }]);
-            }
-            if (c.outputTranscription?.text) {
-              const text = String(c.outputTranscription.text);
-              liveTranscriptRef.current += "\n";
-              liveTranscriptRef.current += `Maya: ${text}`;
-              setLiveLines((v) => [...v, { who: "coach", text }]);
-            }
-            for (const part of c.modelTurn?.parts || [])
-              if (part.inlineData?.data) playLiveAudio(part.inlineData.data);
+        }
+        const c = msg.serverContent;
+        if (c) {
+          if (c.inputTranscription?.text) {
+            const text = String(c.inputTranscription.text);
+            liveTranscriptRef.current += `Learner: ${text}\n`;
+            setLiveLines((v) => [...v, { who: "learner", text }]);
           }
-        } catch {}
+          if (c.outputTranscription?.text) {
+            const text = String(c.outputTranscription.text);
+            liveTranscriptRef.current += `\nMaya: ${text}`;
+            setLiveLines((v) => [...v, { who: "coach", text }]);
+          }
+          for (const part of c.modelTurn?.parts || [])
+            if (part.inlineData?.data) playLiveAudio(part.inlineData.data);
+        }
       };
       ws.onerror = () => {
-        setLiveLoading(false);
+        if (liveWsRef.current !== ws) return;
+        if (!setupCompleted) {
+          failLiveConnection(
+            "Koneksi Gemini Live gagal sebelum sesi siap. Periksa model dan Gemini API key di Admin.",
+          );
+          return;
+        }
         setLiveStatus("Connection error");
-        toast.error(
-          "Koneksi Gemini Live gagal. Periksa model dan konfigurasi admin.",
-        );
+        toast.error("Koneksi Gemini Live terputus.");
         void endLive();
       };
       ws.onclose = () => {
-        if (liveWsRef.current === ws) {
-          setLiveLoading(false);
-          setLiveStatus("Disconnected");
-          void endLive();
+        if (liveWsRef.current !== ws) return;
+        clearLiveSetupTimer();
+        if (!setupCompleted) {
+          failLiveConnection(
+            "Gemini Live menutup koneksi sebelum sesi selesai disiapkan.",
+          );
+          return;
         }
+        setLiveLoading(false);
+        setLiveStatus("Disconnected");
+        void endLive();
       };
     } catch (e) {
+      console.error("Gagal memulai Gemini Live:", e);
+      cleanupFailedLiveConnection();
       setLiveLoading(false);
       setLiveStatus("Unavailable");
-      liveStreamRef.current?.getTracks().forEach((t) => t.stop());
-      liveStreamRef.current = null;
-      liveProcessorRef.current?.disconnect();
-      liveProcessorRef.current = null;
-      liveSourceRef.current?.disconnect();
-      liveSourceRef.current = null;
-      const failedWs = liveWsRef.current;
-      liveWsRef.current = null;
-      failedWs?.close();
-      const failedCtx = liveContextRef.current;
-      liveContextRef.current = null;
-      if (failedCtx) void failedCtx.close().catch(() => {});
       toast.error(e.message || "Gemini Live gagal dimulai.");
     }
   }
   async function endLive() {
+    clearLiveSetupTimer();
     setLiveLoading(true);
     setLiveStatus("Mengakhiri sesi Live…");
     liveProcessorRef.current?.disconnect();
