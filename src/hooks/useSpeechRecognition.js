@@ -5,17 +5,38 @@ function getRecognitionConstructor() {
   return window.SpeechRecognition || window.webkitSpeechRecognition || null;
 }
 
+export function isBraveBrowser() {
+  if (typeof navigator === "undefined") return false;
+  return (
+    Boolean(navigator.brave) || /\bBrave\//i.test(navigator.userAgent || "")
+  );
+}
+
+export function speechRecognitionErrorMessage(code, brave = isBraveBrowser()) {
+  if (code === "not-allowed" || code === "service-not-allowed")
+    return "Izin mikrofon/transkripsi ditolak. Izinkan penggunaan mikrofon di browser.";
+  if (code === "audio-capture")
+    return "Browser tidak menemukan mikrofon. Periksa perangkat input.";
+  if (code === "network")
+    return brave
+      ? "Brave tidak dapat mengakses layanan transkripsi live ini. Gunakan Google Chrome untuk live transcription."
+      : "Layanan transkripsi browser tidak dapat terhubung. Periksa internet; jika memakai Brave, gunakan Google Chrome.";
+  return `Transkripsi berhenti${code ? ` (${code})` : ""}. Coba ulangi.`;
+}
+
 /** Live, read-only speech recognition using the Web Speech API, as used by the
  * requested speech-to-text-converter example (continuous + interim results). */
 export function useSpeechRecognition({ language = "en-US" } = {}) {
   const [transcript, setTranscript] = useState("");
   const [listening, setListening] = useState(false);
   const [supported, setSupported] = useState(false);
+  const [braveDetected, setBraveDetected] = useState(false);
   const recognitionRef = useRef(null);
   const prefixRef = useRef("");
 
   useEffect(() => {
     setSupported(Boolean(getRecognitionConstructor()));
+    setBraveDetected(isBraveBrowser());
     return () => {
       const recognition = recognitionRef.current;
       recognitionRef.current = null;
@@ -64,6 +85,10 @@ export function useSpeechRecognition({ language = "en-US" } = {}) {
 
   const start = useCallback(
     ({ append = false } = {}) => {
+      if (isBraveBrowser()) {
+        setBraveDetected(true);
+        return { ok: false, reason: "unsupported-brave" };
+      }
       const Recognition = getRecognitionConstructor();
       if (!Recognition) {
         setSupported(false);
@@ -97,7 +122,7 @@ export function useSpeechRecognition({ language = "en-US" } = {}) {
           if (!["no-speech", "aborted"].includes(event.error)) {
             window.dispatchEvent(
               new CustomEvent("speakup:speech-error", {
-                detail: { error: event.error },
+                detail: { error: event.error, brave: isBraveBrowser() },
               }),
             );
           }
@@ -129,6 +154,7 @@ export function useSpeechRecognition({ language = "en-US" } = {}) {
     setTranscript,
     listening,
     supported,
+    braveDetected,
     start,
     stop,
     reset,

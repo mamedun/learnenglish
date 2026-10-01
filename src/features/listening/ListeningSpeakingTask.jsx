@@ -14,13 +14,17 @@ import { apiFetch } from "../../api";
 import { convertRecordingToWav } from "../../lib/audio";
 import { compareSpokenText } from "../../lib/speechSimilarity";
 import { isTtsBusy } from "../../lib/ttsRocks";
-import { useSpeechRecognition } from "../../hooks/useSpeechRecognition";
+import {
+  speechRecognitionErrorMessage,
+  useSpeechRecognition,
+} from "../../hooks/useSpeechRecognition";
 import ProcessingStatus from "../../components/ProcessingStatus";
 import "./ListeningSpeakingTask.css";
 
 export default function ListeningSpeakingTask({
   lesson,
   speechInputMode = "live_transcribe",
+  speechScoringMode = "local",
   aiProvider = "clario",
   speak,
   ttsStatus,
@@ -43,6 +47,8 @@ export default function ListeningSpeakingTask({
   const chunksRef = useRef([]);
   const answer = liveMode ? recognition.transcript : aiTranscript;
   const preview = answer ? compareSpokenText(lesson.script, answer) : null;
+  const aiScoring = liveMode && speechScoringMode === "ai";
+  const displayedScore = aiScoring ? checked : (checked ?? preview);
   const ttsBusy = isTtsBusy(ttsStatus);
 
   useEffect(() => {
@@ -55,14 +61,12 @@ export default function ListeningSpeakingTask({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lesson.id, liveMode, aiProvider]);
   useEffect(() => {
+    setChecked(null);
+  }, [speechScoringMode]);
+  useEffect(() => {
     const onSpeechError = (event) => {
-      const code = event.detail?.error;
       toast.error(
-        code === "not-allowed" || code === "service-not-allowed"
-          ? "Izin mikrofon/transkripsi ditolak. Izinkan penggunaan mikrofon di browser."
-          : code === "audio-capture"
-            ? "Browser tidak menemukan mikrofon. Periksa perangkat input."
-            : `Transkripsi berhenti${code ? ` (${code})` : ""}. Coba ulangi.`,
+        speechRecognitionErrorMessage(event.detail?.error, event.detail?.brave),
       );
     };
     window.addEventListener("speakup:speech-error", onSpeechError);
@@ -96,9 +100,11 @@ export default function ListeningSpeakingTask({
     });
     if (!result.ok) {
       toast.error(
-        result.reason === "unsupported"
-          ? "Transkripsi langsung tidak didukung browser ini. Gunakan Chrome/Edge atau minta admin mengaktifkan mode rekaman AI."
-          : "Mikrofon tidak dapat dinyalakan. Periksa izin browser dan gunakan HTTPS.",
+        result.reason === "unsupported-brave"
+          ? "Brave tidak dapat mengakses layanan live transcription ini. Gunakan Google Chrome atau minta admin mengaktifkan mode rekaman AI."
+          : result.reason === "unsupported"
+            ? "Transkripsi langsung tidak didukung browser ini. Gunakan Google Chrome atau minta admin mengaktifkan mode rekaman AI."
+            : "Mikrofon tidak dapat dinyalakan. Periksa izin browser dan gunakan HTTPS.",
       );
       return;
     }
@@ -177,17 +183,53 @@ export default function ListeningSpeakingTask({
       );
       return;
     }
-    const result = compareSpokenText(lesson.script, recognition.transcript);
-    setChecked(result);
-    if (result.passed) {
-      onPass?.(result.percent);
-      toast.success(
-        `Bagus! Kemiripan ${result.percent}% — latihan speaking lulus.`,
-      );
-    } else {
-      toast.info(
-        `Kemiripan ${result.percent}%. Coba ulangi hingga minimal 90%.`,
-      );
+    const transcript = recognition.transcript.trim();
+    if (!transcript) {
+      toast.info("Bicarakan paragrafnya terlebih dahulu.");
+      return;
+    }
+
+    if (aiScoring) {
+      setProcessing(true);
+      setProcessingMessage("Membandingkan transkrip dengan AI…");
+    }
+    try {
+      let result;
+      if (aiScoring) {
+        const response = await apiFetch("speech-score", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            expected_text: lesson.script,
+            transcript,
+          }),
+        });
+        const payload = await response.json();
+        if (!response.ok)
+          throw new Error(payload.error || "AI gagal membandingkan transkrip.");
+        const percent = Math.max(0, Math.min(100, Math.round(payload.percent)));
+        result = { percent, passed: percent >= 90 };
+      } else {
+        result = compareSpokenText(lesson.script, transcript);
+      }
+      setChecked(result);
+      if (result.passed) {
+        onPass?.(result.percent);
+        toast.success(
+          `Bagus! Kemiripan ${result.percent}% — latihan speaking lulus.`,
+        );
+      } else {
+        toast.info(
+          `Kemiripan ${result.percent}%. Coba ulangi hingga minimal 90%.`,
+        );
+      }
+    } catch (error) {
+      toast.error(error.message || "Transkrip belum dapat dinilai.");
+    } finally {
+      if (aiScoring) {
+        setProcessing(false);
+        setProcessingMessage("");
+      }
     }
   }
 
@@ -314,6 +356,14 @@ export default function ListeningSpeakingTask({
               </>
             )}
           </button>
+          {liveMode && recognition.braveDetected && (
+            <div className="speech-browser-warning" role="note">
+              <b>Google Chrome diperlukan untuk live transcription.</b>
+              Brave dapat menampilkan tombol Web Speech tetapi tidak mencapai
+              layanan transkripsinya. Gunakan Chrome atau minta admin memilih
+              mode rekaman AI.
+            </div>
+          )}
           <div className="shadowing-controls">
             {liveMode ? (
               <>
@@ -324,7 +374,11 @@ export default function ListeningSpeakingTask({
                       ? recognition.stop
                       : startLiveTranscription
                   }
-                  disabled={!recognition.supported}
+                  disabled={
+                    !recognition.supported ||
+                    recognition.braveDetected ||
+                    processing
+                  }
                 >
                   {recognition.listening ? (
                     <Pause size={15} />
@@ -336,14 +390,22 @@ export default function ListeningSpeakingTask({
                 <button
                   className="outline-btn"
                   onClick={checkLiveTranscript}
-                  disabled={!answer || recognition.listening}
+                  disabled={!answer || recognition.listening || processing}
                 >
-                  Periksa transkrip <Check size={15} />
+                  {processing && aiScoring ? (
+                    <>
+                      <span className="spinner" /> Menilai…
+                    </>
+                  ) : (
+                    <>
+                      Periksa transkrip <Check size={15} />
+                    </>
+                  )}
                 </button>
                 <button
                   className="text-button"
                   onClick={resetAttempt}
-                  disabled={recognition.listening}
+                  disabled={recognition.listening || processing}
                 >
                   <RotateCcw size={14} /> Reset / ulangi
                 </button>
@@ -404,7 +466,11 @@ export default function ListeningSpeakingTask({
           {processing && (
             <ProcessingStatus
               message={processingMessage || "Memproses audio…"}
-              detail="Audio sedang dikirim dan dianalisis. Koneksi lambat bisa membutuhkan waktu."
+              detail={
+                liveMode
+                  ? "Hanya teks naskah dan transkrip yang dibandingkan; audio tidak dikirim."
+                  : "Audio sedang dikirim dan dianalisis. Koneksi lambat bisa membutuhkan waktu."
+              }
               compact
               className="shadowing-processing-status"
             />
@@ -419,13 +485,17 @@ export default function ListeningSpeakingTask({
                 value={answer}
                 readOnly
                 placeholder={
-                  recognition.supported
-                    ? "Ketuk Mulai bicara, lalu ucapkan paragraf…"
-                    : "Browser tidak mendukung Web Speech API. Minta admin mengaktifkan mode rekaman AI."
+                  recognition.braveDetected
+                    ? "Live transcription tidak tersedia di Brave. Gunakan Google Chrome."
+                    : recognition.supported
+                      ? "Ketuk Mulai bicara, lalu ucapkan paragraf…"
+                      : "Browser tidak mendukung Web Speech API. Minta admin mengaktifkan mode rekaman AI."
                 }
               />
               <div className="transcript-foot">
-                Punctuation diabaikan saat menghitung kecocokan.
+                {aiScoring
+                  ? "Naskah dan transkrip teks dinilai AI; audio tidak dikirim."
+                  : "Punctuation diabaikan saat menghitung kecocokan."}
               </div>
             </div>
           ) : aiTranscript ? (
@@ -442,15 +512,15 @@ export default function ListeningSpeakingTask({
               tombol transkripsi dan menyetujuinya.
             </p>
           )}
-          {preview && (
+          {displayedScore && (
             <div
-              className={`shadowing-score ${preview.passed ? "passed" : ""}`}
+              className={`shadowing-score ${displayedScore.passed ? "passed" : ""}`}
               role="status"
             >
-              <span>Kecocokan kata</span>
-              <b>{checked?.percent ?? preview.percent}%</b>
+              <span>{aiScoring ? "Kecocokan · AI" : "Kecocokan kata"}</span>
+              <b>{displayedScore.percent}%</b>
               <small>
-                {(checked || preview).passed
+                {displayedScore.passed
                   ? "Target minimal 90% tercapai"
                   : "Ulangi hingga mencapai 90% atau lebih"}
               </small>

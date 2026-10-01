@@ -1376,6 +1376,43 @@ img {
 .roleplay-card .character-row p {
   color: #f4f0ff;
 }
+.roleplay-card .round-play {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: auto;
+  min-width: 142px;
+  height: 42px;
+  padding: 0 13px;
+  border: 1px solid #ffffff70;
+  border-radius: 999px;
+  background: #ffffff18;
+  color: #fff;
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    color 160ms ease,
+    transform 160ms ease;
+}
+.roleplay-card .round-play span {
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.roleplay-card .round-play:hover:not(:disabled) {
+  transform: translateY(-1px);
+  background: #fff;
+  color: #31285e;
+}
+.roleplay-card .round-play:focus-visible {
+  outline: 3px solid #ffdf9d;
+  outline-offset: 3px;
+}
+.roleplay-card .round-play:disabled {
+  cursor: wait;
+  opacity: 0.82;
+}
 .character-avatar {
   background: #e8e2ff;
   border-radius: 14px;

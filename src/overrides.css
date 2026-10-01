@@ -1372,6 +1372,23 @@
 .shadowing-processing-status {
   margin: 0 0 13px;
 }
+.speech-browser-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 10px 0;
+  padding: 11px 12px;
+  border: 1px solid #f0d8a8;
+  border-radius: 10px;
+  background: #fff8eb;
+  color: #785629;
+  font-size: 12px;
+  line-height: 1.55;
+}
+.speech-browser-warning svg {
+  flex: none;
+  margin-top: 1px;
+}
 .mic-main .mic-main-spinner {
   width: 22px;
   height: 22px;

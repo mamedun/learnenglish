@@ -7,11 +7,25 @@ import {
 assert.deepEqual(normalizeWords("Hello, world! How's it going?"), [
   "hello",
   "world",
-  "hows",
+  "how",
+  "is",
   "it",
   "going",
 ]);
 assert.equal(compareSpokenText("Hello, world!", "hello world.").percent, 100);
+assert.equal(
+  compareSpokenText(
+    "Hello, I’m Maya. I moved into apartment 4B on Monday. The building is next to the small green park. I work at a bakery, so I leave home at six in the morning.",
+    "hello I am Maya I moved into apartment 4B on Monday the building is next to the small green Park I work at a bakery so I leave home at 6:00 in the morning",
+  ).percent,
+  100,
+  "contracted words and speech-recognized number/time variants should match fairly",
+);
+assert.deepEqual(normalizeWords("twenty-one students"), ["21", "students"]);
+assert.equal(
+  compareSpokenText("Apartment 4B", "Apartment four B").percent,
+  100,
+);
 assert.equal(
   compareSpokenText(
     "one two three four five six seven eight nine ten",
@@ -34,4 +48,6 @@ assert.equal(
   false,
 );
 assert.equal(compareSpokenText("", "anything").passed, false);
-console.log("PASS: punctuation-insensitive speech matching and 90% threshold.");
+console.log(
+  "PASS: punctuation-insensitive matching, contraction/number variants, and 90% threshold.",
+);

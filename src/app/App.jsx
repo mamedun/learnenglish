@@ -73,6 +73,7 @@ function App() {
   const [transcript, setTranscript] = useState("");
   const [appConfig, setAppConfig] = useState({
     speech_input_mode: "live_transcribe",
+    speech_scoring_mode: "local",
     ai_provider: "clario",
   });
   const [ttsStatus, setTtsStatus] = useState({
@@ -110,6 +111,8 @@ function App() {
   const recorder = useRef(null);
   const streamRef = useRef(null);
   const chunks = useRef([]);
+  const micRequestRef = useRef(null);
+  const recordingStartRef = useRef(false);
   const fileInput = useRef(null);
   const audioUrlRef = useRef(null);
   const curriculum = catalog.levels;
@@ -137,6 +140,7 @@ function App() {
       apiJson("app-config").catch(() => ({
         settings: {
           speech_input_mode: "live_transcribe",
+          speech_scoring_mode: "local",
           ai_provider: "clario",
         },
       })),
@@ -146,6 +150,7 @@ function App() {
     setAppConfig({
       speech_input_mode:
         config.settings?.speech_input_mode || "live_transcribe",
+      speech_scoring_mode: config.settings?.speech_scoring_mode || "local",
       ai_provider: config.settings?.ai_provider || "clario",
     });
     const savedSettings = (progress.progress || {}).settings || {};
@@ -249,6 +254,9 @@ function App() {
             ...current,
             ...(result.settings.speech_input_mode
               ? { speech_input_mode: result.settings.speech_input_mode }
+              : {}),
+            ...(result.settings.speech_scoring_mode
+              ? { speech_scoring_mode: result.settings.speech_scoring_mode }
               : {}),
             ...(result.settings.ai_provider
               ? { ai_provider: result.settings.ai_provider }
@@ -361,68 +369,129 @@ function App() {
     setShowLessonList(false);
   };
   async function requestMic() {
+    if (micRequestRef.current) return micRequestRef.current;
     setPermission("requesting");
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: deviceId
-          ? {
-              deviceId: { exact: deviceId },
-              echoCancellation: true,
-              noiseSuppression: true,
-            }
-          : true,
-      });
-      streamRef.current?.getTracks().forEach((t) => t.stop());
-      streamRef.current = stream;
-      setPermission("granted");
-      const ds = await navigator.mediaDevices.enumerateDevices();
-      setDevices(ds.filter((d) => d.kind === "audioinput"));
-      const track = stream.getAudioTracks()[0];
-      if (!recorder.current || recorder.current.state === "inactive")
-        setDeviceId(track.getSettings().deviceId || "");
-      return stream;
-    } catch {
-      setPermission("denied");
-      toast.error("Izin mikrofon belum diberikan. Cek pengaturan browser.");
-      return null;
-    }
+    const request = (async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: deviceId
+            ? {
+                deviceId: { exact: deviceId },
+                echoCancellation: true,
+                noiseSuppression: true,
+              }
+            : true,
+        });
+        streamRef.current?.getTracks().forEach((track) => track.stop());
+        streamRef.current = stream;
+        const devicesFound = await navigator.mediaDevices
+          .enumerateDevices()
+          .catch(() => []);
+        setDevices(
+          devicesFound.filter((device) => device.kind === "audioinput"),
+        );
+        const track = stream.getAudioTracks()[0];
+        if (!recorder.current || recorder.current.state === "inactive")
+          setDeviceId(track?.getSettings().deviceId || deviceId || "");
+        setPermission("granted");
+        return stream;
+      } catch (error) {
+        setPermission(error?.name === "NotAllowedError" ? "denied" : "idle");
+        toast.error(
+          error?.name === "NotAllowedError"
+            ? "Izin mikrofon ditolak. Izinkan mikrofon di browser, lalu coba lagi."
+            : error?.name === "NotFoundError" ||
+                error?.name === "OverconstrainedError"
+              ? "Mikrofon yang dipilih tidak tersedia. Pilih perangkat lain lalu coba lagi."
+              : "Mikrofon tidak dapat dibuka. Periksa perangkat, izin browser, dan koneksi HTTPS.",
+        );
+        return null;
+      } finally {
+        micRequestRef.current = null;
+      }
+    })();
+    micRequestRef.current = request;
+    return request;
   }
   async function startRecording() {
-    let stream = streamRef.current;
-    if (!stream || stream.getAudioTracks()[0]?.readyState !== "live")
-      stream = await requestMic();
-    if (!stream) return;
+    if (recordingStartRef.current || recording || processing) return;
+    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+      toast.error(
+        "Perekaman tidak tersedia. Gunakan browser modern melalui HTTPS.",
+      );
+      return;
+    }
+    recordingStartRef.current = true;
     try {
+      let stream = streamRef.current;
+      if (!stream || stream.getAudioTracks()[0]?.readyState !== "live")
+        stream = await requestMic();
+      if (!stream) return;
+
       const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
         ? "audio/webm;codecs=opus"
         : MediaRecorder.isTypeSupported("audio/mp4")
           ? "audio/mp4"
           : "";
-      const mr = new MediaRecorder(stream, mime ? { mimeType: mime } : void 0);
-      recorder.current = mr;
+      const mediaRecorder = new MediaRecorder(
+        stream,
+        mime ? { mimeType: mime } : undefined,
+      );
+      recorder.current = mediaRecorder;
       chunks.current = [];
-      mr.ondataavailable = (e) => {
-        if (e.data.size) chunks.current.push(e.data);
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size) chunks.current.push(event.data);
       };
-      mr.onstop = () => {
+      mediaRecorder.onstop = () => {
         const blob = new Blob(chunks.current, {
-          type: mr.mimeType || "audio/webm",
+          type: mediaRecorder.mimeType || "audio/webm",
         });
-        setAudioBlob(blob);
+        setAudioBlob(blob.size ? blob : null);
+        setRecording(false);
+        stream.getTracks().forEach((track) => track.stop());
+        if (streamRef.current === stream) streamRef.current = null;
       };
-      mr.start(250);
+      mediaRecorder.onerror = () => {
+        setRecording(false);
+        setAudioBlob(null);
+        stream.getTracks().forEach((track) => track.stop());
+        if (streamRef.current === stream) streamRef.current = null;
+        toast.error(
+          "Perekaman berhenti karena perangkat mikrofon bermasalah. Pilih ulang mikrofon dan coba lagi.",
+        );
+      };
+      mediaRecorder.start(250);
       setElapsed(0);
       setTranscript("");
+      setAudioBlob(null);
       setRecording(true);
-    } catch {
-      toast.error("Browser tidak dapat merekam audio. Coba Chrome atau Edge.");
+    } catch (error) {
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+      setRecording(false);
+      toast.error(
+        error?.name === "NotAllowedError"
+          ? "Izin mikrofon ditolak. Izinkan mikrofon di browser."
+          : "Browser gagal memulai perekaman. Pilih ulang mikrofon atau coba Chrome/Edge.",
+      );
+    } finally {
+      recordingStartRef.current = false;
     }
   }
   function stopRecording() {
-    if (recorder.current && recorder.current.state !== "inactive")
-      recorder.current.stop();
+    const mediaRecorder = recorder.current;
+    if (mediaRecorder && mediaRecorder.state !== "inactive") {
+      try {
+        mediaRecorder.stop();
+      } catch {
+        setRecording(false);
+        streamRef.current?.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+      }
+      return;
+    }
     setRecording(false);
-    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
   }
   async function submitTurn() {
@@ -1428,6 +1497,7 @@ function App() {
                   speak={speak}
                   ttsStatus={ttsStatus}
                   speechInputMode={appConfig.speech_input_mode}
+                  speechScoringMode={appConfig.speech_scoring_mode}
                   aiProvider={appConfig.ai_provider}
                 />
               )}
@@ -1446,12 +1516,21 @@ function App() {
                   devices={devices}
                   deviceId={deviceId}
                   changeDevice={(id) => {
-                    setDeviceId(id);
+                    if (
+                      recording ||
+                      recordingStartRef.current ||
+                      micRequestRef.current
+                    )
+                      return;
                     streamRef.current
                       ?.getTracks()
                       .forEach((track) => track.stop());
                     streamRef.current = null;
+                    setDeviceId(id);
                     setPermission("idle");
+                    setAudioBlob(null);
+                    setTranscript("");
+                    setElapsed(0);
                   }}
                   elapsed={elapsed}
                   audioBlob={audioBlob}
@@ -1525,6 +1604,12 @@ function App() {
                     setAppConfig((current) => ({
                       ...current,
                       speech_input_mode: mode,
+                    }))
+                  }
+                  onSpeechScoringModeChange={(mode) =>
+                    setAppConfig((current) => ({
+                      ...current,
+                      speech_scoring_mode: mode,
                     }))
                   }
                   onAIProviderChange={(provider) =>

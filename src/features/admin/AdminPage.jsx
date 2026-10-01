@@ -33,12 +33,14 @@ export default function AdminPage({
   user,
   onCatalogChange,
   onSpeechModeChange,
+  onSpeechScoringModeChange,
   onAIProviderChange,
 }) {
   const [adminTab, setAdminTab] = useState("content");
   const [settings, setSettings] = useState({
     ai_provider: "clario",
     speech_input_mode: "live_transcribe",
+    speech_scoring_mode: "local",
     clario_base_url: "https://clariohub.id/v1",
     clario_fallback_url: "https://api-direct.clariohub.id/v1",
     clario_model: "clario/gemini-3.7-flash",
@@ -250,6 +252,7 @@ export default function AdminPage({
       setGeminiKey("");
       await loadSettings();
       onSpeechModeChange?.(settings.speech_input_mode || "live_transcribe");
+      onSpeechScoringModeChange?.(settings.speech_scoring_mode || "local");
       onAIProviderChange?.(settings.ai_provider || "clario");
       toast.success(
         "Pengaturan global disimpan; credential rahasia terenkripsi di server.",
@@ -590,9 +593,44 @@ export default function AdminPage({
                 <span>
                   {settings.speech_input_mode === "ai_audio"
                     ? "Audio dikirim hanya setelah persetujuan user ke provider global. Model/provider aktif harus mendukung input audio; transkrip baru tampil setelah AI selesai."
-                    : "Transkrip browser bersifat read-only. Tergantung browser/OS, Web Speech dapat memproses audio melalui layanan vendor browser; audio tidak dikirim ke server SpeakUp."}
+                    : "Transkrip browser bersifat read-only. Browser/OS dapat memakai layanan transkripsi vendor; audio tidak dikirim ke server SpeakUp. Beberapa browser, termasuk Brave, dapat gagal menyambung—gunakan Google Chrome untuk live transcription."}
                 </span>
               </div>
+              {settings.speech_input_mode !== "ai_audio" && (
+                <>
+                  <label className="field-label" htmlFor="speech-scoring-mode">
+                    METODE PENCOCOKAN TRANSKRIP
+                  </label>
+                  <div className="select-wrap">
+                    <select
+                      id="speech-scoring-mode"
+                      className="text-field"
+                      value={settings.speech_scoring_mode || "local"}
+                      onChange={(event) =>
+                        change("speech_scoring_mode", event.target.value)
+                      }
+                    >
+                      <option value="local">
+                        Cocokkan secara lokal · tanpa AI
+                      </option>
+                      <option value="ai">
+                        AI provider global · hanya persentase
+                      </option>
+                    </select>
+                    <ChevronDown size={16} />
+                  </div>
+                  <div className="info-box speech-mode-info speech-scoring-info">
+                    <CircleHelp size={15} />
+                    <span>
+                      Berlaku untuk latihan read-aloud yang memiliki naskah
+                      acuan. Mode AI mengirim teks naskah dan transkrip saja ke
+                      provider global aktif (bukan audio) dengan prompt ringkas
+                      yang meminta angka 0–100 saja. Jawaban AI Lesson yang
+                      terbuka dan Gemini Live tidak terpengaruh.
+                    </span>
+                  </div>
+                </>
+              )}
               <div className="admin-divider" />
               <div className="setting-title">
                 <div className="setting-icon green">

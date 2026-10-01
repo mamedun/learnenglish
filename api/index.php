@@ -191,6 +191,8 @@ function config_values():array{
     $live=app_setting('gemini_live_model',cfg('GEMINI_LIVE_MODEL',''));
     $speechMode=app_setting('speech_input_mode',(string)cfg('SPEECH_INPUT_MODE_DEFAULT','live_transcribe'));
     if(!in_array($speechMode,['ai_audio','live_transcribe'],true))$speechMode='live_transcribe';
+    $speechScoringMode=app_setting('speech_scoring_mode','local');
+    if(!in_array($speechScoringMode,['local','ai'],true))$speechScoringMode='local';
     return [
         'provider'=>$provider,
         'base_url'=>rtrim((string)$clarioUrl,'/'),
@@ -206,6 +208,7 @@ function config_values():array{
         'free_token_mode'=>$tokenMode,
         'free_pool'=>$pool,
         'speech_input_mode'=>$speechMode,
+        'speech_scoring_mode'=>$speechScoringMode,
         'gemini_key'=>(string)$gemini,
         'live_model'=>(string)$live
     ];
@@ -290,10 +293,10 @@ function free_request(string $prompt,?string $filePath=null,string $mime='audio/
     return http_multipart($node.'/chat',$headers,['prompt'=>$prompt],$filePath??'', $mime,$filename,$timeout);
 }
 function free_response_text($value):string{
-    if(is_string($value))return trim($value);
+    if(is_string($value)||is_numeric($value))return trim((string)$value);
     if(is_array($value)){
-        foreach(['text','response','aiReply','ai_reply','reply','message','desc','content'] as $key)
-            if(isset($value[$key])&&is_string($value[$key])&&trim($value[$key])!=='')return trim($value[$key]);
+        foreach(['text','response','aiReply','ai_reply','reply','message','desc','content','percent','percentage','score'] as $key)
+            if(isset($value[$key])&&(is_string($value[$key])||is_numeric($value[$key]))&&trim((string)$value[$key])!=='')return trim((string)$value[$key]);
     }
     return '';
 }
@@ -310,6 +313,7 @@ function parse_free_response(array $response):array{
     unset($replyPayload['text']);
     $reply='';
     foreach([$data,$replyPayload,$result] as $source){$reply=free_response_text($source);if($reply!=='')break;}
+    if($reply===''&&(is_string($payload['data']??null)||is_numeric($payload['data']??null)))$reply=free_response_text($payload['data']);
     if($reply===''&&isset($payload['text'])&&is_string($payload['text']))$reply=trim($payload['text']);
     $transcript='';
     foreach(['userTranscript','user_transcript'] as $key){
@@ -406,6 +410,7 @@ if($action==='admin/settings'&&$method==='GET'){
     respond(['settings'=>[
         'ai_provider'=>$c['provider'],
         'speech_input_mode'=>$c['speech_input_mode'],
+        'speech_scoring_mode'=>$c['speech_scoring_mode'],
         'clario_base_url'=>$c['base_url'],
         'clario_fallback_url'=>$c['fallback_url'],
         'clario_model'=>$c['clario_model'],
@@ -443,6 +448,8 @@ if($action==='admin/settings'&&in_array($method,['PUT','POST'],true)){
     if(!in_array($provider,['clario','free'],true))respond(['error'=>'Server AI tidak valid.'],422);
     $speechMode=(string)($d['speech_input_mode']??$current['speech_input_mode']);
     if(!in_array($speechMode,['ai_audio','live_transcribe'],true))respond(['error'=>'Mode input speech tidak valid.'],422);
+    $speechScoringMode=(string)($d['speech_scoring_mode']??$current['speech_scoring_mode']);
+    if(!in_array($speechScoringMode,['local','ai'],true))respond(['error'=>'Metode pencocokan transkrip tidak valid.'],422);
     $base=trim((string)($d['clario_base_url']??$current['base_url']));
     $fallback=trim((string)($d['clario_fallback_url']??$current['fallback_url']));
     $clarioModel=trim((string)($d['clario_model']??$current['clario_model']));
@@ -482,6 +489,7 @@ if($action==='admin/settings'&&in_array($method,['PUT','POST'],true)){
     $live=trim((string)($d['gemini_live_model']??$current['live_model']));
     put_setting('ai_provider',$provider);
     put_setting('speech_input_mode',$speechMode);
+    put_setting('speech_scoring_mode',$speechScoringMode);
     put_setting('clario_base_url',rtrim($base,'/'));
     put_setting('clario_fallback_url',rtrim($fallback,'/'));
     put_setting('clario_model',$clarioModel);
@@ -497,12 +505,12 @@ if($action==='admin/settings'&&in_array($method,['PUT','POST'],true)){
     if($freeJwtSecret!=='')put_setting('free_jwt_secret_enc',encrypt_secret($freeJwtSecret));
     if($freeManualToken!=='')put_setting('free_manual_token_enc',encrypt_secret($freeManualToken));
     if($gkey!=='')put_setting('gemini_key_enc',encrypt_secret($gkey));
-    respond(['ok'=>true,'message'=>'Konfigurasi global disimpan; kredensial dienkripsi di server.','ai_provider'=>$provider,'speech_input_mode'=>$speechMode]);
+    respond(['ok'=>true,'message'=>'Konfigurasi global disimpan; kredensial dienkripsi di server.','ai_provider'=>$provider,'speech_input_mode'=>$speechMode,'speech_scoring_mode'=>$speechScoringMode]);
 }
 if($action==='app-config'&&$method==='GET'){
     require_user();
     $c=config_values();
-    respond(['settings'=>['speech_input_mode'=>$c['speech_input_mode'],'ai_provider'=>$c['provider']]]);
+    respond(['settings'=>['speech_input_mode'=>$c['speech_input_mode'],'speech_scoring_mode'=>$c['speech_scoring_mode'],'ai_provider'=>$c['provider']]]);
 }
 if($action==='admin/users'&&$method==='GET'){
     require_admin();
@@ -591,6 +599,47 @@ if($action==='models'&&$method==='GET'){
     if($r['status']<200||$r['status']>=300)respond(['error'=>'Katalog model gagal diambil.','detail'=>substr($r['body']?:$r['error'],0,500)],$r['status']?:502);
     $j=json_decode($r['body'],true);
     respond($j??['data'=>[]]);
+}
+if($action==='speech-score'&&$method==='POST'){
+    origin_check();
+    require_user();
+    rate_limit('speech-score',20,60);
+    $d=read_json(8192);
+    $expected=trim((string)($d['expected_text']??''));
+    $transcript=trim((string)($d['transcript']??''));
+    if($expected===''||$transcript===''||strlen($expected)>3000||strlen($transcript)>3000)
+        respond(['error'=>'Naskah dan transkrip wajib diisi (maksimal 3000 karakter per teks).'],422);
+    $c=config_values();
+    if($c['speech_input_mode']!=='live_transcribe'||$c['speech_scoring_mode']!=='ai')
+        respond(['error'=>'Pencocokan AI transkrip tidak sedang diaktifkan oleh admin.'],409);
+    $prompt='Compare read-aloud fidelity. Ignore punctuation, case, contraction expansions, and equivalent number/time formats. Return only an integer 0-100. Reference: '.$expected.' Transcript: '.$transcript;
+    if($c['provider']==='free'){
+        $response=free_request($prompt,null,'audio/webm','speech-score.txt',25);
+        if($response['status']<200||$response['status']>=300)
+            respond(['error'=>$response['status']===503?$response['error']:'Provider AI gagal menilai kecocokan.'], $response['status']===503?503:502);
+        $parsed=parse_free_response($response);
+        if(!$parsed['ok'])respond(['error'=>$parsed['error']],(int)$parsed['status']);
+        $content=(string)$parsed['reply'];
+    }else{
+        $body=[
+            'model'=>$c['clario_model'],
+            'messages'=>[['role'=>'user','content'=>$prompt]],
+            'max_tokens'=>5,
+            'temperature'=>0,
+            'stream'=>false
+        ];
+        $response=provider_request('/chat/completions',$body,25);
+        if($response['status']<200||$response['status']>=300)
+            respond(['error'=>$response['status']===503?$response['error']:'Provider AI gagal menilai kecocokan.'], $response['status']===503?503:502);
+        $provider=json_decode($response['body'],true);
+        $content=$provider['choices'][0]['message']['content']??'';
+        if(is_array($content))$content=implode('',array_map(fn($item)=>is_array($item)?(string)($item['text']??''):(string)$item,$content));
+        $content=(string)$content;
+    }
+    $content=trim(preg_replace('/^```(?:text|json)?\\s*|\\s*```$/i','',trim($content)));
+    if(!preg_match('/^(?:score\\s*[:=]\\s*)?(\\d{1,3})\\s*%?$/i',$content,$match)||(int)$match[1]>100)
+        respond(['error'=>'Provider AI tidak mengembalikan persentase 0–100 saja. Coba ulangi.'],502);
+    respond(['percent'=>(int)$match[1]]);
 }
 if($action==='chat'&&$method==='POST'){origin_check();$u=require_premium();rate_limit('chat',25,60);$d=read_json(128000);$text=trim((string)($d['transcript']??''));if($text===''||strlen($text)>3000)respond(['error'=>'Jawaban kosong atau melebihi 3000 karakter.'],422);$cfg=config_values();$task=substr(trim((string)($d['task']??'')),0,1200);$memory=substr(trim((string)($d['memory_summary']??'')),0,1200);
 if($cfg['provider']==='free'){

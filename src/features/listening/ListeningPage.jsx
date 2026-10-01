@@ -24,6 +24,7 @@ export default function ListeningPage({
   speak,
   ttsStatus,
   speechInputMode = "live_transcribe",
+  speechScoringMode = "local",
   aiProvider = "clario",
 }) {
   const [level, setLevel] = useState("All");
@@ -366,6 +367,7 @@ export default function ListeningPage({
             speak={speak}
             ttsStatus={ttsStatus}
             speechInputMode={speechInputMode}
+            speechScoringMode={speechScoringMode}
             aiProvider={aiProvider}
             passed={speechPassed}
             passedScore={speechScore}

@@ -25,7 +25,10 @@ import {
 import { toast } from "sonner";
 import { formatTime } from "../../lib/formatTime";
 import { isTtsBusy } from "../../lib/ttsRocks";
-import { useSpeechRecognition } from "../../hooks/useSpeechRecognition";
+import {
+  speechRecognitionErrorMessage,
+  useSpeechRecognition,
+} from "../../hooks/useSpeechRecognition";
 
 function PrepTimer({ unit }) {
   const [seconds, setSeconds] = useState(Number(unit.prepSeconds) || 60);
@@ -122,13 +125,8 @@ export default function PracticePage(p) {
   }, [recognizer.transcript, liveTranscription, p.setTranscript]);
   useEffect(() => {
     const onSpeechError = (event) => {
-      const code = event.detail?.error;
       toast.error(
-        code === "not-allowed" || code === "service-not-allowed"
-          ? "Izin mikrofon/transkripsi ditolak. Izinkan penggunaan mikrofon di browser."
-          : code === "audio-capture"
-            ? "Browser tidak menemukan mikrofon. Periksa perangkat input."
-            : `Transkripsi langsung berhenti${code ? ` (${code})` : ""}. Coba ulangi.`,
+        speechRecognitionErrorMessage(event.detail?.error, event.detail?.brave),
       );
     };
     window.addEventListener("speakup:speech-error", onSpeechError);
@@ -139,9 +137,11 @@ export default function PracticePage(p) {
     const result = recognizer.start({ append: Boolean(recognizer.transcript) });
     if (!result.ok) {
       toast.error(
-        result.reason === "unsupported"
-          ? "Browser ini tidak mendukung transkripsi langsung. Minta admin mengganti mode input ke rekaman AI atau gunakan Chrome/Edge."
-          : "Mikrofon/transkripsi tidak dapat dimulai. Periksa izin browser.",
+        result.reason === "unsupported-brave"
+          ? "Brave tidak dapat mengakses layanan transkripsi live ini. Gunakan Google Chrome atau minta admin mengaktifkan mode rekaman AI."
+          : result.reason === "unsupported"
+            ? "Browser ini tidak mendukung transkripsi langsung. Minta admin mengganti mode input ke rekaman AI atau gunakan Google Chrome."
+            : "Mikrofon/transkripsi tidak dapat dimulai. Periksa izin browser.",
       );
       return;
     }
@@ -267,7 +267,12 @@ export default function PracticePage(p) {
             <button
               className="round-play"
               onClick={() => speak(unit.prompt)}
-              aria-label={ttsBusy ? "Menyiapkan audio" : "Dengarkan contoh"}
+              aria-label={
+                ttsBusy ? "Menyiapkan audio pertanyaan" : "Dengarkan pertanyaan"
+              }
+              title={
+                ttsBusy ? "Audio sedang disiapkan" : "Putar pertanyaan lisan"
+              }
               disabled={ttsBusy}
             >
               {ttsBusy ? (
@@ -275,6 +280,13 @@ export default function PracticePage(p) {
               ) : (
                 <Volume2 size={17} />
               )}
+              <span>
+                {ttsBusy
+                  ? ttsStatus?.phase === "speaking"
+                    ? "Sedang dibaca…"
+                    : "Menyiapkan audio…"
+                  : "Dengarkan soal"}
+              </span>
             </button>
           </div>
           <div className="ielts-task-meta">
@@ -324,18 +336,24 @@ export default function PracticePage(p) {
                 disabled={
                   processing ||
                   permission === "requesting" ||
-                  (liveTranscription && !recognizer.supported)
+                  (liveTranscription &&
+                    (!recognizer.supported || recognizer.braveDetected))
                 }
+                aria-pressed={recording || transcribing}
                 aria-label={
                   permission === "requesting"
                     ? "Meminta akses mikrofon"
                     : recording || transcribing
-                      ? "Hentikan mikrofon"
-                      : "Mulai bicara"
+                      ? "Selesai bicara"
+                      : liveTranscription
+                        ? "Mulai bicara"
+                        : "Mulai merekam"
                 }
               >
                 {permission === "requesting" && !liveTranscription ? (
                   <span className="spinner mic-main-spinner" />
+                ) : recording || transcribing ? (
+                  <Pause size={26} fill="currentColor" />
                 ) : (
                   <Mic size={26} />
                 )}
@@ -385,9 +403,11 @@ export default function PracticePage(p) {
                   {permission === "requesting" && !liveTranscription
                     ? "Pilih Izinkan pada dialog browser jika diminta"
                     : liveTranscription
-                      ? recognizer.supported
-                        ? "Transkrip muncul langsung dan tidak dapat diedit"
-                        : "Transkripsi langsung tidak didukung browser ini"
+                      ? recognizer.braveDetected
+                        ? "Live transcription tidak tersedia di Brave; gunakan Google Chrome"
+                        : recognizer.supported
+                          ? "Transkrip muncul langsung dan tidak dapat diedit"
+                          : "Transkripsi langsung tidak didukung browser ini"
                       : "Audio baru dikirim setelah kamu menyetujui proses AI"}
                 </span>
               </>
@@ -395,19 +415,26 @@ export default function PracticePage(p) {
             {liveTranscription ? (
               <div className="mic-controls">
                 <span
-                  className={`mic-control ${recognizer.supported ? "granted" : ""}`}
+                  className={`mic-control ${recognizer.supported && !recognizer.braveDetected ? "granted" : ""}`}
                 >
                   <Mic size={14} />
-                  {recognizer.supported
-                    ? "Live transcription siap"
-                    : "Gunakan Chrome atau Edge"}
+                  {recognizer.braveDetected
+                    ? "Google Chrome diperlukan"
+                    : recognizer.supported
+                      ? "Live transcription siap"
+                      : "Browser tidak didukung"}
                 </span>
               </div>
             ) : (
               <div className="mic-controls">
                 <button
                   onClick={requestMic}
-                  disabled={permission === "requesting" || processing}
+                  disabled={
+                    permission === "requesting" ||
+                    permission === "granted" ||
+                    recording ||
+                    processing
+                  }
                   className={
                     permission === "granted"
                       ? "mic-control granted"
@@ -443,6 +470,16 @@ export default function PracticePage(p) {
               </div>
             )}
           </div>
+          {liveTranscription && recognizer.braveDetected && (
+            <div className="speech-browser-warning" role="note">
+              <Languages size={16} />
+              <span>
+                Brave tidak dapat mengakses layanan live speech recognition yang
+                digunakan browser ini. Buka AI Lesson di Google Chrome, atau
+                minta admin mengaktifkan mode rekaman AI.
+              </span>
+            </div>
+          )}
           {liveTranscription ? (
             <div className="transcript-area">
               <div className="transcript-label">

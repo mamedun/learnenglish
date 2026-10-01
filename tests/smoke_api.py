@@ -196,6 +196,7 @@ settings = request(admin, 'admin/settings')['settings']
 config = {
     'ai_provider': 'clario',
     'speech_input_mode': 'ai_audio',
+    'speech_scoring_mode': 'local',
     'clario_base_url': settings['clario_base_url'],
     'clario_fallback_url': settings['clario_fallback_url'],
     'clario_model': settings['clario_model'],
@@ -205,7 +206,10 @@ config = {
 }
 request(admin, 'admin/settings', 'PUT', config)
 assert request(admin, 'admin/settings')['settings']['speech_input_mode'] == 'ai_audio'
+assert request(admin, 'admin/settings')['settings']['speech_scoring_mode'] == 'local'
 assert request(regular, 'app-config')['settings']['speech_input_mode'] == 'ai_audio'
+assert request(regular, 'app-config')['settings']['speech_scoring_mode'] == 'local'
+request(regular, 'speech-score', 'POST', {'expected_text': 'hello', 'transcript': 'hello'}, expected=409)
 
 # Free API uses its own encrypted API/JWT credentials and an allow-listed node pool.
 free_config = {
@@ -219,15 +223,18 @@ free_config = {
     'free_jwt_secret': 'smoke-jwt-secret-only',
     'free_manual_token': '',
     'speech_input_mode': 'live_transcribe',
+    'speech_scoring_mode': 'ai',
 }
 request(admin, 'admin/settings', 'PUT', free_config)
 selected = request(admin, 'admin/settings')['settings']
 assert selected['ai_provider'] == 'free'
+assert selected['speech_scoring_mode'] == 'ai'
 assert selected['free_pool'].splitlines() == ['https://sg1.ichsanlabs.com', 'https://sg2.ichsanlabs.com']
 assert selected['free_token_mode'] == 'auto' and selected['free_ttl_min'] == 30
 assert not any(key.lower().startswith('ichan') for key in selected)
 assert 'smoke-api-key-only' not in json.dumps(selected) and 'smoke-jwt-secret-only' not in json.dumps(selected)
 assert request(regular, 'app-config')['settings']['ai_provider'] == 'free'
+assert request(regular, 'app-config')['settings']['speech_scoring_mode'] == 'ai'
 assert request(admin, 'models')['data'] == []
 # Accept stored/client names from the previous build while presenting only the Free API brand.
 legacy_config = {
