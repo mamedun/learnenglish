@@ -128,7 +128,8 @@ export default function PracticePage(p) {
     scenarioComplete,
     responseCaptured,
     feedbackCount: turns.length,
-    retryCaptured: turns.length > 1 || (turns.length > 0 && responseCaptured),
+    // A learner can continue after seeing feedback; a second answer is optional.
+    retryCaptured: turns.length > 0,
     completed: Boolean(completed?.has?.(unit.id)),
   });
   const ttsBusy = isTtsBusy(ttsStatus);
@@ -748,6 +749,20 @@ export default function PracticePage(p) {
                               ? "Dinilai"
                               : "Audio diperlukan"}
                         </small>
+                        {(Array.isArray(c?.evidence) ? c.evidence : [])
+                          .filter(
+                            (item) =>
+                              typeof item === "string" && item.trim() !== "",
+                          )
+                          .slice(0, 2)
+                          .map((item, evidenceIndex) => (
+                            <small
+                              className="criteria-evidence"
+                              key={`${key}-${evidenceIndex}`}
+                            >
+                              {item}
+                            </small>
+                          ))}
                       </span>
                     );
                   })}
@@ -758,8 +773,8 @@ export default function PracticePage(p) {
               <div>
                 <b>Siap menyelesaikan pelajaran?</b>
                 <small>
-                  Rata-rata rating latihan 3.5★ (bukan band IELTS) untuk membuka
-                  langkah berikutnya.
+                  Satu jawaban dan feedback tutor cukup untuk menyelesaikan.
+                  Rating adalah masukan latihan, bukan syarat kelulusan.
                 </small>
               </div>
               <button className="btn-primary" onClick={finishUnit}>

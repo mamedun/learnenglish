@@ -1,5 +1,12 @@
 import assert from "node:assert/strict";
-import { getPracticeLessonProgress } from "../src/features/speaking/lessonProgress.js";
+import {
+  canCompletePracticeLesson,
+  getPracticeLessonProgress,
+} from "../src/features/speaking/lessonProgress.js";
+
+assert.equal(canCompletePracticeLesson(0), false);
+assert.equal(canCompletePracticeLesson(1), true);
+assert.equal(canCompletePracticeLesson(2), true);
 
 const initial = getPracticeLessonProgress();
 assert.equal(initial.percentage, 0);
@@ -23,9 +30,12 @@ const feedbackShown = getPracticeLessonProgress({
   scenarioComplete: true,
   feedbackCount: 1,
 });
-assert.equal(feedbackShown.percentage, 75);
-assert.equal(feedbackShown.completedCount, 3);
-assert.equal(feedbackShown.steps[3].current, true);
+assert.equal(feedbackShown.percentage, 100);
+assert.equal(feedbackShown.completedCount, 4);
+assert.equal(
+  feedbackShown.steps.every((step) => step.done),
+  true,
+);
 
 const retryRecorded = getPracticeLessonProgress({
   scenarioComplete: true,
@@ -43,5 +53,5 @@ const previouslyCompleted = getPracticeLessonProgress({ completed: true });
 assert.equal(previouslyCompleted.percentage, 100);
 
 console.log(
-  "PASS: AI lesson progress advances through playback, answer, feedback, and retry.",
+  "PASS: AI lesson progress advances normally, and one feedback response is enough to complete.",
 );

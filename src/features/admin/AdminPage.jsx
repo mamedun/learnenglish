@@ -608,7 +608,7 @@ export default function AdminPage({
                 <CircleHelp size={15} />
                 <span>
                   {settings.speech_input_mode === "ai_audio"
-                    ? "Audio dikirim hanya setelah persetujuan user ke provider global. Model/provider aktif harus mendukung input audio; transkrip baru tampil setelah AI selesai."
+                    ? "Audio direkam lokal terlebih dahulu. Setelah user menekan Kirim jawaban, muncul dialog persetujuan untuk setiap pengiriman; hanya sesudah Setuju audio dikirim ke provider AI global. Transkrip dan feedback tampil setelah diproses."
                     : "Transkrip browser bersifat read-only. Browser/OS dapat memakai layanan transkripsi vendor; audio tidak dikirim ke server SpeakUp. Beberapa browser, termasuk Brave, dapat gagal menyambung—gunakan Google Chrome untuk live transcription."}
                 </span>
               </div>
@@ -638,11 +638,14 @@ export default function AdminPage({
                   <div className="info-box speech-mode-info speech-scoring-info">
                     <CircleHelp size={15} />
                     <span>
-                      Berlaku untuk latihan read-aloud yang memiliki naskah
-                      acuan. Mode AI mengirim teks naskah dan transkrip saja ke
-                      provider global aktif (bukan audio) dengan prompt ringkas
-                      yang meminta angka 0–100 saja. Jawaban AI Lesson yang
-                      terbuka dan Gemini Live tidak terpengaruh.
+                      Berlaku hanya untuk latihan read-aloud yang memiliki
+                      naskah acuan: mode AI mengirim naskah dan transkrip (bukan
+                      audio) ke provider global untuk persentase 0–100. AI
+                      Lesson terbuka memakai provider global untuk feedback;
+                      mode transkrip menilai kosakata/grammar secara
+                      provisional, sedangkan mode rekaman meminta persetujuan
+                      dan mengirim audio. Gemini Live tetap memakai Gemini;
+                      feedback pasca-sesi menggunakan provider global.
                     </span>
                   </div>
                 </>

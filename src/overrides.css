@@ -130,6 +130,12 @@
   color: #a0a99f;
   display: block;
 }
+.score-row .criteria-evidence {
+  margin-top: 4px;
+  color: #65766c;
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
 .feedback-top:after {
   content: "★ = rating latihan, bukan band IELTS";
   font-size: 11px;

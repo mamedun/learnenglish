@@ -1,3 +1,7 @@
+export function canCompletePracticeLesson(feedbackCount = 0) {
+  return Number.isFinite(Number(feedbackCount)) && Number(feedbackCount) > 0;
+}
+
 export const PRACTICE_PROGRESS_STEPS = [
   "Dengarkan skenario",
   "Rekam jawaban",
@@ -17,7 +21,7 @@ export function getPracticeLessonProgress({
     completed || scenarioComplete,
     completed || responseCaptured || hasFeedback,
     completed || hasFeedback,
-    completed || retryCaptured,
+    completed || hasFeedback || retryCaptured,
   ];
   const currentIndex = done.findIndex((stepDone) => !stepDone);
   const completedCount = done.filter(Boolean).length;

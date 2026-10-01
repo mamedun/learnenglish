@@ -20,6 +20,7 @@ import { initialData } from "../data";
 import { awardXP } from "../gamification";
 import { deleteAllRecordings, exportBackup, importBackup } from "../storage";
 import { apiFetch, apiJson, refreshSession } from "../api";
+import { canCompletePracticeLesson } from "../features/speaking/lessonProgress";
 import { useAuthStore } from "../store/authStore";
 import { useLearningStore } from "../store/learningStore";
 const greet = () => {
@@ -123,6 +124,7 @@ function App() {
   const liveSourceRef = useRef(null);
   const liveProcessorRef = useRef(null);
   const liveTranscriptRef = useRef("");
+  const submitTurnLockRef = useRef(false);
   const liveTranscriptLinesRef = useRef([]);
   const liveCurrentSpeakerRef = useRef(null);
   const livePlayheadRef = useRef(0);
@@ -298,10 +300,18 @@ function App() {
         // A transient config fetch must not interrupt a speaking lesson.
       }
     };
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") void refreshGlobalConfig();
+    };
+    void refreshGlobalConfig();
     const timer = window.setInterval(refreshGlobalConfig, 30_000);
+    window.addEventListener("focus", refreshWhenVisible);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
     return () => {
       active = false;
       clearInterval(timer);
+      window.removeEventListener("focus", refreshWhenVisible);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
   }, [user?.id, dataReady]);
   const [, setVoiceVersion] = useState(0);
@@ -535,19 +545,74 @@ function App() {
     streamRef.current = null;
   }
   async function submitTurn({ forceAiAudio = false } = {}) {
-    const inputMode = appConfig.speech_input_mode || "live_transcribe";
-    const useServerAudio = forceAiAudio || inputMode === "ai_audio";
-    const submittedTranscript = stripTranscriptSourceLabel(transcript);
-    if (useServerAudio && !audioBlob) {
-      toast.error("Rekam jawaban terlebih dahulu, lalu ketuk selesai merekam.");
-      return;
-    }
-    if (!useServerAudio && !submittedTranscript) {
-      toast.error("Mulai transkripsi dan ucapkan jawabanmu terlebih dahulu.");
+    if (submitTurnLockRef.current) return;
+    submitTurnLockRef.current = true;
+    setProcessing(true);
+    setProcessingMessage("Memeriksa mode input dan provider AI…");
+
+    const stopBeforeSubmit = (message) => {
+      submitTurnLockRef.current = false;
+      setProcessing(false);
+      setProcessingMessage("");
+      toast.error(message);
+    };
+    let currentConfig;
+    try {
+      const latestConfig = await apiJson("app-config");
+      const settings = latestConfig?.settings;
+      if (
+        !["live_transcribe", "ai_audio"].includes(settings?.speech_input_mode)
+      )
+        throw new Error("Mode input global terbaru tidak dapat dipastikan.");
+      if (!["clario", "free"].includes(settings?.ai_provider))
+        throw new Error("Provider AI global terbaru tidak dapat dipastikan.");
+      currentConfig = {
+        ...appConfig,
+        speech_input_mode: settings.speech_input_mode,
+        speech_scoring_mode:
+          settings.speech_scoring_mode ||
+          appConfig.speech_scoring_mode ||
+          "local",
+        speech_similarity_threshold:
+          Number(
+            settings.speech_similarity_threshold ??
+              appConfig.speech_similarity_threshold,
+          ) || 90,
+        ai_provider: settings.ai_provider,
+      };
+      setAppConfig((previous) => ({
+        ...previous,
+        speech_input_mode: currentConfig.speech_input_mode,
+        speech_scoring_mode: currentConfig.speech_scoring_mode,
+        speech_similarity_threshold: currentConfig.speech_similarity_threshold,
+        ai_provider: currentConfig.ai_provider,
+      }));
+    } catch (error) {
+      stopBeforeSubmit(
+        error?.message ||
+          "Pengaturan input AI tidak dapat diperiksa. Coba kirim ulang.",
+      );
       return;
     }
 
-    setProcessing(true);
+    const inputMode = currentConfig.speech_input_mode;
+    const useServerAudio = forceAiAudio || inputMode === "ai_audio";
+    const submittedTranscript = stripTranscriptSourceLabel(transcript);
+    if (useServerAudio && !audioBlob) {
+      stopBeforeSubmit(
+        inputMode === "ai_audio" && appConfig.speech_input_mode !== "ai_audio"
+          ? "Mode global baru saja berubah ke rekaman AI. Rekam jawaban kembali, lalu kirim untuk menyetujui pemrosesan."
+          : "Rekam jawaban terlebih dahulu, lalu ketuk selesai merekam.",
+      );
+      return;
+    }
+    if (!useServerAudio && !submittedTranscript) {
+      stopBeforeSubmit(
+        "Mulai transkripsi dan ucapkan jawabanmu terlebih dahulu.",
+      );
+      return;
+    }
+
     setProcessingMessage(
       useServerAudio
         ? "Menunggu persetujuan pengiriman audio…"
@@ -571,7 +636,7 @@ function App() {
         setProcessingMessage("Menyiapkan rekaman untuk dikirim…");
 
         const audioForAI =
-          appConfig.ai_provider === "free"
+          currentConfig.ai_provider === "free"
             ? audioBlob
             : await convertRecordingToWav(audioBlob);
         if (audioForAI.size > 12 * 1024 * 1024)
@@ -747,22 +812,16 @@ function App() {
     } catch (error) {
       toast.error(error.message || "Jawaban belum dapat diproses.");
     } finally {
+      submitTurnLockRef.current = false;
       setProcessing(false);
       setProcessingMessage("");
     }
   }
   function finishUnit() {
-    const avg = turns.length
-      ? turns.reduce((a, t) => a + t.stars, 0) / turns.length
-      : 0;
-    if (avg < 3.5) {
-      Swal.fire({
-        title: "Sedikit latihan lagi!",
-        text: "Coba satu jawaban lagi sebelum menyelesaikan pelajaran. Fokus pada masukan tutor.",
-        icon: "info",
-        confirmButtonText: "Lanjut latihan",
-        confirmButtonColor: "#315c45",
-      });
+    if (!canCompletePracticeLesson(turns.length)) {
+      toast.info(
+        "Kirim setidaknya satu jawaban dan lihat feedback tutor dahulu.",
+      );
       return;
     }
     if (!completed.has(activeUnit.id)) {
