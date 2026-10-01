@@ -36,6 +36,24 @@ assert.equal(
 assert.equal(
   compareSpokenText(
     "one two three four five six seven eight nine ten",
+    "one two three four five six seven eight nine",
+    90,
+  ).passed,
+  true,
+  "the default 90% cutoff remains inclusive",
+);
+assert.equal(
+  compareSpokenText(
+    "one two three four five six seven eight nine ten",
+    "one two three four five six seven eight nine",
+    91,
+  ).passed,
+  false,
+  "an Admin-configured threshold applies to local comparison",
+);
+assert.equal(
+  compareSpokenText(
+    "one two three four five six seven eight nine ten",
     "one two three four five six seven eight nine wrong",
   ).passed,
   true,

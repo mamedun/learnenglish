@@ -35,6 +35,7 @@ export default function AdminPage({
   onCatalogChange,
   onSpeechModeChange,
   onSpeechScoringModeChange,
+  onSpeechSimilarityThresholdChange,
   onAIProviderChange,
 }) {
   const [adminTab, setAdminTab] = useState("content");
@@ -42,6 +43,7 @@ export default function AdminPage({
     ai_provider: "clario",
     speech_input_mode: "live_transcribe",
     speech_scoring_mode: "local",
+    speech_similarity_threshold: 90,
     clario_base_url: "https://clariohub.id/v1",
     clario_fallback_url: "https://api-direct.clariohub.id/v1",
     clario_model: "clario/gemini-3.7-flash",
@@ -254,6 +256,9 @@ export default function AdminPage({
       await loadSettings();
       onSpeechModeChange?.(settings.speech_input_mode || "live_transcribe");
       onSpeechScoringModeChange?.(settings.speech_scoring_mode || "local");
+      onSpeechSimilarityThresholdChange?.(
+        Number(settings.speech_similarity_threshold) || 90,
+      );
       onAIProviderChange?.(settings.ai_provider || "clario");
       toast.success(
         "Pengaturan global disimpan; credential rahasia terenkripsi di server.",
@@ -642,6 +647,32 @@ export default function AdminPage({
                   </div>
                 </>
               )}
+              <label
+                className="field-label"
+                htmlFor="speech-similarity-threshold"
+              >
+                AMBANG KEMIRIPAN UNTUK LULUS (%)
+              </label>
+              <input
+                id="speech-similarity-threshold"
+                className="text-field"
+                type="number"
+                min={50}
+                max={100}
+                step={1}
+                value={settings.speech_similarity_threshold ?? 90}
+                onChange={(event) =>
+                  change(
+                    "speech_similarity_threshold",
+                    Number(event.target.value),
+                  )
+                }
+              />
+              <p className="field-help">
+                Berlaku secara global untuk latihan read-aloud dengan transkrip
+                live maupun transkrip hasil AI. Default 90%; Gemini Live dan
+                percakapan AI Lesson tidak terpengaruh.
+              </p>
               <div className="admin-divider" />
               <div className="setting-title">
                 <div className="setting-icon green">

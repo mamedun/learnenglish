@@ -12,7 +12,11 @@ import Swal from "sweetalert2";
 import { toast } from "sonner";
 import { apiFetch } from "../../api";
 import { convertRecordingToWav } from "../../lib/audio";
-import { compareSpokenText } from "../../lib/speechSimilarity";
+import {
+  compareSpokenText,
+  meetsSpeechThreshold,
+  normalizeSpeechThreshold,
+} from "../../lib/speechSimilarity";
 import { isTtsBusy } from "../../lib/ttsRocks";
 import {
   speechRecognitionErrorMessage,
@@ -25,6 +29,7 @@ export default function ListeningSpeakingTask({
   lesson,
   speechInputMode = "live_transcribe",
   speechScoringMode = "local",
+  speechSimilarityThreshold = 90,
   aiProvider = "clario",
   speak,
   ttsStatus,
@@ -45,8 +50,13 @@ export default function ListeningSpeakingTask({
   const recorderRef = useRef(null);
   const streamRef = useRef(null);
   const chunksRef = useRef([]);
+  const similarityThreshold = normalizeSpeechThreshold(
+    speechSimilarityThreshold,
+  );
   const answer = liveMode ? recognition.transcript : aiTranscript;
-  const preview = answer ? compareSpokenText(lesson.script, answer) : null;
+  const preview = answer
+    ? compareSpokenText(lesson.script, answer, similarityThreshold)
+    : null;
   const aiScoring = liveMode && speechScoringMode === "ai";
   const displayedScore = aiScoring ? checked : (checked ?? preview);
   const ttsBusy = isTtsBusy(ttsStatus);
@@ -62,7 +72,7 @@ export default function ListeningSpeakingTask({
   }, [lesson.id, liveMode, aiProvider]);
   useEffect(() => {
     setChecked(null);
-  }, [speechScoringMode]);
+  }, [speechScoringMode, speechSimilarityThreshold]);
   useEffect(() => {
     const onSpeechError = (event) => {
       toast.error(
@@ -208,9 +218,16 @@ export default function ListeningSpeakingTask({
         if (!response.ok)
           throw new Error(payload.error || "AI gagal membandingkan transkrip.");
         const percent = Math.max(0, Math.min(100, Math.round(payload.percent)));
-        result = { percent, passed: percent >= 90 };
+        result = {
+          percent,
+          passed: meetsSpeechThreshold(percent, similarityThreshold),
+        };
       } else {
-        result = compareSpokenText(lesson.script, transcript);
+        result = compareSpokenText(
+          lesson.script,
+          transcript,
+          similarityThreshold,
+        );
       }
       setChecked(result);
       if (result.passed) {
@@ -220,7 +237,7 @@ export default function ListeningSpeakingTask({
         );
       } else {
         toast.info(
-          `Kemiripan ${result.percent}%. Coba ulangi hingga minimal 90%.`,
+          `Kemiripan ${result.percent}%. Coba ulangi hingga minimal ${similarityThreshold}%.`,
         );
       }
     } catch (error) {
@@ -289,7 +306,11 @@ export default function ListeningSpeakingTask({
       const text = String(payload.result?.transcript || "").trim();
       if (!text) throw new Error("Server AI tidak menghasilkan transkrip.");
       setAiTranscript(text);
-      const result = compareSpokenText(lesson.script, text);
+      const result = compareSpokenText(
+        lesson.script,
+        text,
+        similarityThreshold,
+      );
       setChecked(result);
       if (result.passed) {
         onPass?.(result.percent);
@@ -298,7 +319,7 @@ export default function ListeningSpeakingTask({
         );
       } else {
         toast.info(
-          `Kemiripan ${result.percent}%. Coba rekam ulang hingga minimal 90%.`,
+          `Kemiripan ${result.percent}%. Coba rekam ulang hingga minimal ${similarityThreshold}%.`,
         );
       }
     } catch (error) {
@@ -319,7 +340,7 @@ export default function ListeningSpeakingTask({
           <h3>Ucapkan kembali paragrafnya</h3>
           <p>
             Dengarkan contoh, baca nyaring, lalu ulangi sampai kata-katanya
-            minimal 90% sesuai.
+            minimal {similarityThreshold}% sesuai.
           </p>
         </div>
         {passed && (
@@ -521,8 +542,8 @@ export default function ListeningSpeakingTask({
               <b>{displayedScore.percent}%</b>
               <small>
                 {displayedScore.passed
-                  ? "Target minimal 90% tercapai"
-                  : "Ulangi hingga mencapai 90% atau lebih"}
+                  ? `Target minimal ${similarityThreshold}% tercapai`
+                  : `Ulangi hingga mencapai ${similarityThreshold}% atau lebih`}
               </small>
             </div>
           )}

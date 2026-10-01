@@ -196,6 +196,8 @@ function config_values():array{
     if(!in_array($speechMode,['ai_audio','live_transcribe'],true))$speechMode='live_transcribe';
     $speechScoringMode=app_setting('speech_scoring_mode','local');
     if(!in_array($speechScoringMode,['local','ai'],true))$speechScoringMode='local';
+    $speechSimilarityThreshold=(int)app_setting('speech_similarity_threshold','90');
+    if($speechSimilarityThreshold<50||$speechSimilarityThreshold>100)$speechSimilarityThreshold=90;
     return [
         'provider'=>$provider,
         'base_url'=>rtrim((string)$clarioUrl,'/'),
@@ -212,6 +214,7 @@ function config_values():array{
         'free_pool'=>$pool,
         'speech_input_mode'=>$speechMode,
         'speech_scoring_mode'=>$speechScoringMode,
+        'speech_similarity_threshold'=>$speechSimilarityThreshold,
         'gemini_key'=>(string)$gemini,
         'live_model'=>(string)$live
     ];
@@ -430,6 +433,7 @@ if($action==='admin/settings'&&$method==='GET'){
         'ai_provider'=>$c['provider'],
         'speech_input_mode'=>$c['speech_input_mode'],
         'speech_scoring_mode'=>$c['speech_scoring_mode'],
+        'speech_similarity_threshold'=>$c['speech_similarity_threshold'],
         'clario_base_url'=>$c['base_url'],
         'clario_fallback_url'=>$c['fallback_url'],
         'clario_model'=>$c['clario_model'],
@@ -469,6 +473,9 @@ if($action==='admin/settings'&&in_array($method,['PUT','POST'],true)){
     if(!in_array($speechMode,['ai_audio','live_transcribe'],true))respond(['error'=>'Mode input speech tidak valid.'],422);
     $speechScoringMode=(string)($d['speech_scoring_mode']??$current['speech_scoring_mode']);
     if(!in_array($speechScoringMode,['local','ai'],true))respond(['error'=>'Metode pencocokan transkrip tidak valid.'],422);
+    $speechSimilarityThreshold=$d['speech_similarity_threshold']??$current['speech_similarity_threshold'];
+    if(!is_int($speechSimilarityThreshold)||$speechSimilarityThreshold<50||$speechSimilarityThreshold>100)
+        respond(['error'=>'Ambang kemiripan harus berupa bilangan bulat 50–100.'],422);
     $base=trim((string)($d['clario_base_url']??$current['base_url']));
     $fallback=trim((string)($d['clario_fallback_url']??$current['fallback_url']));
     $clarioModel=trim((string)($d['clario_model']??$current['clario_model']));
@@ -509,6 +516,7 @@ if($action==='admin/settings'&&in_array($method,['PUT','POST'],true)){
     put_setting('ai_provider',$provider);
     put_setting('speech_input_mode',$speechMode);
     put_setting('speech_scoring_mode',$speechScoringMode);
+    put_setting('speech_similarity_threshold',(string)$speechSimilarityThreshold);
     put_setting('clario_base_url',rtrim($base,'/'));
     put_setting('clario_fallback_url',rtrim($fallback,'/'));
     put_setting('clario_model',$clarioModel);
@@ -524,12 +532,12 @@ if($action==='admin/settings'&&in_array($method,['PUT','POST'],true)){
     if($freeJwtSecret!=='')put_setting('free_jwt_secret_enc',encrypt_secret($freeJwtSecret));
     if($freeManualToken!=='')put_setting('free_manual_token_enc',encrypt_secret($freeManualToken));
     if($gkey!=='')put_setting('gemini_key_enc',encrypt_secret($gkey));
-    respond(['ok'=>true,'message'=>'Konfigurasi global disimpan; kredensial dienkripsi di server.','ai_provider'=>$provider,'speech_input_mode'=>$speechMode,'speech_scoring_mode'=>$speechScoringMode]);
+    respond(['ok'=>true,'message'=>'Konfigurasi global disimpan; kredensial dienkripsi di server.','ai_provider'=>$provider,'speech_input_mode'=>$speechMode,'speech_scoring_mode'=>$speechScoringMode,'speech_similarity_threshold'=>$speechSimilarityThreshold]);
 }
 if($action==='app-config'&&$method==='GET'){
     require_user();
     $c=config_values();
-    respond(['settings'=>['speech_input_mode'=>$c['speech_input_mode'],'speech_scoring_mode'=>$c['speech_scoring_mode'],'ai_provider'=>$c['provider']]]);
+    respond(['settings'=>['speech_input_mode'=>$c['speech_input_mode'],'speech_scoring_mode'=>$c['speech_scoring_mode'],'speech_similarity_threshold'=>$c['speech_similarity_threshold'],'ai_provider'=>$c['provider']]]);
 }
 if($action==='admin/users'&&$method==='GET'){
     require_admin();
@@ -790,7 +798,53 @@ if($action==='assess-audio'&&$method==='POST'){
     }
     respond(['result'=>$result,'usage'=>$provider['usage']??null]);
 }
-if($action==='live-token'&&$method==='POST'){origin_check();$u=require_premium();rate_limit('live-token',10,600);$c=config_values();if($c['gemini_key']==='')respond(['error'=>'Admin belum mengatur Gemini API key.'],503);$model=trim($c['live_model']?:'gemini-3.8-live');$model=preg_replace('#^models/#','',$model);if(!preg_match('/^[A-Za-z0-9._-]{3,100}$/',$model))respond(['error'=>'Model Gemini Live tidak valid.'],422);$expires=gmdate('Y-m-d\TH:i:s\Z',time()+1800);$newSession=gmdate('Y-m-d\TH:i:s\Z',time()+60);$instruction='You are Maya, a supportive English speaking coach. Conduct an IELTS-inspired practice conversation at the learner’s level. Ask one concise follow-up at a time, encourage elaboration, and keep the conversation natural. This is practice, not an official IELTS test. Do not claim official scores. The session is limited to 20 minutes.';$constraint=['model'=>'models/'.$model,'config'=>['responseModalities'=>['AUDIO'],'inputAudioTranscription'=>new stdClass(),'outputAudioTranscription'=>new stdClass(),'sessionResumption'=>new stdClass(),'systemInstruction'=>['parts'=>[['text'=>$instruction]]]]];$body=['uses'=>1,'expireTime'=>$expires,'newSessionExpireTime'=>$newSession,'liveConnectConstraints'=>$constraint];$r=http_json('https://generativelanguage.googleapis.com/v1beta/auth_tokens',['x-goog-api-key: '.$c['gemini_key'],'Content-Type: application/json'],$body,20);if($r['status']<200||$r['status']>=300)respond(['error'=>'Gemini tidak dapat membuat Live token.','detail'=>substr($r['body']?:$r['error'],0,500)],$r['status']?:502);$j=json_decode($r['body'],true);$token=$j['name']??'';if(!is_string($token)||$token==='')respond(['error'=>'Gemini tidak mengembalikan token.'],502);respond(['token'=>$token,'model'=>$model,'expire_time'=>$expires,'new_session_expire_time'=>$newSession,'direct_connection'=>'browser_to_gemini','user_id'=>(int)$u['id']]);}
+if($action==='live-token'&&$method==='POST'){
+    origin_check();
+    $u=require_premium();
+    rate_limit('live-token',10,600);
+    $c=config_values();
+    if($c['gemini_key']==='')respond(['error'=>'Admin belum mengatur Gemini API key.'],503);
+    $model=trim($c['live_model']?:'gemini-3.8-live');
+    $model=preg_replace('#^models/#','',$model);
+    if(!preg_match('/^[A-Za-z0-9._-]{3,100}$/',$model))
+        respond(['error'=>'Model Gemini Live tidak valid.'],422);
+
+    $expires=gmdate('Y-m-d\TH:i:s\Z',time()+1800);
+    $newSession=gmdate('Y-m-d\TH:i:s\Z',time()+60);
+    $instruction='You are Maya, a supportive English speaking coach. Conduct an IELTS-inspired practice conversation at the learner’s level. Ask one concise follow-up at a time, encourage elaboration, and keep the conversation natural. This is practice, not an official IELTS test. Do not claim official scores. The session is limited to 20 minutes.';
+    $setup=[
+        'model'=>'models/'.$model,
+        'generationConfig'=>['responseModalities'=>['AUDIO']],
+        'inputAudioTranscription'=>new stdClass(),
+        'outputAudioTranscription'=>new stdClass(),
+        'sessionResumption'=>new stdClass(),
+        'systemInstruction'=>['parts'=>[['text'=>$instruction]]],
+    ];
+    // Use the REST AuthToken wire field, not the SDK-only liveConnectConstraints alias.
+    $body=[
+        'uses'=>1,
+        'expireTime'=>$expires,
+        'newSessionExpireTime'=>$newSession,
+        'bidiGenerateContentSetup'=>$setup,
+    ];
+    $r=http_json('https://generativelanguage.googleapis.com/v1beta/auth_tokens',[
+        'x-goog-api-key: '.$c['gemini_key'],
+        'Content-Type: application/json',
+    ],$body,20);
+    if($r['status']<200||$r['status']>=300)
+        respond(['error'=>'Gemini tidak dapat membuat Live token.','detail'=>substr($r['body']?:$r['error'],0,500)],$r['status']?:502);
+    $j=json_decode($r['body'],true);
+    $token=$j['name']??'';
+    if(!is_string($token)||$token==='')respond(['error'=>'Gemini tidak mengembalikan token.'],502);
+    respond([
+        'token'=>$token,
+        'model'=>$model,
+        'expire_time'=>$expires,
+        'new_session_expire_time'=>$newSession,
+        'direct_connection'=>'browser_to_gemini',
+        'user_id'=>(int)$u['id'],
+    ]);
+}
 if($action==='live-assessment'&&$method==='POST'){
  origin_check();require_premium();rate_limit('live-assessment',12,600);$d=read_json(16000);$transcript=trim((string)($d['transcript']??''));
  if($transcript===''||strlen($transcript)>12000)respond(['error'=>'Transkrip sesi kosong atau terlalu panjang (maksimal 12.000 karakter).'],422);

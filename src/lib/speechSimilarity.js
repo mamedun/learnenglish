@@ -147,8 +147,19 @@ function wordEditDistance(left, right) {
   return previous[right.length];
 }
 
+export function normalizeSpeechThreshold(value = 90) {
+  const threshold = Number(value);
+  if (!Number.isFinite(threshold)) return 90;
+  return Math.max(50, Math.min(100, Math.round(threshold)));
+}
+
+export function meetsSpeechThreshold(percent, threshold = 90) {
+  const score = Number(percent);
+  return Number.isFinite(score) && score >= normalizeSpeechThreshold(threshold);
+}
+
 /** Word error rate translated to a 0-100 similarity score. Punctuation is ignored. */
-export function compareSpokenText(expected, actual) {
+export function compareSpokenText(expected, actual, threshold = 90) {
   const expectedWords = normalizeWords(expected);
   const actualWords = normalizeWords(actual);
   if (!expectedWords.length || !actualWords.length) {
@@ -159,7 +170,7 @@ export function compareSpokenText(expected, actual) {
   const percent = Math.max(0, Math.round((1 - errors / denominator) * 100));
   return {
     percent,
-    passed: percent >= 90,
+    passed: meetsSpeechThreshold(percent, threshold),
     expectedWords: expectedWords.length,
     spokenWords: actualWords.length,
     errors,

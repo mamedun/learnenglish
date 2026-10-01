@@ -81,6 +81,7 @@ function App() {
   const [appConfig, setAppConfig] = useState({
     speech_input_mode: "live_transcribe",
     speech_scoring_mode: "local",
+    speech_similarity_threshold: 90,
     ai_provider: "clario",
   });
   const [ttsStatus, setTtsStatus] = useState({
@@ -149,6 +150,7 @@ function App() {
         settings: {
           speech_input_mode: "live_transcribe",
           speech_scoring_mode: "local",
+          speech_similarity_threshold: 90,
           ai_provider: "clario",
         },
       })),
@@ -159,6 +161,8 @@ function App() {
       speech_input_mode:
         config.settings?.speech_input_mode || "live_transcribe",
       speech_scoring_mode: config.settings?.speech_scoring_mode || "local",
+      speech_similarity_threshold:
+        Number(config.settings?.speech_similarity_threshold) || 90,
       ai_provider: config.settings?.ai_provider || "clario",
     });
     const savedSettings = (progress.progress || {}).settings || {};
@@ -269,6 +273,13 @@ function App() {
               : {}),
             ...(result.settings.speech_scoring_mode
               ? { speech_scoring_mode: result.settings.speech_scoring_mode }
+              : {}),
+            ...(result.settings.speech_similarity_threshold !== undefined
+              ? {
+                  speech_similarity_threshold: Number(
+                    result.settings.speech_similarity_threshold,
+                  ),
+                }
               : {}),
             ...(result.settings.ai_provider
               ? { ai_provider: result.settings.ai_provider }
@@ -1251,7 +1262,7 @@ function App() {
           JSON.stringify({
             setup: {
               model: `models/${model}`,
-              responseModalities: ["AUDIO"],
+              generationConfig: { responseModalities: ["AUDIO"] },
               inputAudioTranscription: {},
               outputAudioTranscription: {},
               sessionResumption: {},
@@ -1709,6 +1720,9 @@ function App() {
                   ttsStatus={ttsStatus}
                   speechInputMode={appConfig.speech_input_mode}
                   speechScoringMode={appConfig.speech_scoring_mode}
+                  speechSimilarityThreshold={
+                    appConfig.speech_similarity_threshold
+                  }
                   aiProvider={appConfig.ai_provider}
                 />
               )}
@@ -1821,6 +1835,12 @@ function App() {
                     setAppConfig((current) => ({
                       ...current,
                       speech_scoring_mode: mode,
+                    }))
+                  }
+                  onSpeechSimilarityThresholdChange={(threshold) =>
+                    setAppConfig((current) => ({
+                      ...current,
+                      speech_similarity_threshold: threshold,
                     }))
                   }
                   onAIProviderChange={(provider) =>

@@ -12,6 +12,7 @@ import {
 import { toast } from "sonner";
 import { apiJson } from "../../api";
 import { awardXP } from "../../gamification";
+import { normalizeSpeechThreshold } from "../../lib/speechSimilarity";
 import { isTtsBusy } from "../../lib/ttsRocks";
 import ListeningSpeakingTask from "./ListeningSpeakingTask";
 
@@ -25,8 +26,10 @@ export default function ListeningPage({
   ttsStatus,
   speechInputMode = "live_transcribe",
   speechScoringMode = "local",
+  speechSimilarityThreshold = 90,
   aiProvider = "clario",
 }) {
+  const speechThreshold = normalizeSpeechThreshold(speechSimilarityThreshold);
   const [level, setLevel] = useState("All");
   const [activeId, setActiveId] = useState(null);
   useEffect(() => {
@@ -102,7 +105,7 @@ export default function ListeningPage({
     }
     if (!speechPassed && !finished) {
       toast.info(
-        "Selesaikan latihan membaca nyaring hingga minimal 90% sesuai.",
+        `Selesaikan latihan membaca nyaring hingga minimal ${speechThreshold}% sesuai.`,
       );
       return;
     }
@@ -371,6 +374,7 @@ export default function ListeningPage({
             ttsStatus={ttsStatus}
             speechInputMode={speechInputMode}
             speechScoringMode={speechScoringMode}
+            speechSimilarityThreshold={speechThreshold}
             aiProvider={aiProvider}
             passed={speechPassed}
             passedScore={speechScore}
@@ -401,8 +405,8 @@ export default function ListeningPage({
                 {finished
                   ? "Lanjutkan ke cerita berikutnya untuk terus berkembang."
                   : speechPassed
-                    ? "Soal benar dan speaking minimal 90% — siap mendapat +10 XP."
-                    : "Jawab soal dengan benar dan selesaikan latihan speaking minimal 90%."}
+                    ? `Soal benar dan speaking minimal ${speechThreshold}% — siap mendapat +10 XP.`
+                    : `Jawab soal dengan benar dan selesaikan latihan speaking minimal ${speechThreshold}%.`}
               </small>
             </div>
             {finished ? (

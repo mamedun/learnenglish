@@ -165,6 +165,7 @@ learner = request(regular, 'register', 'POST', {'name': 'Smoke Learner', 'email'
 assert learner['plan'] == 'regular' and not learner['must_change_password']
 request(regular, 'admin/tts-cache', expected=403)
 assert request(regular, 'app-config')['settings']['speech_input_mode'] in ('live_transcribe', 'ai_audio')
+assert request(regular, 'app-config')['settings']['speech_similarity_threshold'] == 90
 assert len(request(regular, 'catalog')['listening']) == 18
 read_aloud_probe = request_form(regular, 'assess-audio', {'task_mode': 'read_aloud', 'consent': '1'}, expected=422)
 assert 'Audio evaluasi tidak diterima' in read_aloud_probe['error']
@@ -299,6 +300,7 @@ config = {
     'ai_provider': 'clario',
     'speech_input_mode': 'ai_audio',
     'speech_scoring_mode': 'local',
+    'speech_similarity_threshold': 75,
     'clario_base_url': settings['clario_base_url'],
     'clario_fallback_url': settings['clario_fallback_url'],
     'clario_model': settings['clario_model'],
@@ -306,7 +308,10 @@ config = {
     'lockdown': False,
     'stop_registration': False,
 }
+request(admin, 'admin/settings', 'PUT', {**config, 'speech_similarity_threshold': 101}, expected=422)
 request(admin, 'admin/settings', 'PUT', config)
+assert request(admin, 'admin/settings')['settings']['speech_similarity_threshold'] == 75
+assert request(regular, 'app-config')['settings']['speech_similarity_threshold'] == 75
 assert request(admin, 'admin/settings')['settings']['speech_input_mode'] == 'ai_audio'
 assert request(admin, 'admin/settings')['settings']['speech_scoring_mode'] == 'local'
 assert request(regular, 'app-config')['settings']['speech_input_mode'] == 'ai_audio'
@@ -381,4 +386,4 @@ assert request(regular, 'progress')['progress'] is None
 request(regular, 'logout', 'POST')
 request(regular, 'progress', expected=401)
 request(regular, 'auth/refresh', 'POST', expected=401)
-print('PASS: JWT + rotating refresh/cookies, password/logout revocation, roles, admin user CRUD, seed 6/48/18/36, catalog CRUD and TTS revision/invalidation, shared WAV cache upload/playback/clear, server answer checks, progress, global provider/input mode, encrypted Free API Key pool/token settings, CORS, lockdown, registration.')
+print('PASS: JWT + rotating refresh/cookies, password/logout revocation, roles, admin user CRUD, seed 6/48/18/36, catalog CRUD and TTS revision/invalidation, shared WAV cache upload/playback/clear, server answer checks, progress, configurable global speech-similarity threshold, provider/input mode, encrypted Free API Key pool/token settings, CORS, lockdown, registration.')
