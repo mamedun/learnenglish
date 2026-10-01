@@ -3,6 +3,7 @@ const PAGE_PATHS = Object.freeze({
   live: "/live",
   progress: "/progress",
   settings: "/settings",
+  shop: "/shop",
   admin: "/admin",
 });
 
@@ -49,6 +50,7 @@ export function parseAppRoute(pathname) {
     page === "live" ||
     page === "progress" ||
     page === "settings" ||
+    page === "shop" ||
     page === "admin"
   )
     return { page };

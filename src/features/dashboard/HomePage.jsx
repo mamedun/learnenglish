@@ -23,7 +23,7 @@ export default function HomePage({
   allUnits,
   curriculum,
   listeningLessons,
-  hasPremiumAccess,
+  hasLearningAccess,
   startListening,
 }) {
   const nextSpeaking =
@@ -31,7 +31,7 @@ export default function HomePage({
   const nextListening =
     listeningLessons.find((l) => !data.listeningCompleted?.includes(l.id)) ||
     listeningLessons[0];
-  const next = hasPremiumAccess ? nextSpeaking : nextListening;
+  const next = hasLearningAccess ? nextSpeaking : nextListening;
   const listenDone = listeningLessons.filter((l) =>
     data.listeningCompleted?.includes(l.id),
   ).length;
@@ -56,7 +56,7 @@ export default function HomePage({
         <div className="hero-copy">
           <div className="hero-kicker">
             <span className="status-dot" /> YOUR NEXT QUEST ·{" "}
-            {hasPremiumAccess ? "SPEAKING" : "LISTENING"}
+            {hasLearningAccess ? "SPEAKING" : "LISTENING"}
           </div>
           <h2>{next ? next.title : "More adventures coming soon"}</h2>
           <p>
@@ -67,15 +67,15 @@ export default function HomePage({
           <button
             className="btn-white"
             onClick={() =>
-              hasPremiumAccess ? startUnit(next) : startListening(next?.id)
+              hasLearningAccess ? startUnit(next) : startListening(next?.id)
             }
             disabled={!next}
           >
-            {hasPremiumAccess ? "Lanjut speaking" : "Mulai mendengar"}{" "}
+            {hasLearningAccess ? "Lanjut speaking" : "Mulai mendengar"}{" "}
             <ArrowRight size={18} />
           </button>
           <small>
-            {hasPremiumAccess
+            {hasLearningAccess
               ? `${next?.level || "A1"} · IELTS-inspired practice`
               : `${next?.level || "A1"} · original audio script`}
           </small>
@@ -150,11 +150,11 @@ export default function HomePage({
       </section>
       <div className="level-cards">
         {curriculum.map((l, i) => {
-          const units = hasPremiumAccess
+          const units = hasLearningAccess
             ? l.units
             : listeningLessons.filter((item) => item.level === l.id);
           const count = units.filter((u) =>
-            hasPremiumAccess
+            hasLearningAccess
               ? completed.has(u.id)
               : data.listeningCompleted?.includes(u.id),
           ).length;
@@ -163,7 +163,7 @@ export default function HomePage({
               key={l.id}
               className={`curriculum-card card-${i}`}
               onClick={() =>
-                hasPremiumAccess
+                hasLearningAccess
                   ? startUnit(
                       l.units.find((u) => !completed.has(u.id)) || l.units[0],
                     )
@@ -185,7 +185,7 @@ export default function HomePage({
               </span>
               <h3>{l.label}</h3>
               <p>
-                {hasPremiumAccess ? "Speaking" : "Listening"} · {l.name}
+                {hasLearningAccess ? "Speaking" : "Listening"} · {l.name}
               </p>
               <span className="curr-foot">
                 <span className="tiny-progress">
@@ -222,10 +222,10 @@ export default function HomePage({
         </div>
         <button
           className="mode-card"
-          onClick={() => (hasPremiumAccess ? nav("live") : nav("listening"))}
+          onClick={() => (hasLearningAccess ? nav("live") : nav("listening"))}
         >
           <span className="mode-icon">
-            {hasPremiumAccess ? (
+            {hasLearningAccess ? (
               <AudioLines size={24} />
             ) : (
               <Headphones size={24} />
@@ -233,12 +233,12 @@ export default function HomePage({
           </span>
           <span>
             <b>
-              {hasPremiumAccess
+              {hasLearningAccess
                 ? "Let’s talk live"
                 : "One more listening quest?"}
             </b>
             <small>
-              {hasPremiumAccess
+              {hasLearningAccess
                 ? "Ngobrol spontan bersama Maya"
                 : "Dengarkan, jawab, dapatkan XP"}
             </small>

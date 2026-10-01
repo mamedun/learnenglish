@@ -21,12 +21,19 @@ import {
   Volume2,
   WandSparkles,
   RotateCcw,
+  Trash2,
+  Gem,
 } from "lucide-react";
 import { toast } from "sonner";
+import Swal from "sweetalert2";
 import { formatTime } from "../../lib/formatTime";
-import { getPracticeLessonProgress } from "./lessonProgress";
+import {
+  canCompletePracticeLesson,
+  getPracticeLessonProgress,
+  practicePoints,
+} from "./lessonProgress";
 import { isTtsBusy } from "../../lib/ttsRocks";
-import { stripTranscriptSourceLabel } from "../../lib/plainText";
+import { stripTranscriptSourceLabel, toPlainText } from "../../lib/plainText";
 import {
   speechRecognitionErrorMessage,
   useSpeechRecognition,
@@ -106,13 +113,15 @@ export default function PracticePage(p) {
     playRecording,
     loadingRecordingId,
     completed,
-    speechInputMode = "live_transcribe",
+    clearHistory,
+    diamonds = 0,
+    similarityThreshold = 90,
     resetRecording,
   } = p;
-  const [useAudioFallback, setUseAudioFallback] = useState(false);
+  const [responseMode, setResponseMode] = useState("transcript");
   const currentUnitIdRef = useRef(unit.id);
   currentUnitIdRef.current = unit.id;
-  const liveTranscription = speechInputMode !== "ai_audio" && !useAudioFallback;
+  const liveTranscription = responseMode === "transcript";
   const recognizer = useSpeechRecognition({ language: "en-US" });
   const [showPrompt, setShowPrompt] = useState(false);
   const [scenarioComplete, setScenarioComplete] = useState(() =>
@@ -124,24 +133,24 @@ export default function PracticePage(p) {
   const responseCaptured = liveTranscription
     ? Boolean(stripTranscriptSourceLabel(transcript)) && !transcribing
     : Boolean(audioBlob);
+  const goodPoints = practicePoints(turns, similarityThreshold);
   const lessonProgress = getPracticeLessonProgress({
     scenarioComplete,
     responseCaptured,
     feedbackCount: turns.length,
-    // A learner can continue after seeing feedback; a second answer is optional.
-    retryCaptured: turns.length > 0,
+    goodPoints,
     completed: Boolean(completed?.has?.(unit.id)),
   });
   const ttsBusy = isTtsBusy(ttsStatus);
   useEffect(() => {
     setShowPrompt(false);
-    setUseAudioFallback(false);
+    setResponseMode("transcript");
     recognizer.reset();
     p.setTranscript("");
     p.resetRecording?.();
-    // Reset the input when switching lesson or when the admin changes the global mode.
+    // Reset the per-response capture when switching lessons.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [unit.id, speechInputMode]);
+  }, [unit.id]);
   useEffect(() => {
     setScenarioComplete(Boolean(completed?.has?.(unit.id)));
   }, [unit.id]);
@@ -173,9 +182,9 @@ export default function PracticePage(p) {
     if (!result.ok) {
       toast.error(
         result.reason === "unsupported-brave"
-          ? "Brave tidak dapat mengakses layanan transkripsi live ini. Gunakan Google Chrome atau minta admin mengaktifkan mode rekaman AI."
+          ? "Brave tidak dapat mengakses layanan transkripsi live ini. Gunakan Google Chrome atau pilih mode evaluasi audio AI."
           : result.reason === "unsupported"
-            ? "Browser ini tidak mendukung transkripsi langsung. Minta admin mengganti mode input ke rekaman AI atau gunakan Google Chrome."
+            ? "Browser ini tidak mendukung transkripsi langsung. Pilih mode evaluasi audio AI atau gunakan Google Chrome."
             : "Mikrofon/transkripsi tidak dapat dimulai. Periksa izin browser.",
       );
       return;
@@ -189,6 +198,26 @@ export default function PracticePage(p) {
     } else {
       resetRecording?.();
     }
+  }
+  function chooseResponseMode(mode) {
+    if (mode === responseMode) return;
+    recognizer.stop();
+    recognizer.reset();
+    resetRecording?.();
+    p.setTranscript("");
+    setResponseMode(mode);
+  }
+  async function confirmClearHistory() {
+    const result = await Swal.fire({
+      title: "Hapus riwayat lesson ini?",
+      text: "Transkrip, feedback, dan tautan rekaman dari lesson ini akan dihapus dari progres akun. Tindakan ini tidak dapat dibatalkan.",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonText: "Hapus riwayat",
+      cancelButtonText: "Batal",
+      confirmButtonColor: "#c84343",
+    });
+    if (result.isConfirmed) clearHistory?.(unit.id);
   }
   const visual =
     unit.image ||
@@ -368,6 +397,48 @@ export default function PracticePage(p) {
                 : "Audio dikirim hanya setelah persetujuan"}
             </span>
           </div>
+          <div
+            className="practice-response-modes"
+            role="group"
+            aria-label="Pilih mode jawaban"
+          >
+            <button
+              type="button"
+              className={`practice-response-mode ${responseMode === "transcript" ? "selected" : ""}`}
+              aria-pressed={responseMode === "transcript"}
+              onClick={() => chooseResponseMode("transcript")}
+              disabled={processing || recording || transcribing}
+            >
+              <span className="practice-mode-label">LIVE TRANSKRIP · AI</span>
+              <b>Transkrip ke tutor AI</b>
+              <small>
+                Speech-to-text browser · AI menilai kosakata & grammar
+              </small>
+              <strong>
+                <Gem size={14} /> 2 diamond
+              </strong>
+            </button>
+            <button
+              type="button"
+              className={`practice-response-mode ${responseMode === "audio" ? "selected" : ""}`}
+              aria-pressed={responseMode === "audio"}
+              onClick={() => chooseResponseMode("audio")}
+              disabled={processing || recording || transcribing}
+            >
+              <span className="practice-mode-label">REKAM AUDIO · AI</span>
+              <b>Evaluasi rekaman server</b>
+              <small>
+                Transkripsi AI + penilaian keempat kriteria speaking
+              </small>
+              <strong>
+                <Gem size={14} /> 5 diamond
+              </strong>
+            </button>
+          </div>
+          <div className="practice-wallet-hint">
+            Saldo {Number(diamonds).toLocaleString("id-ID")} diamond · Tidak ada
+            mode AI Lesson gratis.
+          </div>
           <div className="mic-stage">
             <div
               className={`mic-halo ${recording || transcribing ? "is-recording" : ""}`}
@@ -537,25 +608,18 @@ export default function PracticePage(p) {
               <div className="speech-browser-warning-content">
                 <span>
                   {recognizer.braveDetected
-                    ? "Brave tidak dapat mengakses live transcription. Gunakan Google Chrome, atau rekam audio untuk transkrip dan feedback AI."
-                    : "Browser ini tidak mendukung live transcription. Rekam audio untuk mendapatkan transkrip dan feedback AI."}
+                    ? "Brave tidak mendukung layanan transkripsi live ini. Pilih evaluasi rekaman AI atau gunakan Google Chrome."
+                    : "Browser ini tidak mendukung transkripsi live. Pilih evaluasi rekaman AI atau gunakan Google Chrome."}
                 </span>
                 <button
                   className="text-button"
-                  onClick={() => {
-                    recognizer.reset();
-                    p.setTranscript("");
-                    setUseAudioFallback(true);
-                    toast.info(
-                      "Mode rekaman AI aktif untuk lesson ini. Audio baru dikirim setelah kamu menyetujui.",
-                    );
-                  }}
+                  onClick={() => chooseResponseMode("audio")}
                   disabled={processing || recording || transcribing}
                 >
-                  Gunakan rekaman AI untuk lesson ini
+                  Pilih evaluasi audio AI · 5 diamond
                 </button>
                 <small>
-                  Audio tidak dikirim sampai kamu menekan Kirim jawaban dan
+                  Audio hanya dikirim setelah kamu menekan Kirim jawaban dan
                   menyetujui pemrosesan.
                 </small>
               </div>
@@ -578,7 +642,7 @@ export default function PracticePage(p) {
               />
               <div className="transcript-foot">
                 <span>
-                  Read-only · diproses oleh speech recognition browser
+                  Read-only · transkrip dikirim ke tutor AI; audio tidak dikirim
                 </span>
                 <button
                   className="text-button"
@@ -607,21 +671,16 @@ export default function PracticePage(p) {
             <span>
               <ShieldCheck size={15} />
               {liveTranscription
-                ? "Suara ditranskripsi langsung oleh browser"
+                ? "Transkrip saja dikirim ke AI · 2 diamond"
                 : p.sessionSaveAudio === null
-                  ? "arsip ditanyakan terpisah"
+                  ? "arsip audio ditanyakan terpisah · 5 diamond"
                   : p.sessionSaveAudio
-                    ? "arsip audio disimpan di akun server"
-                    : "audio tidak diarsipkan"}
+                    ? "arsip audio disimpan di akun server · 5 diamond"
+                    : "audio tidak diarsipkan · 5 diamond"}
             </span>
             <button
               className="btn-primary"
-              onClick={() =>
-                submitTurn({
-                  forceAiAudio:
-                    speechInputMode !== "ai_audio" && useAudioFallback,
-                })
-              }
+              onClick={() => submitTurn({ mode: responseMode })}
               disabled={
                 processing ||
                 transcribing ||
@@ -637,7 +696,8 @@ export default function PracticePage(p) {
                 </>
               ) : (
                 <>
-                  Kirim jawaban <ArrowRight size={16} />
+                  Kirim jawaban · {responseMode === "audio" ? 5 : 2} diamond{" "}
+                  <ArrowRight size={16} />
                 </>
               )}
             </button>
@@ -647,26 +707,64 @@ export default function PracticePage(p) {
           <div className="feedback-section">
             <div className="feedback-heading">
               <div>
-                <div className="eyebrow">FEEDBACK TUTOR</div>
+                <div className="eyebrow">RIWAYAT AI LESSON</div>
                 <h2>
-                  Bagus, kamu sudah mencoba! <span>✦</span>
+                  Feedback terbaru <span>✦</span>
                 </h2>
               </div>
-              <span className="session-count">{turns.length} jawaban</span>
+              <div className="feedback-heading-actions">
+                <span className="session-count">
+                  {turns.length} percakapan · {goodPoints}/100 poin
+                </span>
+                <button
+                  className="text-button clear-lesson-history"
+                  type="button"
+                  onClick={confirmClearHistory}
+                >
+                  <Trash2 size={14} /> Hapus riwayat
+                </button>
+              </div>
             </div>
-            {turns.map((t, i) => (
+            <div className="lesson-points-banner">
+              <div>
+                <b>{goodPoints} / 100 poin</b>
+                <small>
+                  Setiap percakapan bagus memberi 25 poin. Skor AI minimal 4/5
+                  dihitung bagus.
+                </small>
+              </div>
+              <div className="lesson-points-meter">
+                <i style={{ width: `${Math.min(100, goodPoints)}%` }} />
+              </div>
+              <span>{turns.length} / 4 percakapan minimum</span>
+            </div>
+            {[...turns].reverse().map((t, i) => (
               <div className="feedback-card" key={t.id}>
                 <div className="feedback-top">
-                  <span>JAWABAN {i + 1}</span>
-                  <div className="stars">
-                    {Array.from({ length: 5 }, (_, j) => (
-                      <Star
-                        key={j}
-                        size={15}
-                        fill={j < t.stars ? "#f3b64c" : "transparent"}
-                        color={j < t.stars ? "#f3b64c" : "#ccd1cb"}
-                      />
-                    ))}
+                  <span>JAWABAN {turns.length - i}</span>
+                  <div className="feedback-turn-meta">
+                    <span
+                      className={`turn-points ${Number(t.pointsEarned ?? (Number(t.stars) >= 4 ? 25 : 0)) > 0 ? "earned" : ""}`}
+                    >
+                      +
+                      {Number(
+                        t.pointsEarned ?? (Number(t.stars) >= 4 ? 25 : 0),
+                      )}{" "}
+                      poin
+                    </span>
+                    <div
+                      className="stars"
+                      aria-label={`${t.stars} dari 5 bintang`}
+                    >
+                      {Array.from({ length: 5 }, (_, j) => (
+                        <Star
+                          key={j}
+                          size={15}
+                          fill={j < t.stars ? "#f3b64c" : "transparent"}
+                          color={j < t.stars ? "#f3b64c" : "#ccd1cb"}
+                        />
+                      ))}
+                    </div>
                   </div>
                 </div>
                 <div className="feedback-dialog">
@@ -686,7 +784,7 @@ export default function PracticePage(p) {
                         )}
                         {loadingRecordingId === t.audioId
                           ? "Memuat audio…"
-                          : "Dengarkan"}
+                          : "Dengarkan rekaman"}
                       </button>
                     )}
                   </div>
@@ -717,53 +815,52 @@ export default function PracticePage(p) {
                     <p>{t.feedback}</p>
                   </div>
                 </div>
-                <div className="band-estimate">
-                  <span>IELTS Speaking practice estimate</span>
-                  <b>
-                    {t.estimatedBand != null
-                      ? `Band ${Number(t.estimatedBand).toFixed(1)}`
-                      : "Belum dapat diestimasi"}
-                  </b>
-                  <small>Feedback latihan · bukan skor resmi</small>
-                </div>
-                <div className="score-row">
+                <div className="score-row practice-criteria-grid">
                   {[
                     ["Fluency & Coherence", "fluency_coherence"],
                     ["Lexical Resource", "lexical_resource"],
                     ["Grammar Range & Accuracy", "grammatical_range_accuracy"],
                     ["Pronunciation", "pronunciation"],
                   ].map(([label, key]) => {
-                    const c = t.criteria?.[key];
+                    const criterion = t.criteria?.[key] || {};
+                    const rating = Number(criterion.rating);
+                    const isRated =
+                      Number.isFinite(rating) && rating >= 1 && rating <= 5;
+                    const note = toPlainText(criterion.feedback_id || "");
+                    const evidence = (
+                      Array.isArray(criterion.evidence)
+                        ? criterion.evidence
+                        : []
+                    )
+                      .filter((item) => typeof item === "string" && item.trim())
+                      .slice(0, 2)
+                      .map((item) => toPlainText(item));
                     return (
-                      <span key={key}>
-                        {label}
-                        <b>
-                          {c?.band != null
-                            ? `Band ${Number(c.band).toFixed(1)}`
-                            : "Belum dinilai"}
-                        </b>
+                      <div
+                        className={`practice-criterion ${isRated ? "rated" : "not-rated"}`}
+                        key={key}
+                      >
+                        <span>{label}</span>
+                        <b>{isRated ? `${rating} / 5` : "Not scored"}</b>
                         <small>
-                          {c?.status === "provisional"
-                            ? "Estimasi teks"
-                            : c?.status === "scored"
-                              ? "Dinilai"
-                              : "Audio diperlukan"}
+                          {criterion.status === "provisional"
+                            ? "Text-based practice rating"
+                            : criterion.status === "scored"
+                              ? "Audio-based practice rating"
+                              : "Audio-dependent · not scored"}
                         </small>
-                        {(Array.isArray(c?.evidence) ? c.evidence : [])
-                          .filter(
-                            (item) =>
-                              typeof item === "string" && item.trim() !== "",
-                          )
-                          .slice(0, 2)
-                          .map((item, evidenceIndex) => (
-                            <small
-                              className="criteria-evidence"
-                              key={`${key}-${evidenceIndex}`}
-                            >
-                              {item}
-                            </small>
-                          ))}
-                      </span>
+                        {note && (
+                          <small className="criteria-evidence">{note}</small>
+                        )}
+                        {evidence.map((item, evidenceIndex) => (
+                          <small
+                            className="criteria-evidence"
+                            key={`${key}-${evidenceIndex}`}
+                          >
+                            {item}
+                          </small>
+                        ))}
+                      </div>
                     );
                   })}
                 </div>
@@ -771,13 +868,21 @@ export default function PracticePage(p) {
             ))}
             <div className="finish-row">
               <div>
-                <b>Siap menyelesaikan pelajaran?</b>
+                <b>
+                  {canCompletePracticeLesson(turns.length, goodPoints)
+                    ? "Lesson siap diselesaikan"
+                    : "Lanjutkan percakapan untuk menyelesaikan"}
+                </b>
                 <small>
-                  Satu jawaban dan feedback tutor cukup untuk menyelesaikan.
-                  Rating adalah masukan latihan, bukan syarat kelulusan.
+                  Perlu minimal 4 percakapan dan 100 poin. Kamu tetap bisa terus
+                  berlatih setelah mencapai 100 poin.
                 </small>
               </div>
-              <button className="btn-primary" onClick={finishUnit}>
+              <button
+                className="btn-primary"
+                onClick={finishUnit}
+                disabled={!canCompletePracticeLesson(turns.length, goodPoints)}
+              >
                 Selesaikan lesson <Check size={16} />
               </button>
             </div>

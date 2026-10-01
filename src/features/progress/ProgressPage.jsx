@@ -9,7 +9,7 @@ export default function ProgressPage({
   allUnits,
   curriculum,
   nav,
-  hasPremiumAccess,
+  hasLearningAccess,
   listeningLessons,
   startUnit,
 }) {
@@ -39,7 +39,7 @@ export default function ProgressPage({
             {data.xp || 0} <em>XP</em>
           </strong>
           <p>
-            {hasPremiumAccess
+            {hasLearningAccess
               ? `${totalDone}/${allUnits.length} speaking · `
               : ""}
             {listenDone}/${listeningLessons.length} listening lesson selesai
@@ -47,7 +47,7 @@ export default function ProgressPage({
           <div className="large-progress">
             <i
               style={{
-                width: `${hasPremiumAccess ? pct : listeningLessons.length ? (listenDone / listeningLessons.length) * 100 : 0}%`,
+                width: `${hasLearningAccess ? pct : listeningLessons.length ? (listenDone / listeningLessons.length) * 100 : 0}%`,
               }}
             />
           </div>
@@ -68,11 +68,11 @@ export default function ProgressPage({
       </div>
       <div className="progress-levels">
         {curriculum.map((l, i) => {
-          const units = hasPremiumAccess
+          const units = hasLearningAccess
             ? l.units
             : listeningLessons.filter((item) => item.level === l.id);
           const done = units.filter((u) =>
-            hasPremiumAccess
+            hasLearningAccess
               ? data.completed?.includes(u.id)
               : data.listeningCompleted?.includes(u.id),
           ).length;
@@ -92,7 +92,7 @@ export default function ProgressPage({
                   {l.id} · {l.label}
                 </b>
                 <small>
-                  {l.name} · {hasPremiumAccess ? "Speaking" : "Listening"}
+                  {l.name} · {hasLearningAccess ? "Speaking" : "Listening"}
                 </small>
                 <div className="tiny-progress">
                   <i
@@ -110,7 +110,7 @@ export default function ProgressPage({
               <button
                 aria-label={`Buka level ${l.id}`}
                 onClick={() =>
-                  hasPremiumAccess
+                  hasLearningAccess
                     ? startUnit(
                         l.units.find((u) => !data.completed?.includes(u.id)) ||
                           l.units[0],
@@ -149,7 +149,7 @@ export default function ProgressPage({
           </div>
         ))}
       </div>
-      {hasPremiumAccess && (
+      {hasLearningAccess && (
         <>
           <div className="section-head recent-head">
             <div>

@@ -3,11 +3,27 @@ import {
   canCompletePracticeLesson,
   findNextPracticeLesson,
   getPracticeLessonProgress,
+  practicePoints,
 } from "../src/features/speaking/lessonProgress.js";
 
-assert.equal(canCompletePracticeLesson(0), false);
-assert.equal(canCompletePracticeLesson(1), true);
-assert.equal(canCompletePracticeLesson(2), true);
+assert.equal(canCompletePracticeLesson(0, 0), false);
+assert.equal(canCompletePracticeLesson(3, 75), false);
+assert.equal(canCompletePracticeLesson(4, 75), false);
+assert.equal(canCompletePracticeLesson(4, 99), false);
+assert.equal(canCompletePracticeLesson(4, 100), true);
+assert.equal(canCompletePracticeLesson(8, 200), true);
+
+assert.equal(
+  practicePoints([
+    { stars: 4 },
+    { stars: 3 },
+    { similarityPercent: 90 },
+    { similarityPercent: 89 },
+  ]),
+  50,
+);
+assert.equal(practicePoints([{ similarityPercent: 89 }], 89), 25);
+assert.equal(practicePoints([{ pointsEarned: 25 }, { pointsEarned: 0 }]), 25);
 
 const initial = getPracticeLessonProgress();
 assert.equal(initial.percentage, 0);
@@ -27,26 +43,24 @@ assert.equal(answerRecorded.percentage, 50);
 assert.equal(answerRecorded.completedCount, 2);
 assert.equal(answerRecorded.steps[2].current, true);
 
-const feedbackShown = getPracticeLessonProgress({
+const oneConversation = getPracticeLessonProgress({
   scenarioComplete: true,
   feedbackCount: 1,
+  goodPoints: 25,
 });
-assert.equal(feedbackShown.percentage, 100);
-assert.equal(feedbackShown.completedCount, 4);
-assert.equal(
-  feedbackShown.steps.every((step) => step.done),
-  true,
-);
+assert.equal(oneConversation.percentage, 50);
+assert.equal(oneConversation.completedCount, 2);
+assert.equal(oneConversation.steps[2].current, true);
 
-const retryRecorded = getPracticeLessonProgress({
+const completionReady = getPracticeLessonProgress({
   scenarioComplete: true,
-  feedbackCount: 1,
-  retryCaptured: true,
+  feedbackCount: 4,
+  goodPoints: 100,
 });
-assert.equal(retryRecorded.percentage, 100);
-assert.equal(retryRecorded.completedCount, 4);
+assert.equal(completionReady.percentage, 100);
+assert.equal(completionReady.completedCount, 4);
 assert.equal(
-  retryRecorded.steps.every((step) => step.done),
+  completionReady.steps.every((step) => step.done),
   true,
 );
 
@@ -60,5 +74,5 @@ assert.equal(findNextPracticeLesson(lessons, "three"), null);
 assert.equal(findNextPracticeLesson(lessons, "missing"), null);
 
 console.log(
-  "PASS: AI lesson progress advances normally, and one feedback response is enough to complete.",
+  "PASS: AI Lesson requires four conversations and 100 points; good-turn scoring and unlimited extra turns are supported.",
 );

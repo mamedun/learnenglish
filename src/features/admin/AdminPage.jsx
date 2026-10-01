@@ -12,18 +12,16 @@ import {
   RotateCcw,
   Settings,
   ShieldCheck,
-  KeyRound,
-  Pencil,
-  Trash2,
-  UserPlus,
-  X,
+  Users,
+  ShoppingBag,
 } from "lucide-react";
 import { apiFetch, apiJson } from "../../api";
 import ModuleLoading from "../../components/ModuleLoading";
 import ContentStudio from "./ContentStudio";
 import AdminAudioCache from "./AdminAudioCache";
+import AdminUsersPanel from "./AdminUsersPanel";
+import AdminPurchasesPanel from "./AdminPurchasesPanel";
 import { toast } from "sonner";
-import Swal from "sweetalert2";
 
 const FREE_DEFAULT_POOL = Array.from(
   { length: 10 },
@@ -33,7 +31,6 @@ const FREE_DEFAULT_POOL = Array.from(
 export default function AdminPage({
   user,
   onCatalogChange,
-  onSpeechModeChange,
   onSpeechScoringModeChange,
   onSpeechSimilarityThresholdChange,
   onAIProviderChange,
@@ -44,6 +41,11 @@ export default function AdminPage({
     speech_input_mode: "live_transcribe",
     speech_scoring_mode: "local",
     speech_similarity_threshold: 90,
+    payment_qris_payload: "",
+    payment_tax_percent: 0,
+    payment_admin_fee: 0,
+    payment_whatsapp: "",
+    payment_static_qr_available: false,
     clario_base_url: "https://clariohub.id/v1",
     clario_fallback_url: "https://api-direct.clariohub.id/v1",
     clario_model: "clario/gemini-3.7-flash",
@@ -63,147 +65,7 @@ export default function AdminPage({
   const [freeJwtSecret, setFreeJwtSecret] = useState("");
   const [freeManualToken, setFreeManualToken] = useState("");
   const [showKey, setShowKey] = useState(false);
-  const [users, setUsers] = useState([]);
-  const [usersBusy, setUsersBusy] = useState(false);
-  const [usersError, setUsersError] = useState("");
-  const [showCreateUser, setShowCreateUser] = useState(false);
-  const [newUser, setNewUser] = useState({
-    name: "",
-    email: "",
-    password: "",
-    plan: "regular",
-  });
-  const [editingUser, setEditingUser] = useState(null);
-  const [editMode, setEditMode] = useState("edit");
-  const [editUser, setEditUser] = useState({
-    name: "",
-    email: "",
-    password: "",
-    plan: "regular",
-  });
-  async function loadUsers() {
-    setUsersError("");
-    try {
-      const response = await apiFetch("admin/users");
-      const body = await response.json();
-      if (!response.ok)
-        throw new Error(body.error || "Daftar user gagal dimuat.");
-      setUsers(body.users || []);
-    } catch (error) {
-      setUsersError(error.message || "Daftar user gagal dimuat.");
-    }
-  }
-  useEffect(() => {
-    loadUsers();
-  }, []);
-  async function setPlan(id, plan) {
-    try {
-      const response = await apiFetch("admin/users", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, plan }),
-      });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error || "Paket gagal diubah");
-      setUsers((rows) =>
-        rows.map((account) => (account.id === id ? body.user : account)),
-      );
-      toast.success("Tipe akun diperbarui.");
-    } catch (error) {
-      toast.error(error.message);
-    }
-  }
-  async function createUser(event) {
-    event.preventDefault();
-    setUsersBusy(true);
-    try {
-      const response = await apiFetch("admin/users", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newUser),
-      });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error || "User gagal dibuat.");
-      setUsers((rows) => [body.user, ...rows]);
-      setNewUser({ name: "", email: "", password: "", plan: "regular" });
-      setShowCreateUser(false);
-      toast.success(
-        "Akun user berhasil dibuat. User akan diminta mengganti password saat masuk.",
-      );
-    } catch (error) {
-      toast.error(error.message);
-    } finally {
-      setUsersBusy(false);
-    }
-  }
-  function openEditUser(account, mode = "edit") {
-    setEditingUser(account);
-    setEditMode(mode);
-    setEditUser({
-      name: account.name,
-      email: account.email,
-      password: "",
-      plan: account.plan || "regular",
-    });
-  }
-  async function saveUserEdit(event) {
-    event.preventDefault();
-    if (!editingUser) return;
-    setUsersBusy(true);
-    try {
-      const changes =
-        editMode === "password"
-          ? { id: editingUser.id, password: editUser.password }
-          : { id: editingUser.id, ...editUser };
-      const response = await apiFetch("admin/users", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(changes),
-      });
-      const body = await response.json();
-      if (!response.ok)
-        throw new Error(body.error || "Perubahan user gagal disimpan.");
-      setUsers((rows) =>
-        rows.map((account) =>
-          account.id === editingUser.id ? body.user : account,
-        ),
-      );
-      setEditingUser(null);
-      setEditUser({ name: "", email: "", password: "", plan: "regular" });
-      toast.success(
-        editMode === "password"
-          ? "Password diganti. User harus membuat password baru saat masuk."
-          : "Data user berhasil diperbarui.",
-      );
-    } catch (error) {
-      toast.error(error.message);
-    } finally {
-      setUsersBusy(false);
-    }
-  }
-  async function deleteUser(account) {
-    const confirmation = await Swal.fire({
-      title: "Hapus akun user?",
-      text: `${account.name} (${account.email}) dan progres/audio server terkait akan dihapus permanen.`,
-      icon: "warning",
-      showCancelButton: true,
-      confirmButtonText: "Hapus akun",
-      cancelButtonText: "Batal",
-      confirmButtonColor: "#c84343",
-    });
-    if (!confirmation.isConfirmed) return;
-    try {
-      const response = await apiFetch(`admin/users/${account.id}`, {
-        method: "DELETE",
-      });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error || "User gagal dihapus.");
-      setUsers((rows) => rows.filter((userRow) => userRow.id !== account.id));
-      toast.success("Akun dan data terkait telah dihapus.");
-    } catch (error) {
-      toast.error(error.message);
-    }
-  }
+  const [paymentQrBusy, setPaymentQrBusy] = useState(false);
   const [settingsError, setSettingsError] = useState("");
   async function loadSettings() {
     setReady(false);
@@ -232,14 +94,59 @@ export default function AdminPage({
   function change(k, v) {
     setSettings((p) => ({ ...p, [k]: v }));
   }
+  async function uploadStaticQr(event) {
+    const image = event.target.files?.[0];
+    event.target.value = "";
+    if (!image) return;
+    setPaymentQrBusy(true);
+    try {
+      const form = new FormData();
+      form.append("image", image, image.name);
+      const response = await apiFetch("admin/payment-qr", {
+        method: "POST",
+        body: form,
+      });
+      const body = await response.json();
+      if (!response.ok)
+        throw new Error(body.error || "QR statis gagal diunggah.");
+      setSettings((current) => ({
+        ...current,
+        payment_static_qr_available: true,
+      }));
+      toast.success("QR statis berhasil disimpan sebagai alternatif.");
+    } catch (error) {
+      toast.error(error.message || "QR statis gagal diunggah.");
+    } finally {
+      setPaymentQrBusy(false);
+    }
+  }
+  async function removeStaticQr() {
+    setPaymentQrBusy(true);
+    try {
+      const response = await apiFetch("admin/payment-qr", { method: "DELETE" });
+      const body = await response.json();
+      if (!response.ok)
+        throw new Error(body.error || "QR statis gagal dihapus.");
+      setSettings((current) => ({
+        ...current,
+        payment_static_qr_available: false,
+      }));
+      toast.success("QR statis dihapus.");
+    } catch (error) {
+      toast.error(error.message || "QR statis gagal dihapus.");
+    } finally {
+      setPaymentQrBusy(false);
+    }
+  }
   async function save() {
     setBusy(true);
     try {
+      const { speech_input_mode: _legacyMode, ...saveSettings } = settings;
       const r = await apiFetch("admin/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ...settings,
+          ...saveSettings,
           clario_api_key: apiKey,
           free_api_key: freeApiKey,
           free_jwt_secret: freeJwtSecret,
@@ -255,7 +162,6 @@ export default function AdminPage({
       setFreeManualToken("");
       setGeminiKey("");
       await loadSettings();
-      onSpeechModeChange?.(settings.speech_input_mode || "live_transcribe");
       onSpeechScoringModeChange?.(settings.speech_scoring_mode || "local");
       onSpeechSimilarityThresholdChange?.(
         Number(settings.speech_similarity_threshold) || 90,
@@ -308,17 +214,37 @@ export default function AdminPage({
         </button>
         <button
           role="tab"
+          aria-selected={adminTab === "users"}
+          className={adminTab === "users" ? "active" : ""}
+          onClick={() => setAdminTab("users")}
+        >
+          <Users size={17} /> Users
+        </button>
+        <button
+          role="tab"
+          aria-selected={adminTab === "purchases"}
+          className={adminTab === "purchases" ? "active" : ""}
+          onClick={() => setAdminTab("purchases")}
+        >
+          <ShoppingBag size={17} /> Pembelian
+        </button>
+        <button
+          role="tab"
           aria-selected={adminTab === "access"}
           className={adminTab === "access" ? "active" : ""}
           onClick={() => setAdminTab("access")}
         >
-          <Settings size={17} /> Akses & provider
+          <Settings size={17} /> Akses & pembayaran
         </button>
       </div>
       {adminTab === "content" ? (
         <ContentStudio onCatalogChange={onCatalogChange} />
       ) : adminTab === "audio" ? (
         <AdminAudioCache />
+      ) : adminTab === "users" ? (
+        <AdminUsersPanel />
+      ) : adminTab === "purchases" ? (
+        <AdminPurchasesPanel />
       ) : settingsError ? (
         <div className="studio-error" role="alert">
           {settingsError} <button onClick={loadSettings}>Coba lagi</button>
@@ -357,7 +283,7 @@ export default function AdminPage({
               <span>
                 <b>Kunci aplikasi untuk non-admin</b>
                 <small>
-                  Memutus akses API pengguna reguler/premium, termasuk sesi yang
+                  Memutus akses API seluruh akun learner, termasuk sesi yang
                   sudah login. Admin tetap bisa mengelola.
                 </small>
               </span>
@@ -626,79 +552,40 @@ export default function AdminPage({
                   <AudioLines size={18} />
                 </div>
                 <div>
-                  <b>Mode jawaban speaking global</b>
+                  <b>Listening Lab · penilaian speaking</b>
                   <small>
-                    Digunakan bersama oleh seluruh user pada lesson speaking.
+                    Metode ini berlaku untuk pencocokan read-aloud; tidak
+                    mengubah pilihan per jawaban di AI Lesson.
                   </small>
                 </div>
               </div>
-              <label className="field-label" htmlFor="speech-input-mode">
-                MODE INPUT
+              <label className="field-label" htmlFor="speech-scoring-mode">
+                METODE PENCOCOKAN TRANSKRIP
               </label>
               <div className="select-wrap">
                 <select
-                  id="speech-input-mode"
+                  id="speech-scoring-mode"
                   className="text-field"
-                  value={settings.speech_input_mode || "live_transcribe"}
+                  value={settings.speech_scoring_mode || "local"}
                   onChange={(event) =>
-                    change("speech_input_mode", event.target.value)
+                    change("speech_scoring_mode", event.target.value)
                   }
                 >
-                  <option value="live_transcribe">
-                    Live transcription · browser
-                  </option>
-                  <option value="ai_audio">
-                    Rekam audio · evaluasi server AI
-                  </option>
+                  <option value="local">Cocokkan secara lokal · gratis</option>
+                  <option value="ai">AI provider global · 1 diamond</option>
                 </select>
                 <ChevronDown size={16} />
               </div>
-              <div className="info-box speech-mode-info">
+              <div className="info-box speech-mode-info speech-scoring-info">
                 <CircleHelp size={15} />
                 <span>
-                  {settings.speech_input_mode === "ai_audio"
-                    ? "Audio direkam lokal terlebih dahulu. Setelah user menekan Kirim jawaban, muncul dialog persetujuan untuk setiap pengiriman; hanya sesudah Setuju audio dikirim ke provider AI global. Transkrip dan feedback tampil setelah diproses. Clario menerima WAV sebagai input_audio, jadi endpoint/model terpilih harus mendukung audio; Free API Key memakai upload multipart."
-                    : "Transkrip browser bersifat read-only. Browser/OS dapat memakai layanan transkripsi vendor; audio tidak dikirim ke server SpeakUp. Beberapa browser, termasuk Brave, dapat gagal menyambung—gunakan Google Chrome untuk live transcription."}
+                  Mode lokal menghitung kemiripan di browser tanpa AI. Mode AI
+                  mengirim hanya naskah dan transkrip teks ke provider global
+                  dan memakai 1 diamond. Audio tidak dikirim ke AI untuk
+                  pencocokan teks. Gemini Live tetap memakai Gemini; feedback
+                  pasca-sesi memakai provider global.
                 </span>
               </div>
-              {settings.speech_input_mode !== "ai_audio" && (
-                <>
-                  <label className="field-label" htmlFor="speech-scoring-mode">
-                    METODE PENCOCOKAN TRANSKRIP
-                  </label>
-                  <div className="select-wrap">
-                    <select
-                      id="speech-scoring-mode"
-                      className="text-field"
-                      value={settings.speech_scoring_mode || "local"}
-                      onChange={(event) =>
-                        change("speech_scoring_mode", event.target.value)
-                      }
-                    >
-                      <option value="local">
-                        Cocokkan secara lokal · tanpa AI
-                      </option>
-                      <option value="ai">
-                        AI provider global · hanya persentase
-                      </option>
-                    </select>
-                    <ChevronDown size={16} />
-                  </div>
-                  <div className="info-box speech-mode-info speech-scoring-info">
-                    <CircleHelp size={15} />
-                    <span>
-                      Berlaku hanya untuk latihan read-aloud yang memiliki
-                      naskah acuan: mode AI mengirim naskah dan transkrip (bukan
-                      audio) ke provider global untuk persentase 0–100. AI
-                      Lesson terbuka memakai provider global untuk feedback;
-                      mode transkrip menilai kosakata/grammar secara
-                      provisional, sedangkan mode rekaman meminta persetujuan
-                      dan mengirim audio. Gemini Live tetap memakai Gemini;
-                      feedback pasca-sesi menggunakan provider global.
-                    </span>
-                  </div>
-                </>
-              )}
               <label
                 className="field-label"
                 htmlFor="speech-similarity-threshold"
@@ -721,9 +608,9 @@ export default function AdminPage({
                 }
               />
               <p className="field-help">
-                Berlaku secara global untuk latihan read-aloud dengan transkrip
-                live maupun transkrip hasil AI. Default 90%; Gemini Live dan
-                percakapan AI Lesson tidak terpengaruh.
+                Berlaku secara global untuk latihan read-aloud Listening Lab
+                dengan transkrip browser. Default 90%; tidak memengaruhi AI
+                Lesson atau Gemini Live.
               </p>
               <div className="admin-divider" />
               <div className="setting-title">
@@ -861,6 +748,110 @@ export default function AdminPage({
                   tidak dikirim ke browser.
                 </span>
               </div>
+              <div className="admin-divider" />
+              <div className="setting-title">
+                <div className="setting-icon orange">
+                  <ShoppingBag size={18} />
+                </div>
+                <div>
+                  <b>Pembayaran diamond</b>
+                  <small>
+                    QRIS dinamis berdasarkan total, dengan QR statis sebagai
+                    fallback atau alternatif tersembunyi.
+                  </small>
+                </div>
+              </div>
+              <label className="field-label" htmlFor="payment-qris-payload">
+                TEKS QRIS STATIS MERCHANT
+              </label>
+              <textarea
+                id="payment-qris-payload"
+                className="text-field payment-qris-input"
+                rows={4}
+                maxLength={4000}
+                spellCheck={false}
+                value={settings.payment_qris_payload || ""}
+                onChange={(event) =>
+                  change("payment_qris_payload", event.target.value)
+                }
+                placeholder="000201..."
+              />
+              <small className="field-hint">
+                Tempel string QRIS mentah hasil ekspor/scan merchant. Backend
+                memvalidasi TLV dan CRC lalu mengganti nominal menjadi total
+                pesanan.
+              </small>
+              <div className="payment-config-grid">
+                <label className="field-label">
+                  PPN (%)
+                  <input
+                    className="text-field"
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={0.01}
+                    value={settings.payment_tax_percent ?? 0}
+                    onChange={(event) =>
+                      change("payment_tax_percent", Number(event.target.value))
+                    }
+                  />
+                </label>
+                <label className="field-label">
+                  BIAYA ADMIN (Rp)
+                  <input
+                    className="text-field"
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={settings.payment_admin_fee ?? 0}
+                    onChange={(event) =>
+                      change("payment_admin_fee", Number(event.target.value))
+                    }
+                  />
+                </label>
+              </div>
+              <label className="field-label" htmlFor="payment-whatsapp">
+                NOMOR WHATSAPP ADMIN
+              </label>
+              <input
+                id="payment-whatsapp"
+                className="text-field"
+                inputMode="tel"
+                value={settings.payment_whatsapp || ""}
+                onChange={(event) =>
+                  change("payment_whatsapp", event.target.value)
+                }
+                placeholder="6281234567890"
+              />
+              <div className="admin-static-qr-row">
+                <span>
+                  {settings.payment_static_qr_available
+                    ? "QR statis sudah diunggah · PNG, JPG, atau WebP (maks. 5 MB)"
+                    : "Belum ada QR statis · opsional jika QRIS dinamis tersedia"}
+                </span>
+                <div>
+                  <label className="outline-btn admin-file-button">
+                    {paymentQrBusy ? "Memproses…" : "Unggah QR statis"}
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      onChange={uploadStaticQr}
+                      disabled={paymentQrBusy}
+                    />
+                  </label>
+                  {settings.payment_static_qr_available && (
+                    <button
+                      className="text-button danger-text"
+                      type="button"
+                      onClick={removeStaticQr}
+                      disabled={paymentQrBusy}
+                    >
+                      Hapus
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div className="admin-divider" />
               <button
                 className="btn-primary admin-save"
                 onClick={save}
@@ -876,326 +867,6 @@ export default function AdminPage({
                   </>
                 )}
               </button>
-              <div className="admin-divider" />
-              <div className="setting-title">
-                <div className="setting-icon blue">
-                  <Settings size={17} />
-                </div>
-                <div>
-                  <b>Akun & paket akses</b>
-                  <small>
-                    Premium ditetapkan manual, tanpa pembayaran di versi ini
-                  </small>
-                </div>
-              </div>
-              <div className="admin-user-toolbar">
-                <div>
-                  <b>{users.length} akun</b>
-                  <small>
-                    Tambah, edit, reset password, ubah tipe atau hapus user.
-                  </small>
-                </div>
-                <button
-                  className="outline-btn"
-                  onClick={() => {
-                    setShowCreateUser((value) => !value);
-                    setEditingUser(null);
-                  }}
-                >
-                  {showCreateUser ? <X size={15} /> : <UserPlus size={15} />}
-                  {showCreateUser ? "Tutup" : "Tambah user"}
-                </button>
-              </div>
-              {usersError && (
-                <div className="studio-error" role="alert">
-                  {usersError} <button onClick={loadUsers}>Coba lagi</button>
-                </div>
-              )}
-              {showCreateUser && (
-                <form className="admin-user-form" onSubmit={createUser}>
-                  <b>Buat akun user</b>
-                  <label>
-                    Nama
-                    <input
-                      className="text-field"
-                      value={newUser.name}
-                      onChange={(event) =>
-                        setNewUser((value) => ({
-                          ...value,
-                          name: event.target.value,
-                        }))
-                      }
-                      maxLength={100}
-                      required
-                    />
-                  </label>
-                  <label>
-                    Email
-                    <input
-                      className="text-field"
-                      type="email"
-                      autoComplete="off"
-                      value={newUser.email}
-                      onChange={(event) =>
-                        setNewUser((value) => ({
-                          ...value,
-                          email: event.target.value,
-                        }))
-                      }
-                      required
-                    />
-                  </label>
-                  <label>
-                    Password awal
-                    <input
-                      className="text-field"
-                      type="password"
-                      autoComplete="new-password"
-                      minLength={10}
-                      value={newUser.password}
-                      onChange={(event) =>
-                        setNewUser((value) => ({
-                          ...value,
-                          password: event.target.value,
-                        }))
-                      }
-                      required
-                    />
-                    <small>
-                      Minimal 10 karakter; user harus mengganti password saat
-                      login pertama.
-                    </small>
-                  </label>
-                  <label>
-                    Tipe akun
-                    <select
-                      className="text-field"
-                      value={newUser.plan}
-                      onChange={(event) =>
-                        setNewUser((value) => ({
-                          ...value,
-                          plan: event.target.value,
-                        }))
-                      }
-                    >
-                      <option value="regular">Regular</option>
-                      <option value="premium">Premium</option>
-                    </select>
-                  </label>
-                  <div className="admin-user-form-actions">
-                    <button
-                      className="btn-primary"
-                      type="submit"
-                      disabled={usersBusy}
-                    >
-                      {usersBusy ? "Membuat…" : "Buat akun"}
-                    </button>
-                    <button
-                      className="text-button"
-                      type="button"
-                      onClick={() => setShowCreateUser(false)}
-                    >
-                      Batal
-                    </button>
-                  </div>
-                </form>
-              )}
-              {editingUser && (
-                <form className="admin-user-form" onSubmit={saveUserEdit}>
-                  <div className="admin-user-form-heading">
-                    <b>
-                      {editMode === "password"
-                        ? `Ganti password · ${editingUser.name}`
-                        : `Edit user · ${editingUser.name}`}
-                    </b>
-                    <button
-                      type="button"
-                      className="text-button"
-                      onClick={() => setEditingUser(null)}
-                    >
-                      <X size={15} /> Tutup
-                    </button>
-                  </div>
-                  {editMode !== "password" && (
-                    <>
-                      <label>
-                        Nama
-                        <input
-                          className="text-field"
-                          value={editUser.name}
-                          onChange={(event) =>
-                            setEditUser((value) => ({
-                              ...value,
-                              name: event.target.value,
-                            }))
-                          }
-                          maxLength={100}
-                          required
-                        />
-                      </label>
-                      <label>
-                        Email
-                        <input
-                          className="text-field"
-                          type="email"
-                          value={editUser.email}
-                          onChange={(event) =>
-                            setEditUser((value) => ({
-                              ...value,
-                              email: event.target.value,
-                            }))
-                          }
-                          required
-                        />
-                      </label>
-                      <label>
-                        Tipe akun
-                        <select
-                          className="text-field"
-                          value={editUser.plan}
-                          onChange={(event) =>
-                            setEditUser((value) => ({
-                              ...value,
-                              plan: event.target.value,
-                            }))
-                          }
-                        >
-                          <option value="regular">Regular</option>
-                          <option value="premium">Premium</option>
-                        </select>
-                      </label>
-                    </>
-                  )}
-                  <label>
-                    {editMode === "password"
-                      ? "Password baru"
-                      : "Password baru (opsional)"}
-                    <input
-                      className="text-field"
-                      type="password"
-                      autoComplete="new-password"
-                      minLength={10}
-                      value={editUser.password}
-                      onChange={(event) =>
-                        setEditUser((value) => ({
-                          ...value,
-                          password: event.target.value,
-                        }))
-                      }
-                      required={editMode === "password"}
-                    />
-                    <small>
-                      Jika diisi, user wajib mengatur password baru saat login
-                      berikutnya.
-                    </small>
-                  </label>
-                  <div className="admin-user-form-actions">
-                    <button
-                      className="btn-primary"
-                      type="submit"
-                      disabled={usersBusy}
-                    >
-                      {usersBusy
-                        ? "Menyimpan…"
-                        : editMode === "password"
-                          ? "Ganti password"
-                          : "Simpan perubahan"}
-                    </button>
-                    <button
-                      className="text-button"
-                      type="button"
-                      onClick={() => setEditingUser(null)}
-                    >
-                      Batal
-                    </button>
-                  </div>
-                </form>
-              )}
-              <div className="admin-users-table-wrap">
-                <table className="admin-users-table">
-                  <thead>
-                    <tr>
-                      <th>USER</th>
-                      <th>TIPE</th>
-                      <th>AKSI</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {users.map((account) => (
-                      <tr key={account.id}>
-                        <td>
-                          <b>{account.name}</b>
-                          <small>{account.email}</small>
-                        </td>
-                        <td>
-                          {account.role === "admin" ? (
-                            <span className="secure-chip">ADMIN</span>
-                          ) : (
-                            <select
-                              aria-label={`Tipe akun ${account.email}`}
-                              className="text-field plan-select"
-                              value={account.plan || "regular"}
-                              onChange={(event) =>
-                                setPlan(account.id, event.target.value)
-                              }
-                            >
-                              <option value="regular">Regular</option>
-                              <option value="premium">Premium</option>
-                            </select>
-                          )}
-                        </td>
-                        <td>
-                          {account.role === "admin" ? (
-                            <span className="admin-action-disabled">
-                              Admin dilindungi
-                            </span>
-                          ) : (
-                            <div className="admin-user-actions">
-                              <button
-                                className="icon-action"
-                                title="Edit user"
-                                aria-label={`Edit ${account.email}`}
-                                onClick={() => {
-                                  setShowCreateUser(false);
-                                  openEditUser(account, "edit");
-                                }}
-                              >
-                                <Pencil size={15} />
-                              </button>
-                              <button
-                                className="icon-action"
-                                title="Ganti password"
-                                aria-label={`Ganti password ${account.email}`}
-                                onClick={() => {
-                                  setShowCreateUser(false);
-                                  openEditUser(account, "password");
-                                }}
-                              >
-                                <KeyRound size={15} />
-                              </button>
-                              <button
-                                className="icon-action danger"
-                                title="Hapus user"
-                                aria-label={`Hapus ${account.email}`}
-                                onClick={() => deleteUser(account)}
-                              >
-                                <Trash2 size={15} />
-                              </button>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                    {!users.length && (
-                      <tr>
-                        <td colSpan={3} className="admin-empty-users">
-                          Belum ada user terdaftar.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
             </section>
             <aside className="admin-side">
               <div className="settings-card">

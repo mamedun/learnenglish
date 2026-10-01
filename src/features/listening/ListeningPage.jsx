@@ -29,6 +29,7 @@ export default function ListeningPage({
   speechScoringMode = "local",
   speechSimilarityThreshold = 90,
   aiProvider = "clario",
+  onDiamondsChanged = () => {},
 }) {
   const speechThreshold = normalizeSpeechThreshold(speechSimilarityThreshold);
   const [level, setLevel] = useState("All");
@@ -37,8 +38,8 @@ export default function ListeningPage({
     if (initialLessonId) setLevel("All");
     setActiveId(initialLessonId || null);
   }, [initialLessonId]);
-  const [answers, setAnswers] = useState({});
-  const [results, setResults] = useState({});
+  const [answers, setAnswers] = useState(() => data.listeningAnswers || {});
+  const [results, setResults] = useState(() => data.listeningResults || {});
   const [checking, setChecking] = useState(null);
   const [showScript, setShowScript] = useState(false);
   const lessons = useMemo(
@@ -53,9 +54,36 @@ export default function ListeningPage({
   const doneCount = allLessons.filter((x) => done.includes(x.id)).length;
   const next = allLessons.find((l) => !done.includes(l.id)) || allLessons[0];
   const keyFor = (question) => `${active.id}:${question.id}`;
+  function saveAnswer(key, value) {
+    const updated = { ...answers, [key]: value };
+    setAnswers(updated);
+    setData((previous) => ({ ...previous, listeningAnswers: updated }));
+  }
+  function saveResult(key, value) {
+    const updated = { ...results, [key]: value };
+    setResults(updated);
+    setData((previous) => ({ ...previous, listeningResults: updated }));
+  }
+  function clearQuestion(key) {
+    const updatedAnswers = { ...answers };
+    const updatedResults = { ...results };
+    delete updatedAnswers[key];
+    delete updatedResults[key];
+    setAnswers(updatedAnswers);
+    setResults(updatedResults);
+    setData((previous) => ({
+      ...previous,
+      listeningAnswers: updatedAnswers,
+      listeningResults: updatedResults,
+    }));
+  }
   const score =
     active?.questions.filter((q) => results[keyFor(q)]?.correct).length || 0;
   const finished = !!active && done.includes(active.id);
+  useEffect(() => {
+    setAnswers(data.listeningAnswers || {});
+    setResults(data.listeningResults || {});
+  }, [data.listeningAnswers, data.listeningResults]);
   useEffect(() => {
     window.speechSynthesis?.cancel();
     setShowScript(false);
@@ -85,7 +113,7 @@ export default function ListeningPage({
           answer: answers[key],
         }),
       });
-      setResults((v) => ({ ...v, [key]: result }));
+      saveResult(key, result);
       if (result.correct)
         toast.success("Betul! +1 langkah menuju lesson selesai.");
       else toast.info("Belum tepat. Baca petunjuknya dan coba lagi!");
@@ -306,12 +334,15 @@ export default function ListeningPage({
                         disabled={!!result?.correct}
                         className={`${answers[key] === j ? "chosen" : ""} ${result && j === result.correct_index ? "right" : ""} ${result && answers[key] === j && !result.correct ? "wrong" : ""}`}
                         onClick={() => {
-                          setAnswers((v) => ({ ...v, [key]: j }));
-                          setResults((v) => {
-                            const copy = { ...v };
-                            delete copy[key];
-                            return copy;
-                          });
+                          saveAnswer(key, j);
+                          const updatedResults = { ...results };
+                          delete updatedResults[key];
+                          setResults(updatedResults);
+                          setData((previous) => ({
+                            ...previous,
+                            listeningAnswers: { ...answers, [key]: j },
+                            listeningResults: updatedResults,
+                          }));
                         }}
                       >
                         <span>{String.fromCharCode(65 + j)}</span>
@@ -348,18 +379,7 @@ export default function ListeningPage({
                       {!result.correct && (
                         <button
                           className="text-button"
-                          onClick={() => {
-                            setResults((v) => {
-                              const copy = { ...v };
-                              delete copy[key];
-                              return copy;
-                            });
-                            setAnswers((v) => {
-                              const copy = { ...v };
-                              delete copy[key];
-                              return copy;
-                            });
-                          }}
+                          onClick={() => clearQuestion(key)}
                         >
                           <RotateCcw size={14} /> Pilih jawaban lain
                         </button>
@@ -380,6 +400,37 @@ export default function ListeningPage({
             aiProvider={aiProvider}
             passed={speechPassed}
             passedScore={speechScore}
+            savedTranscript={data.speakingTranscripts?.[active.id] || ""}
+            onDiamondsChanged={onDiamondsChanged}
+            onAttempt={(percent, transcript, method) =>
+              setData((previous) => {
+                const previousScore = Number(
+                  previous.speakingScores?.[active.id] || 0,
+                );
+                const hasScore =
+                  percent !== null &&
+                  percent !== undefined &&
+                  Number.isFinite(Number(percent));
+                return {
+                  ...previous,
+                  speakingScores: hasScore
+                    ? {
+                        ...(previous.speakingScores || {}),
+                        [active.id]: Math.max(previousScore, Number(percent)),
+                      }
+                    : previous.speakingScores || {},
+                  speakingTranscripts: {
+                    ...(previous.speakingTranscripts || {}),
+                    [active.id]: {
+                      text: String(transcript || "").trim(),
+                      score: hasScore ? Number(percent) : null,
+                      method,
+                      updatedAt: new Date().toISOString(),
+                    },
+                  },
+                };
+              })
+            }
             onPass={(percent) =>
               setData((previous) => ({
                 ...previous,

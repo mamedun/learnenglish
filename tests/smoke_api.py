@@ -13,7 +13,9 @@ import secrets
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import datetime
 import io
+import time
 import wave
 
 BASE = os.getenv('SMOKE_API_BASE', 'http://127.0.0.1:8788/learnenglish/api').rstrip('/')
@@ -114,6 +116,44 @@ def tiny_wav():
     return output.getvalue()
 
 
+def qris_crc16(value):
+    crc = 0xFFFF
+    for byte in value.encode():
+        crc ^= byte << 8
+        for _ in range(8):
+            crc = ((crc << 1) ^ 0x1021) if crc & 0x8000 else crc << 1
+            crc &= 0xFFFF
+    return f'{crc:04X}'
+
+
+def qris_tlv(tag, value):
+    return f'{tag}{len(value):02d}{value}'
+
+
+def static_qris():
+    body = ''.join([
+        qris_tlv('00', '01'),
+        qris_tlv('01', '11'),
+        qris_tlv('53', '360'),
+        qris_tlv('58', 'ID'),
+        qris_tlv('59', 'SMOKE'),
+        qris_tlv('60', 'CIMAHI'),
+    ])
+    crc_input = body + '6304'
+    return crc_input + qris_crc16(crc_input)
+
+
+def parse_qris(payload):
+    fields = {}
+    offset = 0
+    while offset < len(payload):
+        tag, size = payload[offset:offset + 2], int(payload[offset + 2:offset + 4])
+        offset += 4
+        fields[tag] = payload[offset:offset + size]
+        offset += size
+    return fields
+
+
 def refresh_cookie(client):
     return next(cookie.value for cookie in client.cookies if cookie.name == 'speakup_refresh')
 
@@ -169,22 +209,27 @@ assert request(regular, 'app-config')['settings']['speech_similarity_threshold']
 assert len(request(regular, 'catalog')['listening']) == 18
 read_aloud_probe = request_form(regular, 'assess-audio', {'task_mode': 'read_aloud', 'consent': '1'}, expected=422)
 assert 'Audio evaluasi tidak diterima' in read_aloud_probe['error']
-response_probe = request_form(regular, 'assess-audio', {'task_mode': 'response', 'consent': '1'}, expected=403)
-assert response_probe.get('premium_required') is True
+response_probe = request_form(regular, 'assess-audio', {'task_mode': 'response', 'consent': '1'}, expected=422)
+assert 'Audio evaluasi tidak diterima' in response_probe['error']
+assert learner['diamonds'] == 0  # the regular account can use paid AI only after diamonds are added
 
 # Admin user CRUD: create, change plan/profile, rotate a temporary password, delete.
 managed_email = f'managed-{secrets.token_hex(4)}@example.invalid'
 managed = request(admin, 'admin/users', 'POST', {
     'name': 'Managed Learner', 'email': managed_email,
-    'password': 'managed-initial-password-2026', 'plan': 'premium',
+    'password': 'managed-initial-password-2026',
 }, expected=201)['user']
-assert managed['role'] == 'user' and managed['plan'] == 'premium' and managed['must_change_password']
+assert managed['role'] == 'user' and managed['plan'] == 'regular' and managed['must_change_password']
 managed = request(admin, 'admin/users', 'PUT', {
     'id': managed['id'], 'name': 'Updated Learner', 'email': managed_email,
     'password': 'managed-rotated-password-2026', 'plan': 'regular',
 })['user']
 assert managed['name'] == 'Updated Learner' and managed['plan'] == 'regular' and managed['must_change_password']
-assert any(row['id'] == managed['id'] for row in request(admin, 'admin/users')['users'])
+managed_search = request(admin, f"admin/users?search={urllib.parse.quote(managed_email)}&page=1&page_size=10")
+assert managed_search['total'] == 1 and managed_search['users'][0]['id'] == managed['id']
+assert request(admin, 'admin/wallet', 'PUT', {'id': managed['id'], 'mode': 'set', 'balance': 25})['diamonds'] == 25
+assert request(admin, 'admin/wallet', 'PUT', {'id': managed['id'], 'mode': 'adjust', 'amount': -5})['diamonds'] == 20
+assert request(admin, 'admin/wallet', 'PUT', {'id': managed['id'], 'mode': 'adjust', 'amount': 3})['diamonds'] == 23
 request(admin, f"admin/users/{managed['id']}", 'DELETE')
 request(admin, f"admin/users/{managed['id']}", 'DELETE', expected=404)
 request(regular, 'admin/catalog', expected=403)
@@ -195,8 +240,33 @@ assert wrong['correct'] is False and wrong['correct_index'] == q['answer'] and w
 right = request(regular, 'listening/check', 'POST', {'lesson_id': lesson['id'], 'question_id': q['id'], 'answer': q['answer']})
 assert right['correct'] is True
 request(regular, 'listening/check', 'POST', {'lesson_id': lesson['id'], 'question_id': 123456789, 'answer': 0}, expected=404)
-request(regular, 'progress', 'PUT', {'progress': {'completed': [], 'listeningCompleted': [lesson['id']], 'xp': 10, 'streak': 1, 'sessions': []}})
-assert request(regular, 'progress')['progress']['listeningCompleted'] == [lesson['id']]
+listening_progress = {
+    'completed': [],
+    'listeningCompleted': [lesson['id']],
+    'listeningAnswers': {lesson['id']: {str(q['id']): 1}},
+    'listeningResults': {lesson['id']: {str(q['id']): {'percent': 92, 'passed': True}}},
+    'speakingTranscripts': {lesson['id']: {str(q['id']): 'I heard the speaker order tea.'}},
+    'xp': 10,
+    'streak': 1,
+    'sessions': [],
+}
+request(regular, 'progress', 'PUT', {'progress': listening_progress})
+saved_listening_progress = request(regular, 'progress')['progress']
+assert saved_listening_progress['listeningCompleted'] == [lesson['id']]
+assert saved_listening_progress['listeningAnswers'] == listening_progress['listeningAnswers']
+assert saved_listening_progress['listeningResults'] == listening_progress['listeningResults']
+assert saved_listening_progress['speakingTranscripts'] == listening_progress['speakingTranscripts']
+saved_audio = request_form(
+    regular,
+    'audio',
+    {'client_ref': 'smoke-history'},
+    expected=201,
+    files={'audio': ('recording.wav', tiny_wav(), 'audio/wav')},
+)['audio']
+audio_bytes, audio_mime = request_bytes(regular, f"audio/{saved_audio['id']}")
+assert audio_bytes == tiny_wav() and 'wav' in audio_mime
+request(regular, f"audio/{saved_audio['id']}", 'DELETE')
+request_bytes(regular, f"audio/{saved_audio['id']}", expected=404)
 request(regular, 'admin/units', 'POST', {}, expected=403)
 request(regular, 'listening/check', 'POST', {'lesson_id': lesson['id'], 'question_id': q['id'], 'answer': q['answer']}, expected=403, origin='https://attacker.invalid')
 
@@ -305,6 +375,10 @@ config = {
     'clario_fallback_url': settings['clario_fallback_url'],
     'clario_model': settings['clario_model'],
     'gemini_live_model': settings['gemini_live_model'],
+    'payment_qris_payload': static_qris(),
+    'payment_tax_percent': 11,
+    'payment_admin_fee': 500,
+    'payment_whatsapp': '6281234567890',
     'lockdown': False,
     'stop_registration': False,
 }
@@ -317,6 +391,39 @@ assert request(admin, 'admin/settings')['settings']['speech_scoring_mode'] == 'l
 assert request(regular, 'app-config')['settings']['speech_input_mode'] == 'ai_audio'
 assert request(regular, 'app-config')['settings']['speech_scoring_mode'] == 'local'
 request(regular, 'speech-score', 'POST', {'expected_text': 'hello', 'transcript': 'hello'}, expected=409)
+
+# QRIS orders apply tax, fixed fees and a unique rupiah code; diamonds use base amount only.
+shop_settings = request(regular, 'shop/settings')
+assert shop_settings['settings']['diamond_rate'] == 100
+assert shop_settings['settings']['purchase_validity_hours'] == 24
+assert shop_settings['settings']['tax_percent'] == 11
+assert shop_settings['settings']['admin_fee'] == 500
+assert shop_settings['settings']['whatsapp'] == '6281234567890'
+assert 'qris_payload' not in shop_settings['settings']
+request(regular, 'shop/purchases', 'POST', {'base_amount': 5500}, expected=422)
+purchase = request(regular, 'shop/purchases', 'POST', {'base_amount': 5000}, expected=201)['purchase']
+assert purchase['status'] == 'pending'
+assert purchase['base_amount'] == 5000 and purchase['diamond_amount'] == 50
+assert purchase['tax_amount'] == 550 and purchase['admin_fee'] == 500
+assert 1 <= purchase['unique_code'] <= 999
+assert purchase['total_amount'] == 5000 + 550 + 500 + purchase['unique_code']
+created_at = datetime.fromisoformat(purchase['created_at'])
+expires_at = datetime.fromisoformat(purchase['expires_at'])
+assert 86390 <= (expires_at - created_at).total_seconds() <= 86410
+qris_fields = parse_qris(purchase['qris_payload'])
+assert qris_fields['01'] == '12' and qris_fields['53'] == '360'
+assert qris_fields['54'] == f"{purchase['total_amount']:.2f}"
+assert qris_fields['63'] == qris_crc16(purchase['qris_payload'][:-4])
+request(regular, f"shop/purchases/{purchase['id']}/contacted", 'POST', {})
+assert any(row['id'] == purchase['id'] and row['contacted_at'] for row in request(regular, 'shop/purchases')['purchases'])
+admin_orders = request(admin, f"admin/purchases?page=1&status=pending&search={urllib.parse.quote(user_email)}")
+assert admin_orders['total'] == 1 and admin_orders['items'][0]['email'] == user_email
+approved = request(admin, f"admin/purchases/{purchase['id']}/approve", 'POST', {})
+assert approved['diamonds'] == 50 and approved['purchase']['status'] == 'paid'
+assert request(regular, 'me')['user']['diamonds'] == 50
+second_purchase = request(regular, 'shop/purchases', 'POST', {'base_amount': 5000}, expected=201)['purchase']
+request(admin, f"admin/purchases/{second_purchase['id']}", 'DELETE')
+assert all(row['id'] != second_purchase['id'] for row in request(regular, 'shop/purchases')['purchases'])
 
 # Free API uses its own encrypted API/JWT credentials and an allow-listed node pool.
 free_config = {
@@ -343,6 +450,45 @@ assert 'smoke-api-key-only' not in json.dumps(selected) and 'smoke-jwt-secret-on
 assert request(regular, 'app-config')['settings']['ai_provider'] == 'free'
 assert request(regular, 'app-config')['settings']['speech_scoring_mode'] == 'ai'
 assert request(admin, 'models')['data'] == []
+
+# Each AI mode requires diamonds, and Live reserves/refunds its 5-minute blocks.
+assert request(admin, 'admin/wallet', 'PUT', {'id': learner['id'], 'mode': 'set', 'balance': 0})['diamonds'] == 0
+for path, payload, required in [
+    ('chat', {'transcript': 'Hello, tutor.'}, 2),
+    ('speech-score', {'expected_text': 'hello', 'transcript': 'hello'}, 1),
+]:
+    insufficient = request(regular, path, 'POST', payload, expected=402)
+    assert insufficient['required'] == required and insufficient['diamonds'] == 0
+insufficient_audio = request_form(
+    regular,
+    'assess-audio',
+    {'task_mode': 'response', 'consent': '1'},
+    expected=402,
+    files={'audio': ('smoke.wav', tiny_wav(), 'audio/wav')},
+)
+assert insufficient_audio['required'] == 5 and insufficient_audio['diamonds'] == 0
+
+assert request(admin, 'admin/wallet', 'PUT', {'id': learner['id'], 'mode': 'set', 'balance': 10})['diamonds'] == 10
+cancelled_live = request(regular, 'live-billing/start', 'POST', {}, expected=201)
+assert cancelled_live['reserved_blocks'] == 1 and cancelled_live['diamonds'] == 0
+cancelled_settlement = request(regular, 'live-billing/settle', 'POST', {
+    'session_id': cancelled_live['session_id'], 'cancel': True,
+})
+assert cancelled_settlement['charged_diamonds'] == 0
+assert cancelled_settlement['refunded_diamonds'] == 10 and cancelled_settlement['diamonds'] == 10
+
+assert request(admin, 'admin/wallet', 'PUT', {'id': learner['id'], 'mode': 'set', 'balance': 20})['diamonds'] == 20
+active_live = request(regular, 'live-billing/start', 'POST', {}, expected=201)
+request(regular, 'live-billing/started', 'POST', {'session_id': active_live['session_id']})
+request(regular, 'live-billing/reserve', 'POST', {'session_id': active_live['session_id']}, expected=409)
+time.sleep(1.1)
+settled_live = request(regular, 'live-billing/settle', 'POST', {
+    'session_id': active_live['session_id'], 'cancel': False,
+})
+assert 2 <= settled_live['charged_diamonds'] <= 4
+assert settled_live['refunded_diamonds'] == 10 - settled_live['charged_diamonds']
+assert settled_live['diamonds'] == 20 - settled_live['charged_diamonds']
+
 # Accept stored/client names from the previous build while presenting only the Free API brand.
 legacy_config = {
     **config,
@@ -386,4 +532,4 @@ assert request(regular, 'progress')['progress'] is None
 request(regular, 'logout', 'POST')
 request(regular, 'progress', expected=401)
 request(regular, 'auth/refresh', 'POST', expected=401)
-print('PASS: JWT + rotating refresh/cookies, password/logout revocation, roles, admin user CRUD, seed 6/48/18/36, catalog CRUD and TTS revision/invalidation, shared WAV cache upload/playback/clear, server answer checks, progress, configurable global speech-similarity threshold, provider/input mode, encrypted Free API Key pool/token settings, CORS, lockdown, registration.')
+print('PASS: auth and revocation; searchable/paginated admin users and wallets; seed/catalog/TTS/cache flows; persisted Listening Lab answer/speaking progress; AI diamond costs; QRIS pricing, unique codes, expiry and approval; Live block reservation/refunds; provider settings, CORS, lockdown and registration.')

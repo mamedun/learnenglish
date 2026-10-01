@@ -26,7 +26,11 @@ export function encodePcm16Base64(input, fromRate, toRate = 16_000) {
     const left = Number(input[leftIndex] ?? 0);
     const right = Number(input[rightIndex] ?? left);
     const sample = Math.max(-1, Math.min(1, left + (right - left) * fraction));
-    view.setInt16(i * 2, Math.round(sample * (sample < 0 ? 32768 : 32767)), true);
+    view.setInt16(
+      i * 2,
+      Math.round(sample * (sample < 0 ? 32768 : 32767)),
+      true,
+    );
   }
 
   let binary = "";

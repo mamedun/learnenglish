@@ -35,7 +35,10 @@ export default function ListeningSpeakingTask({
   ttsStatus,
   passed,
   passedScore = 0,
+  savedTranscript = "",
   onPass,
+  onAttempt,
+  onDiamondsChanged,
 }) {
   const liveMode = speechInputMode !== "ai_audio";
   const recognition = useSpeechRecognition({ language: "en-US" });
@@ -57,8 +60,12 @@ export default function ListeningSpeakingTask({
   const preview = answer
     ? compareSpokenText(lesson.script, answer, similarityThreshold)
     : null;
-  const aiScoring = liveMode && speechScoringMode === "ai";
+  const aiScoring = speechScoringMode === "ai";
   const displayedScore = aiScoring ? checked : (checked ?? preview);
+  const savedTranscriptText =
+    typeof savedTranscript === "string"
+      ? savedTranscript
+      : String(savedTranscript?.text || "");
   const ttsBusy = isTtsBusy(ttsStatus);
 
   useEffect(() => {
@@ -198,6 +205,7 @@ export default function ListeningSpeakingTask({
       toast.info("Bicarakan paragrafnya terlebih dahulu.");
       return;
     }
+    onAttempt?.(null, transcript, aiScoring ? "ai" : "local");
 
     if (aiScoring) {
       setProcessing(true);
@@ -215,6 +223,8 @@ export default function ListeningSpeakingTask({
           }),
         });
         const payload = await response.json();
+        if (Number.isFinite(Number(payload.diamonds)))
+          onDiamondsChanged?.(Number(payload.diamonds));
         if (!response.ok)
           throw new Error(payload.error || "AI gagal membandingkan transkrip.");
         const percent = Math.max(0, Math.min(100, Math.round(payload.percent)));
@@ -230,8 +240,9 @@ export default function ListeningSpeakingTask({
         );
       }
       setChecked(result);
+      onAttempt?.(result.percent, transcript, aiScoring ? "ai" : "local");
       if (result.passed) {
-        onPass?.(result.percent);
+        onPass?.(result.percent, transcript);
         toast.success(
           `Bagus! Kemiripan ${result.percent}% — latihan speaking lulus.`,
         );
@@ -294,26 +305,47 @@ export default function ListeningSpeakingTask({
         audioForAI,
         `read-aloud-${lesson.id}.${audioExtension}`,
       );
-      setProcessingMessage("Mengirim audio untuk transkripsi…");
+      setProcessingMessage(
+        speechScoringMode === "ai"
+          ? "Mengirim audio untuk transkripsi dan penilaian AI…"
+          : "Mengirim audio untuk transkripsi…",
+      );
       const response = await apiFetch("assess-audio", {
         method: "POST",
         body: form,
       });
       setProcessingMessage("Menerima transkrip dari AI…");
       const payload = await response.json();
+      if (Number.isFinite(Number(payload.diamonds)))
+        onDiamondsChanged?.(Number(payload.diamonds));
       if (!response.ok)
         throw new Error(payload.error || "AI gagal mentranskripsikan audio.");
       const text = String(payload.result?.transcript || "").trim();
       if (!text) throw new Error("Server AI tidak menghasilkan transkrip.");
       setAiTranscript(text);
-      const result = compareSpokenText(
-        lesson.script,
-        text,
-        similarityThreshold,
-      );
+      onAttempt?.(null, text, speechScoringMode === "ai" ? "ai" : "local");
+      let result;
+      if (speechScoringMode === "ai") {
+        const percent = Number(payload.result?.percent);
+        if (!Number.isFinite(percent) || percent < 0 || percent > 100)
+          throw new Error(
+            "AI tidak mengembalikan persentase kecocokan yang valid.",
+          );
+        result = {
+          percent: Math.round(percent),
+          passed: meetsSpeechThreshold(percent, similarityThreshold),
+        };
+      } else {
+        result = compareSpokenText(lesson.script, text, similarityThreshold);
+      }
       setChecked(result);
+      onAttempt?.(
+        result.percent,
+        text,
+        speechScoringMode === "ai" ? "ai" : "local",
+      );
       if (result.passed) {
-        onPass?.(result.percent);
+        onPass?.(result.percent, text);
         toast.success(
           `Bagus! Kemiripan ${result.percent}% — latihan speaking lulus.`,
         );
@@ -340,7 +372,12 @@ export default function ListeningSpeakingTask({
           <h3>Ucapkan kembali paragrafnya</h3>
           <p>
             Dengarkan contoh, baca nyaring, lalu ulangi sampai kata-katanya
-            minimal {similarityThreshold}% sesuai.
+            minimal {similarityThreshold}% sesuai.{" "}
+            {speechScoringMode === "ai"
+              ? `Pencocokan AI memakai 1 diamond${liveMode ? " per percakapan; audio tidak dikirim." : " per pencocokan; transkripsi audio juga memakai 1 diamond."}`
+              : liveMode
+                ? "Pencocokan lokal gratis; audio tidak dikirim."
+                : "Pencocokan lokal gratis; transkripsi audio AI memakai 1 diamond."}
           </p>
         </div>
         {passed && (
@@ -381,8 +418,8 @@ export default function ListeningSpeakingTask({
             <div className="speech-browser-warning" role="note">
               <b>Google Chrome diperlukan untuk live transcription.</b>
               Brave dapat menampilkan tombol Web Speech tetapi tidak mencapai
-              layanan transkripsinya. Gunakan Chrome atau minta admin memilih
-              mode rekaman AI.
+              layanan transkripsinya. Gunakan Google Chrome untuk live
+              transcription.
             </div>
           )}
           <div className="shadowing-controls">
@@ -419,7 +456,10 @@ export default function ListeningSpeakingTask({
                     </>
                   ) : (
                     <>
-                      Periksa transkrip <Check size={15} />
+                      {aiScoring
+                        ? "Nilai dengan AI · 1 diamond"
+                        : "Periksa gratis"}{" "}
+                      <Check size={15} />
                     </>
                   )}
                 </button>
@@ -462,7 +502,10 @@ export default function ListeningSpeakingTask({
                     </>
                   ) : (
                     <>
-                      Transkripsikan & periksa <Check size={15} />
+                      {speechScoringMode === "ai"
+                        ? "Transkripsikan + AI match · 2 diamond"
+                        : "Transkripsikan · 1 diamond"}{" "}
+                      <Check size={15} />
                     </>
                   )}
                 </button>
@@ -533,6 +576,27 @@ export default function ListeningSpeakingTask({
               tombol transkripsi dan menyetujuinya.
             </p>
           )}
+          {savedTranscriptText &&
+            savedTranscriptText !== answer &&
+            savedTranscriptText !== aiTranscript && (
+              <div className="transcript-area shadowing-transcript saved-speaking-transcript">
+                <div className="transcript-label">
+                  <span>TRANSKRIP TERAKHIR · TERSIMPAN</span>
+                  <span>{savedTranscriptText.length} karakter</span>
+                </div>
+                <textarea
+                  value={savedTranscriptText}
+                  readOnly
+                  aria-label="Transkrip latihan speaking tersimpan"
+                />
+                {savedTranscript?.score != null && (
+                  <div className="transcript-foot">
+                    Skor terakhir: {savedTranscript.score}% · audio tidak
+                    disimpan.
+                  </div>
+                )}
+              </div>
+            )}
           {displayedScore && (
             <div
               className={`shadowing-score ${displayedScore.passed ? "passed" : ""}`}

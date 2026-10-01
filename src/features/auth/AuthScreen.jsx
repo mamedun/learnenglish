@@ -107,7 +107,9 @@ export default function AuthScreen({ onAuth }) {
             </div>
             <div>
               <CheckCircle2 size={17} />
-              <span>48 unit speaking & feedback AI untuk Premium</span>
+              <span>
+                AI Lesson dengan diamond · Live Lesson maksimal 10 menit
+              </span>
             </div>
             <div>
               <ShieldCheck size={17} />

@@ -7,6 +7,7 @@ import {
   BarChart3,
   ChevronRight,
   Flame,
+  Gem,
   Headphones,
   Home,
   Mic,
@@ -20,10 +21,11 @@ import {
 import { initialData } from "../data";
 import { awardXP } from "../gamification";
 import { deleteAllRecordings, exportBackup, importBackup } from "../storage";
-import { apiFetch, apiJson, refreshSession } from "../api";
+import { apiFetch, apiJson, apiUrl, refreshSession } from "../api";
 import {
   canCompletePracticeLesson,
   findNextPracticeLesson,
+  practicePoints,
 } from "../features/speaking/lessonProgress";
 import { useAuthStore } from "../store/authStore";
 import { useLearningStore } from "../store/learningStore";
@@ -71,6 +73,7 @@ const PracticePage = lazy(() => import("../features/speaking/PracticePage"));
 const LivePage = lazy(() => import("../features/live/LivePage"));
 const ProgressPage = lazy(() => import("../features/progress/ProgressPage"));
 const SettingsPage = lazy(() => import("../features/settings/SettingsPage"));
+const ShopPage = lazy(() => import("../features/shop/ShopPage"));
 
 function App() {
   const navigate = useNavigate();
@@ -145,6 +148,12 @@ function App() {
   const liveTranscriptLinesRef = useRef([]);
   const liveCurrentSpeakerRef = useRef(null);
   const livePlayheadRef = useRef(0);
+  const liveBillingSessionRef = useRef(null);
+  const liveBillingBlocksRef = useRef(0);
+  const liveStartedAtRef = useRef(0);
+  const liveBillingReserveLockRef = useRef(false);
+  const liveBillingStartedRef = useRef(false);
+  const liveEndingRef = useRef(false);
   const recorder = useRef(null);
   const streamRef = useRef(null);
   const chunks = useRef([]);
@@ -160,6 +169,12 @@ function App() {
   );
   const activeUnit = allUnits.find((u) => u.id === activeUnitId) || allUnits[0];
   const ttsBusy = isTtsBusy(ttsStatus);
+  function applyDiamondBalance(value) {
+    const diamonds = Number(value);
+    if (!Number.isFinite(diamonds) || diamonds < 0) return;
+    const account = useAuthStore.getState().user;
+    if (account) setUser({ ...account, diamonds: Math.floor(diamonds) });
+  }
 
   async function loadAccount(account, current = () => true) {
     if (!current()) return;
@@ -216,8 +231,11 @@ function App() {
       ...initialData,
       ...(progress.progress || {}),
       settings,
+      listeningAnswers: progress.progress?.listeningAnswers || {},
+      listeningResults: progress.progress?.listeningResults || {},
       speakingCompleted: progress.progress?.speakingCompleted || [],
       speakingScores: progress.progress?.speakingScores || {},
+      speakingTranscripts: progress.progress?.speakingTranscripts || {},
     });
     setDataReady(true);
   }
@@ -349,19 +367,55 @@ function App() {
     return () => clearInterval(t);
   }, [recording]);
   useEffect(() => {
-    let t;
-    if (liveOn)
-      t = window.setInterval(
-        () => setLiveSeconds((s) => Math.min(1200, s + 1)),
-        1e3,
-      );
-    return () => clearInterval(t);
+    if (!liveOn) return undefined;
+    const updateLiveTime = () => {
+      const startedAt = liveStartedAtRef.current;
+      if (startedAt)
+        setLiveSeconds(
+          Math.min(600, Math.floor((Date.now() - startedAt) / 1000)),
+        );
+    };
+    updateLiveTime();
+    const timer = window.setInterval(updateLiveTime, 1e3);
+    return () => clearInterval(timer);
   }, [liveOn]);
   useEffect(() => {
-    if (liveOn && liveSeconds >= 1200) {
-      toast.info("Sesi Live mencapai batas 20 menit.");
+    if (liveOn && liveSeconds >= 600) {
+      toast.info("Sesi Live mencapai batas 10 menit.");
       void endLive();
     }
+  }, [liveOn, liveSeconds]);
+  useEffect(() => {
+    if (
+      !liveOn ||
+      liveSeconds < 240 ||
+      liveBillingBlocksRef.current >= 2 ||
+      liveBillingReserveLockRef.current
+    )
+      return;
+    const sessionId = liveBillingSessionRef.current;
+    if (!sessionId) return;
+    liveBillingReserveLockRef.current = true;
+    void apiJson("live-billing/reserve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: sessionId }),
+    })
+      .then((result) => {
+        liveBillingBlocksRef.current = Number(result.reserved_blocks) || 2;
+        applyDiamondBalance(result.diamonds);
+        setLiveStatus("Connected · next 5-minute block reserved");
+      })
+      .catch((error) => {
+        applyDiamondBalance(error.diamonds);
+        toast.error(
+          error.message || "Saldo tidak cukup untuk blok Live berikutnya.",
+        );
+        void endLive();
+      })
+      .finally(() => {
+        liveBillingReserveLockRef.current = false;
+      });
   }, [liveOn, liveSeconds]);
   useEffect(() => {
     if (
@@ -392,6 +446,33 @@ function App() {
     },
     [],
   );
+  useEffect(() => {
+    const settleLiveOnExit = () => {
+      const sessionId = liveBillingSessionRef.current;
+      const token = useAuthStore.getState().accessToken;
+      if (!sessionId || !token) return;
+      liveBillingSessionRef.current = null;
+      void fetch(apiUrl("live-billing/settle"), {
+        method: "POST",
+        credentials: "include",
+        keepalive: true,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          session_id: sessionId,
+          cancel: !liveBillingStartedRef.current,
+        }),
+      }).catch(() => {});
+    };
+    window.addEventListener("pagehide", settleLiveOnExit);
+    return () => window.removeEventListener("pagehide", settleLiveOnExit);
+  }, []);
+  useEffect(() => {
+    if (page !== "live" && (liveOn || liveBillingSessionRef.current))
+      void endLive();
+  }, [page, liveOn]);
   const completed = new Set(data.completed || []);
   const totalDone = allUnits.filter((u) => completed.has(u.id)).length;
   const levelProgress = curriculum.map((l) => ({
@@ -408,7 +489,7 @@ function App() {
   const pct = allUnits.length
     ? Math.round((totalDone / allUnits.length) * 100)
     : 0;
-  const hasPremiumAccess = user?.role === "admin" || user?.plan === "premium";
+  const hasLearningAccess = Boolean(user);
   useEffect(() => {
     if (!authReady || !dataReady) return;
 
@@ -419,13 +500,6 @@ function App() {
     }
 
     if (route.page === "practice") {
-      if (!hasPremiumAccess) {
-        toast.info(
-          "AI Lesson dan Live Lesson tersedia untuk Premium. Listening tetap gratis.",
-        );
-        navigate("/listening", { replace: true });
-        return;
-      }
       const unit = allUnits.find((item) => item.id === route.unitId);
       if (!unit) {
         navigate("/home", { replace: true });
@@ -446,7 +520,11 @@ function App() {
         return;
       }
       if (activeUnitId !== unit.id) {
-        setTurns([]);
+        setTurns(
+          (data.sessions || [])
+            .filter((session) => session.unitId === unit.id)
+            .flatMap((session) => session.turns || []),
+        );
         setTranscript("");
         setAudioBlob(null);
         setSessionSaveAudio(null);
@@ -465,13 +543,6 @@ function App() {
       setSelectedListeningId(route.listeningId || null);
     } else {
       setSelectedListeningId(null);
-      if (route.page === "live" && !hasPremiumAccess) {
-        toast.info(
-          "AI Lesson dan Live Lesson tersedia untuk Premium. Listening tetap gratis.",
-        );
-        navigate("/listening", { replace: true });
-        return;
-      }
       if (route.page === "admin" && user?.role !== "admin") {
         navigate("/home", { replace: true });
         return;
@@ -485,8 +556,9 @@ function App() {
     allUnits,
     authReady,
     data.completed,
+    data.sessions,
     dataReady,
-    hasPremiumAccess,
+    hasLearningAccess,
     listeningLessons,
     location.pathname,
     navigate,
@@ -496,12 +568,6 @@ function App() {
   ]);
 
   const nav = (p) => {
-    if (!hasPremiumAccess && ["practice", "live"].includes(p)) {
-      toast.info(
-        "AI Lesson dan Live Lesson tersedia untuk Premium. Listening tetap gratis.",
-      );
-      p = "listening";
-    }
     if (p === "practice") {
       if (!allUnits.length)
         return toast.info("Belum ada unit speaking yang diterbitkan.");
@@ -526,7 +592,6 @@ function App() {
     if (location.pathname !== targetPath) navigate(targetPath);
   };
   const startUnit = (unit) => {
-    if (!hasPremiumAccess) return nav("practice");
     if (!unit) return toast.info("Belum ada unit di level ini.");
     const index = allUnits.findIndex((x) => x.id === unit.id);
     const nextIndex = allUnits.findIndex((x) => !completed.has(x.id));
@@ -535,7 +600,11 @@ function App() {
       return;
     }
     setActiveUnitId(unit.id);
-    setTurns([]);
+    setTurns(
+      (data.sessions || [])
+        .filter((session) => session.unitId === unit.id)
+        .flatMap((session) => session.turns || []),
+    );
     setTranscript("");
     setAudioBlob(null);
     setSessionSaveAudio(null);
@@ -670,11 +739,15 @@ function App() {
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
   }
-  async function submitTurn({ forceAiAudio = false } = {}) {
+  async function submitTurn({ mode = "transcript" } = {}) {
     if (submitTurnLockRef.current) return;
+    if (!["transcript", "audio"].includes(mode)) {
+      toast.error("Pilih metode jawaban yang valid.");
+      return;
+    }
     submitTurnLockRef.current = true;
     setProcessing(true);
-    setProcessingMessage("Memeriksa mode input dan provider AI…");
+    setProcessingMessage("Memeriksa provider AI global…");
 
     const stopBeforeSubmit = (message) => {
       submitTurnLockRef.current = false;
@@ -686,15 +759,10 @@ function App() {
     try {
       const latestConfig = await apiJson("app-config");
       const settings = latestConfig?.settings;
-      if (
-        !["live_transcribe", "ai_audio"].includes(settings?.speech_input_mode)
-      )
-        throw new Error("Mode input global terbaru tidak dapat dipastikan.");
       if (!["clario", "free"].includes(settings?.ai_provider))
         throw new Error("Provider AI global terbaru tidak dapat dipastikan.");
       currentConfig = {
         ...appConfig,
-        speech_input_mode: settings.speech_input_mode,
         speech_scoring_mode:
           settings.speech_scoring_mode ||
           appConfig.speech_scoring_mode ||
@@ -710,7 +778,6 @@ function App() {
       };
       setAppConfig((previous) => ({
         ...previous,
-        speech_input_mode: currentConfig.speech_input_mode,
         speech_scoring_mode: currentConfig.speech_scoring_mode,
         speech_similarity_threshold: currentConfig.speech_similarity_threshold,
         ai_provider: currentConfig.ai_provider,
@@ -719,19 +786,16 @@ function App() {
     } catch (error) {
       stopBeforeSubmit(
         error?.message ||
-          "Pengaturan input AI tidak dapat diperiksa. Coba kirim ulang.",
+          "Pengaturan provider AI tidak dapat diperiksa. Coba kirim ulang.",
       );
       return;
     }
 
-    const inputMode = currentConfig.speech_input_mode;
-    const useServerAudio = forceAiAudio || inputMode === "ai_audio";
+    const useServerAudio = mode === "audio";
     const submittedTranscript = stripTranscriptSourceLabel(transcript);
     if (useServerAudio && !audioBlob) {
       stopBeforeSubmit(
-        inputMode === "ai_audio" && appConfig.speech_input_mode !== "ai_audio"
-          ? "Mode global baru saja berubah ke rekaman AI. Rekam jawaban kembali, lalu kirim untuk menyetujui pemrosesan."
-          : "Rekam jawaban terlebih dahulu, lalu ketuk selesai merekam.",
+        "Rekam jawaban terlebih dahulu, lalu ketuk selesai merekam.",
       );
       return;
     }
@@ -913,6 +977,7 @@ function App() {
             `Assessment server returned a non-JSON response (HTTP ${response.status}, ${contentType}).`,
           );
         }
+        applyDiamondBalance(payload?.diamonds);
         if (!response.ok) {
           const details = [payload?.error, payload?.detail]
             .filter((value) => typeof value === "string" && value.trim())
@@ -920,6 +985,7 @@ function App() {
           throw new Error(details.join(" — ") || "Evaluasi audio AI gagal.");
         }
         audioResult = payload.result;
+        applyDiamondBalance(payload.diamonds);
         replyObj = audioResult;
       } else {
         setProcessingMessage("Mengirim transkrip ke tutor AI…");
@@ -955,6 +1021,7 @@ function App() {
         });
         setProcessingMessage("Menyiapkan feedback tutor…");
         const payload = await response.json();
+        applyDiamondBalance(payload.diamonds);
         if (!response.ok)
           throw new Error(payload.error || "Tutor AI belum tersedia.");
         replyObj = payload.result || payload;
@@ -1016,13 +1083,20 @@ function App() {
         toPlainText(replyObj.tutor_reply?.speech_text || assistantReply, {
           forSpeech: true,
         }) || toPlainText(assistantReply, { forSpeech: true });
+      const practiceStars = Math.max(
+        1,
+        Math.min(5, Number(assessment.practice_stars ?? 3)),
+      );
+      const pointsEarned = practiceStars >= 4 ? 25 : 0;
       const item = {
         id: crypto.randomUUID(),
         prompt: activeUnit.prompt,
         userText: spokenText,
         transcriptionSource: useServerAudio ? "ai" : "live",
         reply: assistantReply,
-        stars: Math.max(1, Math.min(5, Number(assessment.practice_stars ?? 4))),
+        stars: practiceStars,
+        pointsEarned,
+        similarityPercent: null,
         feedback:
           toPlainText(assessment.one_focus || "") ||
           "Your answer communicated the main idea clearly.",
@@ -1052,7 +1126,11 @@ function App() {
             turns: [item],
           });
         }
-        return { ...awardXP(previous, 5), sessions };
+        const earned =
+          item.pointsEarned > 0
+            ? awardXP(previous, item.pointsEarned)
+            : previous;
+        return { ...earned, sessions };
       });
       setAudioBlob(null);
       setTranscript("");
@@ -1065,10 +1143,50 @@ function App() {
       setProcessingMessage("");
     }
   }
+  async function clearPracticeHistory(unitId = activeUnit?.id) {
+    if (!unitId) return;
+    const archivedAudioIds = new Set(
+      [
+        ...turns,
+        ...(data.sessions || [])
+          .filter((session) => session.unitId === unitId)
+          .flatMap((session) => session.turns || []),
+      ]
+        .map((turn) => turn.audioId)
+        .filter(Boolean),
+    );
+    const deletions = await Promise.allSettled(
+      [...archivedAudioIds].map((id) =>
+        apiJson(`audio/${id}`, { method: "DELETE" }),
+      ),
+    );
+    const failedDeletions = deletions.filter(
+      (result) => result.status === "rejected",
+    ).length;
+    setTurns([]);
+    setData((previous) => ({
+      ...previous,
+      sessions: (previous.sessions || []).filter(
+        (session) => session.unitId !== unitId,
+      ),
+    }));
+    setAudioBlob(null);
+    setTranscript("");
+    setSessionSaveAudio(null);
+    if (failedDeletions)
+      toast.error(
+        `Riwayat teks dihapus, tetapi ${failedDeletions} arsip audio gagal dihapus.`,
+      );
+    else
+      toast.success("Riwayat lesson dan arsip audio tersimpan telah dihapus.");
+  }
   function finishUnit() {
-    if (!canCompletePracticeLesson(turns.length)) {
+    const points = practicePoints(turns, appConfig.speech_similarity_threshold);
+    if (!canCompletePracticeLesson(turns.length, points)) {
+      const remainingTurns = Math.max(0, 4 - turns.length);
+      const remainingPoints = Math.max(0, 100 - points);
       toast.info(
-        "Kirim setidaknya satu jawaban dan lihat feedback tutor dahulu.",
+        `Butuh minimal 4 percakapan dan 100 poin untuk selesai. Saat ini ${turns.length} percakapan · ${points}/100 poin${remainingTurns ? ` · ${remainingTurns} percakapan lagi` : ""}${remainingPoints ? ` · ${remainingPoints} poin lagi` : ""}.`,
       );
       return;
     }
@@ -1552,7 +1670,7 @@ Speak entirely in English. Keep every spoken answer, correction, and explanation
 
 Listen actively to grammar, sentence structure, word choice, collocations, and unnatural literal translations. Let the learner finish their thought before correcting. When there is a meaningful mistake, quote the learner's actual phrase, give a natural corrected version, and add one brief, simple explanation. For example, gently change “I go to mall yesterday” to “I went to the mall yesterday” and explain the past tense and article, but only when the learner actually makes that kind of mistake. Focus on at most one or two important points at a time. Do not invent mistakes; if the learner's wording is already natural, respond normally. Ask them to repeat a correction when useful, then keep the conversation moving with one concise, open-ended follow-up question.
 
-Because this is a live audio conversation, notice pronunciation or word stress only when a problem is clearly audible. Offer a simple sound or stress hint and invite a retry; never guess or assign a pronunciation score from transcript text. Keep your replies concise, supportive, and suitable for spoken conversation. This is practice, not an official IELTS test; do not claim official scores. The session is limited to 20 minutes. Start with a warm English greeting and ask what topic the learner would like to discuss.`;
+Because this is a live audio conversation, notice pronunciation or word stress only when a problem is clearly audible. Offer a simple sound or stress hint and invite a retry; never guess or assign a pronunciation score from transcript text. Keep your replies concise, supportive, and suitable for spoken conversation. This is practice, not an official IELTS test; do not claim official scores. The session is limited to 10 minutes. Start with a warm English greeting and ask what topic the learner would like to discuss.`;
 
   function appendLiveTranscriptChunk(who, chunk) {
     const incoming = String(chunk ?? "");
@@ -1638,36 +1756,79 @@ Because this is a live audio conversation, notice pronunciation or word stress o
     if (outputContext && outputContext.state !== "closed")
       void outputContext.close().catch(() => {});
   }
+  async function settleLiveBilling(cancel = false) {
+    const sessionId = liveBillingSessionRef.current;
+    if (!sessionId) return null;
+    liveBillingSessionRef.current = null;
+    try {
+      const result = await apiJson("live-billing/settle", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sessionId, cancel }),
+      });
+      applyDiamondBalance(result.diamonds);
+      return result;
+    } catch (error) {
+      toast.error(
+        error.message || "Saldo Live belum dapat diselesaikan. Hubungi admin.",
+      );
+      return null;
+    } finally {
+      liveBillingBlocksRef.current = 0;
+      liveBillingStartedRef.current = false;
+      liveBillingReserveLockRef.current = false;
+      liveStartedAtRef.current = 0;
+    }
+  }
   function failLiveConnection(message) {
     cleanupFailedLiveConnection();
     setLiveOn(false);
     setLiveLoading(false);
     setLiveStatus(message);
+    void settleLiveBilling(true);
     toast.error(message);
   }
+  function assertLiveStartCurrent() {
+    if (
+      useLearningStore.getState().page !== "live" ||
+      !liveBillingSessionRef.current ||
+      liveEndingRef.current
+    )
+      throw new Error("Live session start cancelled.");
+  }
   async function beginLive() {
+    if (liveBillingSessionRef.current || liveOn || liveLoading) return;
     try {
-      if (!hasPremiumAccess) {
-        toast.error("Live Lesson tersedia untuk akun Premium.");
-        return;
-      }
       const consent = await Swal.fire({
         title: "Izinkan Live Lesson?",
-        text: "Audio mikrofon dikirim langsung dari browser ke Gemini selama sesi dan tidak diarsipkan oleh SpeakUp. Setelah sesi, hanya transkrip (bukan audio) yang dikirim ke provider AI global pilihan Admin (Clario atau Free API Key) untuk feedback.",
+        text: "Audio mikrofon dikirim langsung dari browser ke Gemini dan tidak diarsipkan oleh SpeakUp. Setelah sesi, hanya transkrip dikirim ke provider global Admin untuk feedback. Sistem mencadangkan 10 diamond per blok 5 menit, menagih 2 diamond per menit yang dimulai, dan membatasi sesi hingga 10 menit.",
         icon: "info",
         showCancelButton: true,
         confirmButtonText: "Setuju & lanjutkan",
         cancelButtonText: "Batal",
         confirmButtonColor: "#315c45",
       });
-      if (!consent.isConfirmed) return;
+      if (!consent.isConfirmed || useLearningStore.getState().page !== "live")
+        return;
       setLiveLoading(true);
+      liveEndingRef.current = false;
+      const billing = await apiJson("live-billing/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      liveBillingSessionRef.current = billing.session_id;
+      liveBillingBlocksRef.current = Number(billing.reserved_blocks) || 1;
+      liveBillingStartedRef.current = false;
+      applyDiamondBalance(billing.diamonds);
+      assertLiveStartCurrent();
       setLiveAssessment(null);
       setLiveAssessmentFailed(false);
       setLiveLines([]);
       liveTranscriptLinesRef.current = [];
       liveCurrentSpeakerRef.current = null;
       livePlayheadRef.current = 0;
+      liveStartedAtRef.current = 0;
       setLiveSeconds(0);
       const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
       if (!AudioContextCtor)
@@ -1684,6 +1845,7 @@ Because this is a live audio conversation, notice pronunciation or word stress o
       livePlayheadRef.current = 0;
       setLiveStatus("Mengaktifkan perangkat audio…");
       await Promise.all([inputContext.resume(), outputContext.resume()]);
+      assertLiveStartCurrent();
       if (inputContext.state !== "running" || outputContext.state !== "running")
         throw new Error(
           "Browser menahan pemrosesan audio. Izinkan audio di tab ini lalu mulai ulang Live.",
@@ -1698,13 +1860,17 @@ Because this is a live audio conversation, notice pronunciation or word stress o
         },
       });
       liveStreamRef.current = stream;
+      assertLiveStartCurrent();
       setLiveStatus("Meminta token sementara…");
       const tokenResp = await apiFetch("live-token", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: "{}",
+        body: JSON.stringify({
+          billing_session_id: liveBillingSessionRef.current,
+        }),
       });
       const tokenData = await tokenResp.json();
+      assertLiveStartCurrent();
       if (!tokenResp.ok)
         throw new Error(
           tokenData?.error || "Token Gemini Live tidak tersedia.",
@@ -1782,9 +1948,31 @@ Because this is a live audio conversation, notice pronunciation or word stress o
         if (msg.setupComplete && !setupCompleted) {
           setupCompleted = true;
           clearLiveSetupTimer();
-          setLiveStatus("Connected · waiting for speech");
-          setLiveOn(true);
-          setLiveLoading(false);
+          const billingSessionId = liveBillingSessionRef.current;
+          if (!billingSessionId) {
+            failLiveConnection(
+              "Cadangan diamond untuk sesi Live tidak ditemukan.",
+            );
+            return;
+          }
+          try {
+            await apiJson("live-billing/started", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ session_id: billingSessionId }),
+            });
+            if (liveWsRef.current !== ws) return;
+            liveBillingStartedRef.current = true;
+            liveStartedAtRef.current = Date.now();
+            setLiveStatus("Connected · waiting for speech");
+            setLiveOn(true);
+            setLiveLoading(false);
+          } catch (error) {
+            failLiveConnection(
+              error.message || "Sesi Live belum dapat ditagihkan.",
+            );
+            return;
+          }
           try {
             const src = inputContext.createMediaStreamSource(stream);
             const proc = inputContext.createScriptProcessor(1024, 1, 1);
@@ -1903,11 +2091,17 @@ Because this is a live audio conversation, notice pronunciation or word stress o
         void endLive();
       };
     } catch (e) {
-      console.error("Gagal memulai Gemini Live:", e);
+      const cancelled =
+        useLearningStore.getState().page !== "live" ||
+        e.message === "Live session start cancelled.";
+      if (!cancelled) console.error("Gagal memulai Gemini Live:", e);
+      applyDiamondBalance(e.diamonds);
       cleanupFailedLiveConnection();
+      setLiveOn(false);
       setLiveLoading(false);
-      setLiveStatus("Unavailable");
-      toast.error(e.message || "Gemini Live gagal dimulai.");
+      setLiveStatus(cancelled ? "Sesi Live dibatalkan" : "Unavailable");
+      void settleLiveBilling(true);
+      if (!cancelled) toast.error(e.message || "Gemini Live gagal dimulai.");
     }
   }
   async function assessLiveTranscript(transcript) {
@@ -1975,6 +2169,8 @@ Because this is a live audio conversation, notice pronunciation or word stress o
     await assessLiveTranscript(transcript);
   }
   async function endLive() {
+    if (liveEndingRef.current) return;
+    liveEndingRef.current = true;
     clearLiveSetupTimer();
     setLiveLoading(true);
     setLiveStatus("Mengakhiri sesi Live…");
@@ -2003,6 +2199,8 @@ Because this is a live audio conversation, notice pronunciation or word stress o
         .map((context) => context.close().catch(() => {})),
     );
     setLiveOn(false);
+    await settleLiveBilling(false);
+    liveEndingRef.current = false;
     const transcript = buildLearnerAssessmentTranscript(
       liveTranscriptLinesRef.current,
       12000,
@@ -2100,12 +2298,9 @@ Because this is a live audio conversation, notice pronunciation or word stress o
   const menu = [
     { id: "home", label: "Beranda", icon: Home },
     { id: "listening", label: "Listening Lab", icon: Headphones },
-    ...(hasPremiumAccess
-      ? [
-          { id: "practice", label: "AI Lesson", icon: Mic },
-          { id: "live", label: "Live Lesson", icon: AudioLines },
-        ]
-      : []),
+    { id: "practice", label: "AI Lesson", icon: Mic },
+    { id: "live", label: "Live Lesson", icon: AudioLines },
+    { id: "shop", label: "Toko Diamond", icon: Gem },
     { id: "progress", label: "Pencapaian", icon: BarChart3 },
     { id: "settings", label: "Pengaturan", icon: Settings },
     ...(user.role === "admin"
@@ -2147,7 +2342,7 @@ Because this is a live audio conversation, notice pronunciation or word stress o
             </button>
           ))}
         </nav>
-        {hasPremiumAccess && (
+        {hasLearningAccess && (
           <div className="sidebar-course">
             <div className="side-label">JALUR SPEAKING</div>
             <div className="level-list">
@@ -2183,18 +2378,15 @@ Because this is a live audio conversation, notice pronunciation or word stress o
             </div>
           </div>
         )}
-        {!hasPremiumAccess && (
-          <div className="sidebar-premium">
-            <span>
-              <Sparkles size={25} />
-            </span>
-            <b>Your adventure starts here!</b>
-            <p>
-              Listening selalu gratis. AI & Live Lesson terbuka untuk akun
-              Premium.
-            </p>
-          </div>
-        )}
+        <button className="sidebar-wallet" onClick={() => nav("shop")}>
+          <span>
+            <Gem size={16} /> SALDO DIAMOND
+          </span>
+          <b>{Number(user.diamonds || 0).toLocaleString("id-ID")}</b>
+          <small>
+            Isi saldo di Toko Diamond <ChevronRight size={13} />
+          </small>
+        </button>
         <div className="sidebar-bottom">
           <button className="profile-row" onClick={() => nav("settings")}>
             <span className="avatar">
@@ -2203,11 +2395,7 @@ Because this is a live audio conversation, notice pronunciation or word stress o
             <span>
               <b>{user.name}</b>
               <small>
-                {user.role === "admin"
-                  ? "Administrator"
-                  : user.plan === "premium"
-                    ? "Premium learner"
-                    : "Regular learner"}
+                {user.role === "admin" ? "Administrator" : "Learner"}
               </small>
             </span>
             <MoreHorizontal size={18} />
@@ -2229,6 +2417,15 @@ Because this is a live audio conversation, notice pronunciation or word stress o
             <b>{pageTitle}</b>
           </div>
           <div className="top-actions">
+            <button
+              className="diamond-pill"
+              onClick={() => nav("shop")}
+              title="Buka Toko Diamond"
+              aria-label={`Saldo ${Number(user.diamonds || 0)} diamond, buka Toko Diamond`}
+            >
+              <Gem size={16} />{" "}
+              {Number(user.diamonds || 0).toLocaleString("id-ID")}
+            </button>
             <span className="xp-pill">
               <Zap size={16} /> {data.xp} XP
             </span>
@@ -2314,7 +2511,7 @@ Because this is a live audio conversation, notice pronunciation or word stress o
                   allUnits={allUnits}
                   curriculum={curriculum}
                   listeningLessons={listeningLessons}
-                  hasPremiumAccess={hasPremiumAccess}
+                  hasLearningAccess={hasLearningAccess}
                   startListening={startListening}
                 />
               )}
@@ -2334,7 +2531,11 @@ Because this is a live audio conversation, notice pronunciation or word stress o
                     appConfig.speech_similarity_threshold
                   }
                   aiProvider={appConfig.ai_provider}
+                  onDiamondsChanged={applyDiamondBalance}
                 />
+              )}
+              {page === "shop" && (
+                <ShopPage user={user} onBalanceChange={applyDiamondBalance} />
               )}
               {page === "practice" && activeUnit && (
                 <PracticePage
@@ -2382,8 +2583,10 @@ Because this is a live audio conversation, notice pronunciation or word stress o
                   playRecording={playRecording}
                   loadingRecordingId={loadingRecordingId}
                   completed={completed}
+                  clearHistory={clearPracticeHistory}
+                  diamonds={user.diamonds}
+                  similarityThreshold={appConfig.speech_similarity_threshold}
                   sessionSaveAudio={sessionSaveAudio}
-                  speechInputMode={appConfig.speech_input_mode}
                   resetRecording={resetRecording}
                 />
               )}
@@ -2396,6 +2599,7 @@ Because this is a live audio conversation, notice pronunciation or word stress o
                   liveLoading={liveLoading}
                   liveAssessment={liveAssessment}
                   liveAssessmentFailed={liveAssessmentFailed}
+                  diamonds={user.diamonds}
                   beginLive={beginLive}
                   endLive={endLive}
                   retryLiveAssessment={retryLiveAssessment}
@@ -2411,7 +2615,7 @@ Because this is a live audio conversation, notice pronunciation or word stress o
                   allUnits={allUnits}
                   curriculum={curriculum}
                   nav={nav}
-                  hasPremiumAccess={hasPremiumAccess}
+                  hasLearningAccess={hasLearningAccess}
                   listeningLessons={listeningLessons}
                 />
               )}
@@ -2470,7 +2674,7 @@ Because this is a live audio conversation, notice pronunciation or word stress o
       <nav className="mobile-nav" aria-label="Menu seluler">
         {menu
           .filter((item) =>
-            ["home", "listening", "practice", "progress", "settings"].includes(
+            ["home", "listening", "practice", "progress", "shop"].includes(
               item.id,
             ),
           )
@@ -2485,7 +2689,9 @@ Because this is a live audio conversation, notice pronunciation or word stress o
                 ? "Listening"
                 : item.label === "Pencapaian"
                   ? "Progres"
-                  : item.label}
+                  : item.id === "shop"
+                    ? "Toko"
+                    : item.label}
             </button>
           ))}
       </nav>

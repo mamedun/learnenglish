@@ -37,9 +37,10 @@ function decodePcm16(encoded) {
   const binary = atob(encoded);
   return Array.from(binary, (character) => character.charCodeAt(0));
 }
-assert.deepEqual(decodePcm16(encodePcm16Base64([-1, 0, 1], 16_000)), [
-  0, 128, 0, 0, 255, 127,
-]);
+assert.deepEqual(
+  decodePcm16(encodePcm16Base64([-1, 0, 1], 16_000)),
+  [0, 128, 0, 0, 255, 127],
+);
 const downsampledBytes = decodePcm16(
   encodePcm16Base64([-1, -0.5, 0, 0.5, 1, 0], 48_000),
 );

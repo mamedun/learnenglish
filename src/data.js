@@ -3,8 +3,11 @@
 export const initialData = {
   completed: [],
   listeningCompleted: [],
+  listeningAnswers: {},
+  listeningResults: {},
   speakingCompleted: [],
   speakingScores: {},
+  speakingTranscripts: {},
   xp: 0,
   streak: 0,
   lastPracticeDate: null,

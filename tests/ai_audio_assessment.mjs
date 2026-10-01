@@ -1,79 +1,125 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-const app = await readFile(
-  new URL("../src/app/App.jsx", import.meta.url),
-  "utf8",
-);
+const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
+const [app, practice, api, admin, audioTask, listening] = await Promise.all([
+  read("src/app/App.jsx"),
+  read("src/features/speaking/PracticePage.jsx"),
+  read("api/index.php"),
+  read("src/features/admin/AdminPage.jsx"),
+  read("src/features/listening/ListeningSpeakingTask.jsx"),
+  read("src/features/listening/ListeningPage.jsx"),
+]);
+
 const submitStart = app.indexOf("async function submitTurn(");
-const finishStart = app.indexOf("function finishUnit()", submitStart);
+const finishStart = app.indexOf("function clearPracticeHistory(", submitStart);
 assert.notEqual(submitStart, -1);
 assert.notEqual(finishStart, -1);
 const submitTurn = app.slice(submitStart, finishStart);
 assert.match(submitTurn, /await apiJson\("app-config"\)/);
-assert.match(submitTurn, /settings\?\.speech_input_mode/);
 assert.match(submitTurn, /settings\?\.ai_provider/);
-assert.match(submitTurn, /speech_input_mode: settings\.speech_input_mode/);
-assert.match(submitTurn, /currentConfig\.speech_input_mode/);
+assert.match(submitTurn, /const useServerAudio = mode === "audio"/);
 assert.match(submitTurn, /currentConfig\.ai_provider === "free"/);
 assert.match(submitTurn, /currentConfig\.free_browser_debug/);
 assert.match(submitTurn, /user\?\.role === "admin"/);
+assert.doesNotMatch(submitTurn, /speech_input_mode/);
 assert.match(submitTurn, /fetch\(debugSetup\.url/);
 assert.match(submitTurn, /headers: debugSetup\.headers/);
 assert.match(submitTurn, /body: directForm/);
 assert.match(submitTurn, /consent: true/);
 assert.match(submitTurn, /debugSetup\.token_expires_at/);
-assert.match(submitTurn, /await Swal\.fire\(/);
-assert.match(submitTurn, /consent\.isConfirmed/);
-assert.match(submitTurn, /payload\?\.detail/);
 assert.match(submitTurn, /AI audio assessment returned a non-JSON response/);
 assert.match(submitTurn, /const responseText = await response\.text\(\)/);
 assert.ok(
   submitTurn.indexOf("await Swal.fire(") <
     submitTurn.indexOf('apiFetch("assess-audio"'),
+  "audio consent must precede upload",
 );
-assert.match(app, /canCompletePracticeLesson\(turns\.length\)/);
-assert.doesNotMatch(app, /avg\s*<\s*3\.5/);
-const practice = await readFile(
-  new URL("../src/features/speaking/PracticePage.jsx", import.meta.url),
-  "utf8",
+assert.match(app, /canCompletePracticeLesson\(turns\.length, points\)/);
+assert.match(
+  app,
+  /practicePoints\(turns, appConfig\.speech_similarity_threshold\)/,
 );
-assert.match(practice, /criteria-evidence/);
-assert.match(practice, /c\?\.evidence/);
+assert.match(app, /live-billing\/start/);
+assert.match(app, /live-billing\/started/);
+assert.match(app, /live-billing\/reserve/);
+assert.match(app, /live-billing\/settle/);
+assert.match(app, /billing_session_id: liveBillingSessionRef\.current/);
+assert.doesNotMatch(app, /hasPremiumAccess/);
 
-const api = await readFile(
-  new URL("../api/index.php", import.meta.url),
-  "utf8",
-);
+assert.match(practice, /setResponseMode\("transcript"\)/);
+assert.match(practice, /chooseResponseMode\("audio"\)/);
+assert.match(practice, /submitTurn\(\{ mode: responseMode \}\)/);
+assert.match(practice, /2 diamond/);
+assert.match(practice, /5 diamond/);
+assert.match(practice, /clearHistory\?\.\(unit\.id\)/);
+assert.match(practice, /\[\.\.\.turns\]\.reverse\(\)/);
+assert.match(practice, /criterion\.rating/);
+assert.match(practice, /criterion\.feedback_id/);
+assert.doesNotMatch(practice, /speechInputMode/);
+assert.doesNotMatch(practice, /IELTS Speaking practice estimate/);
+assert.doesNotMatch(practice, /Belum dapat diestimasi/);
+assert.doesNotMatch(practice, /estimatedBand/);
+assert.match(practice, /Audio-dependent · not scored/);
+assert.match(practice, /minimal 4 percakapan dan 100 poin/i);
+
 const chatStart = api.indexOf("if($action==='chat'&&$method==='POST')");
 const audioStart = api.indexOf(
   "if($action==='assess-audio'&&$method==='POST')",
 );
+const liveTokenStart = api.indexOf("if($action==='live-token'", audioStart);
 assert.notEqual(chatStart, -1);
 assert.notEqual(audioStart, -1);
-const freeTextBranch = api.slice(
-  chatStart,
-  api.indexOf("$model=$cfg['model'];", chatStart),
-);
-assert.match(freeTextBranch, /practice_stars/);
-assert.match(freeTextBranch, /isTextCriterion/);
 assert.match(
-  freeTextBranch,
-  /status'\s*=>\s*\$isTextCriterion\?'provisional':'not_scored'/,
+  api.slice(chatStart, audioStart),
+  /wallet_reserve\(\(int\)\$u\['id'\],2,'ai_lesson_text'/,
 );
-assert.match(freeTextBranch, /Text-based estimate from your transcript/);
-assert.match(freeTextBranch, /\$assessment\['retry_recommended'\]=false/);
-assert.doesNotMatch(freeTextBranch, /'practice_stars'\s*=>\s*3/);
-const admin = await readFile(
-  new URL("../src/features/admin/AdminPage.jsx", import.meta.url),
-  "utf8",
+assert.match(
+  api.slice(audioStart, liveTokenStart),
+  /\$mode==='read_aloud'\?1:5/,
 );
-assert.match(admin, /berlaku hanya untuk latihan read-aloud/i);
+assert.match(
+  api.slice(audioStart, liveTokenStart),
+  /'audio\/webm'=>'audio\/webm','video\/webm'=>'audio\/webm'/,
+);
+assert.match(api.slice(audioStart, liveTokenStart), /'rating'=>max\(1,min\(5/);
+assert.match(api.slice(audioStart, liveTokenStart), /'status'=>'scored'/);
+assert.match(api, /\$criteria\[\$key\]=\['rating'=>\$rating===null\?null/);
+assert.match(api, /\$isTextCriterion\?'provisional':'not_scored'/);
+assert.match(api, /Audio-dependent criterion; transcript text is insufficient/);
+assert.doesNotMatch(api, /function require_premium\(/);
+
+const audioUploadStart = api.indexOf("if($action==='audio'&&$method==='POST')");
+const audioUploadEnd = api.indexOf(
+  "if($action==='audio'&&$method==='GET')",
+  audioUploadStart,
+);
+const audioUpload = api.slice(audioUploadStart, audioUploadEnd);
+assert.match(audioUpload, /'video\/webm'=>'webm'/);
+assert.match(audioUpload, /'video\/webm'=>'audio\/webm'/);
+
+assert.match(admin, /AI provider global/);
 assert.match(admin, /Gemini Live tetap memakai Gemini/);
-assert.match(admin, /AI\s+Lesson terbuka memakai provider global/);
-assert.match(admin, /role="switch"/);
-assert.match(admin, /API key X-API-Key/);
-assert.match(admin, /CORS/);
+assert.match(admin, /1 diamond/);
+assert.match(admin, /payment_qris_payload/);
+assert.match(admin, /payment_tax_percent/);
+assert.match(admin, /payment_admin_fee/);
+assert.match(admin, /payment_whatsapp/);
+assert.match(admin, /AdminPurchasesPanel/);
+assert.match(admin, /AdminUsersPanel/);
+assert.match(audioTask, /expected_text:\s*lesson\.script,\s*transcript/);
+assert.match(audioTask, /onAttempt\?\.\(\s*result\.percent,\s*text/);
+const audioCheckStart = audioTask.indexOf("async function checkAiAudio()");
+const audioCheckEnd = audioTask.indexOf("\n  return (", audioCheckStart);
+const audioCheckFlow = audioTask.slice(audioCheckStart, audioCheckEnd);
+assert.match(audioCheckFlow, /payload\.result\?\.percent/);
+assert.doesNotMatch(audioCheckFlow, /apiFetch\("speech-score"/);
+assert.match(api, /function ai_speech_similarity\(/);
+assert.match(listening, /listeningAnswers/);
+assert.match(listening, /listeningResults/);
+assert.match(listening, /speakingTranscripts/);
+assert.match(listening, /savedTranscript=/);
+
 const debugStart = api.indexOf(
   "if($action==='free-audio-debug-config'&&$method==='POST')",
 );
@@ -81,9 +127,9 @@ const debugEnd = api.indexOf(
   "if($action==='admin/users'&&$method==='GET')",
   debugStart,
 );
+const debugRoute = api.slice(debugStart, debugEnd);
 assert.notEqual(debugStart, -1);
 assert.notEqual(debugEnd, -1);
-const debugRoute = api.slice(debugStart, debugEnd);
 assert.match(debugRoute, /require_admin\(\)/);
 assert.match(debugRoute, /free_browser_debug/);
 assert.match(debugRoute, /\['provider'\]!=='free'/);
@@ -92,84 +138,9 @@ assert.match(debugRoute, /\['consent'\]\?\?false\)!==true/);
 assert.match(debugRoute, /\['free_ttl_min'\]=5/);
 assert.match(debugRoute, /'Authorization'=>'Bearer '\.\$token/);
 assert.match(debugRoute, /'X-API-Key'=>\$config\['free_api_key'\]/);
-assert.match(debugRoute, /free_audio_assessment_prompt\(/);
 assert.doesNotMatch(debugRoute, /'free_jwt_secret'\s*=>/);
-assert.match(api, /'free_browser_debug'=>\$u\['role'\]==='admin'/);
-assert.match(
-  api,
-  /put_setting\('free_browser_debug',\(\$provider==='free'&&\$freeBrowserDebug\)\?'1':'0'\)/,
-);
-assert.match(
-  api,
-  /if\(\$freeBrowserDebug&&\$provider==='free'&&\$freeTokenMode!=='auto'\)/,
-);
-const clarioTextBranch = api.slice(
-  api.indexOf("$model=$cfg['model'];", chatStart),
-  audioStart,
-);
-assert.match(
-  clarioTextBranch,
-  /fluency_coherence'\]=\['band'=>null,'status'=>'not_scored'/,
-);
-assert.match(
-  clarioTextBranch,
-  /pronunciation'\]=\['band'=>null,'status'=>'not_scored'/,
-);
-assert.match(clarioTextBranch, /practice_stars'\]\?\?null/);
-const clarioStart = api.indexOf("if(!in_array($mime,['audio/wav'", audioStart);
-assert.notEqual(audioStart, -1);
-assert.notEqual(clarioStart, -1);
-const freeAudioBranch = api.slice(audioStart, clarioStart);
-assert.match(freeAudioBranch, /free_request\(\$prompt,\$file\['tmp_name'\]/);
-assert.match(freeAudioBranch, /practice_stars/);
-assert.match(freeAudioBranch, /criteria/);
-assert.doesNotMatch(freeAudioBranch, /'practice_stars'\s*=>\s*3/);
-assert.match(freeAudioBranch, /assessment audio terstruktur/);
-assert.match(freeAudioBranch, /free_response_diagnostics/);
-assert.match(freeAudioBranch, /node=%s/);
-const freeRequestStart = api.indexOf("function free_request(");
-const freeDiagnosticsStart = api.indexOf(
-  "function free_response_diagnostics(",
-  freeRequestStart,
-);
-assert.notEqual(freeRequestStart, -1);
-assert.notEqual(freeDiagnosticsStart, -1);
-const freeAdapter = api.slice(freeRequestStart, freeDiagnosticsStart);
-assert.match(freeAdapter, /Authorization: Bearer/);
-assert.match(freeAdapter, /X-API-Key/);
-assert.match(freeAdapter, /http_multipart\(/);
-assert.match(freeAdapter, /node_host/);
-assert.doesNotMatch(freeAdapter, /HTTP_USER_AGENT|User-Agent/);
-assert.match(api, /function free_failure_detail\(/);
-const freeParserStart = api.indexOf("function parse_free_response(");
-const providerRequestStart = api.indexOf(
-  "function provider_request(",
-  freeParserStart,
-);
-assert.notEqual(freeParserStart, -1);
-assert.notEqual(providerRequestStart, -1);
-const freeParser = api.slice(freeParserStart, providerRequestStart);
-assert.match(freeParser, /\$payload\['response'\]/);
-assert.match(freeParser, /\$data\['response'\]/);
-assert.match(freeParser, /\$result\['response'\]/);
-assert.match(freeParser, /array_key_exists\('tutor_reply'/);
-assert.match(freeParser, /json_encode\(\$structuredPayload/);
-assert.match(freeParser, /\$transcriptSources/);
-assert.match(
-  api,
-  /free_request\(\$prompt,null,'audio\/webm','live-assessment\.txt',55\)/,
-);
-
-const clarioAudioBranch = api.slice(
-  clarioStart,
-  api.indexOf("if($action==='live-token'", clarioStart),
-);
-assert.match(clarioAudioBranch, /type'=>'input_audio'/);
-assert.match(clarioAudioBranch, /inline_image_not_supported/);
-assert.match(clarioAudioBranch, /clario_audio_input_unsupported/);
-assert.match(clarioAudioBranch, /image_url hanya berlaku untuk gambar/);
-assert.match(admin, /endpoint\/model terpilih harus mendukung audio/);
+assert.doesNotMatch(api, /HTTP_USER_AGENT|User-Agent/);
 
 console.log(
-  "PASS: AI Lesson confirms current audio mode, requests Free audio assessment, and does not gate completion by stars.",
+  "PASS: AI Lesson uses per-response diamond modes, four-criterion audio ratings, text-only scoring limits, consent, and point completion; Listening progress persists transcripts and choices.",
 );

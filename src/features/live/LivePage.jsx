@@ -15,6 +15,7 @@ export default function LivePage({
   liveLoading = false,
   liveAssessment,
   liveAssessmentFailed = false,
+  diamonds = 0,
   beginLive,
   endLive,
   retryLiveAssessment = () => {},
@@ -51,7 +52,7 @@ export default function LivePage({
           </span>
           <span className="timer-pill">
             <Clock3 size={14} />
-            {formatTime(liveSeconds)} <small>/ 20:00</small>
+            {formatTime(liveSeconds)} <small>/ 10:00</small>
           </span>
         </div>
         <div className="live-orb-wrap">
@@ -74,7 +75,7 @@ export default function LivePage({
         <p>
           {liveOn
             ? "Speak naturally; audio streams directly from your browser to Gemini."
-            : `Session status: ${liveStatus}. Sessions are limited to 20 minutes.`}
+            : `Session status: ${liveStatus}. A 5-minute block reserves 10 diamonds; each started minute used costs 2, up to 10 minutes.`}
         </p>
         <div className="live-topic">
           <span>TOPIK HARI INI</span>
@@ -104,7 +105,10 @@ export default function LivePage({
           <span>
             <span className="status-dot" /> Browser → Gemini direct
           </span>
-          <span>20 minute session limit</span>
+          <span>
+            10 diamonds / 5 min · max 10 min · balance{" "}
+            {Number(diamonds).toLocaleString("id-ID")}
+          </span>
         </div>
       </div>
       <div className="live-disclaimer">

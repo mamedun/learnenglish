@@ -420,11 +420,7 @@ export default function SettingsPage({
                 <b>{user.name}</b>
                 <small>
                   {user.email} ·{" "}
-                  {user.role === "admin"
-                    ? "Administrator"
-                    : user.plan === "premium"
-                      ? "Premium"
-                      : "Regular \xB7 Listening"}
+                  {user.role === "admin" ? "Administrator" : "Learner"}
                 </small>
               </div>
             </div>
