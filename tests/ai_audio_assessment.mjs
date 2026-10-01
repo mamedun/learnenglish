@@ -26,6 +26,8 @@ assert.match(submitTurn, /debugSetup\.token_expires_at/);
 assert.match(submitTurn, /await Swal\.fire\(/);
 assert.match(submitTurn, /consent\.isConfirmed/);
 assert.match(submitTurn, /payload\?\.detail/);
+assert.match(submitTurn, /AI audio assessment returned a non-JSON response/);
+assert.match(submitTurn, /const responseText = await response\.text\(\)/);
 assert.ok(
   submitTurn.indexOf("await Swal.fire(") <
     submitTurn.indexOf('apiFetch("assess-audio"'),
@@ -101,10 +103,6 @@ assert.match(
   api,
   /if\(\$freeBrowserDebug&&\$provider==='free'&&\$freeTokenMode!=='auto'\)/,
 );
-assert.match(
-  api,
-  /if\(\$freeBrowserDebug&&\$provider==='free'&&\$freeTokenMode!=='auto'\)/,
-);
 const clarioTextBranch = api.slice(
   api.indexOf("$model=$cfg['model'];", chatStart),
   audioStart,
@@ -143,6 +141,24 @@ assert.match(freeAdapter, /http_multipart\(/);
 assert.match(freeAdapter, /node_host/);
 assert.doesNotMatch(freeAdapter, /HTTP_USER_AGENT|User-Agent/);
 assert.match(api, /function free_failure_detail\(/);
+const freeParserStart = api.indexOf("function parse_free_response(");
+const providerRequestStart = api.indexOf(
+  "function provider_request(",
+  freeParserStart,
+);
+assert.notEqual(freeParserStart, -1);
+assert.notEqual(providerRequestStart, -1);
+const freeParser = api.slice(freeParserStart, providerRequestStart);
+assert.match(freeParser, /\$payload\['response'\]/);
+assert.match(freeParser, /\$data\['response'\]/);
+assert.match(freeParser, /\$result\['response'\]/);
+assert.match(freeParser, /array_key_exists\('tutor_reply'/);
+assert.match(freeParser, /json_encode\(\$structuredPayload/);
+assert.match(freeParser, /\$transcriptSources/);
+assert.match(
+  api,
+  /free_request\(\$prompt,null,'audio\/webm','live-assessment\.txt',55\)/,
+);
 
 const clarioAudioBranch = api.slice(
   clarioStart,

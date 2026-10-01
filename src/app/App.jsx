@@ -711,6 +711,7 @@ function App() {
           setProcessingMessage(
             `Mengirim rekaman langsung ke ${debugSetup.node_host || "Free API"}…`,
           );
+          const directRequestStarted = performance.now();
           let directResponse;
           try {
             directResponse = await fetch(debugSetup.url, {
@@ -721,7 +722,7 @@ function App() {
           } catch (error) {
             await Swal.fire({
               title: "Browser tidak menerima respons Free API",
-              text: `${error?.message || "Network request failed."} Kemungkinan penyebabnya CORS/preflight pada node provider; browser tidak mengizinkan halaman membaca respons. Tidak ada fallback ke PHP pada mode debug ini.`,
+              text: `${error?.message || "Network request failed."} Request berhenti setelah ${Math.round(performance.now() - directRequestStarted)} ms. Kemungkinan penyebabnya CORS/preflight pada node provider; browser tidak mengizinkan halaman membaca respons. Tidak ada fallback ke PHP pada mode debug ini.`,
               icon: "warning",
               confirmButtonText: "Tutup",
             });
@@ -737,6 +738,7 @@ function App() {
           }
           const responseLimit = 12000;
           const diagnostic = {
+            elapsed_ms: Math.round(performance.now() - directRequestStarted),
             http_status: directResponse.status,
             ok: directResponse.ok,
             node: debugSetup.node_host,
@@ -779,7 +781,25 @@ function App() {
           body: form,
         });
         setProcessingMessage("Menerima transkrip dan feedback AI…");
-        const payload = await response.json();
+        const responseText = await response.text();
+        let payload;
+        try {
+          payload = JSON.parse(responseText);
+        } catch {
+          const contentType = response.headers.get("content-type") || "unknown";
+          console.error("AI audio assessment returned a non-JSON response", {
+            status: response.status,
+            contentType,
+            bodyLength: responseText.length,
+          });
+          if ([502, 503, 504].includes(response.status))
+            throw new Error(
+              `SpeakUp returned an HTML gateway response (HTTP ${response.status}, ${contentType}), not a Free API result. The PHP/API request did not complete normally; check PHP-FPM/origin timeout or server errors.`,
+            );
+          throw new Error(
+            `Assessment server returned a non-JSON response (HTTP ${response.status}, ${contentType}).`,
+          );
+        }
         if (!response.ok) {
           const details = [payload?.error, payload?.detail]
             .filter((value) => typeof value === "string" && value.trim())

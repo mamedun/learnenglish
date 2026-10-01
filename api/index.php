@@ -373,23 +373,49 @@ function parse_free_response(array $response):array{
     }
     $data=is_array($payload['data']??null)?$payload['data']:[];
     $result=is_array($payload['result']??null)?$payload['result']:[];
+    $responsePayload=is_array($payload['response']??null)?$payload['response']:[];
+    $dataResponse=is_array($data['response']??null)?$data['response']:[];
+    $resultResponse=is_array($result['response']??null)?$result['response']:[];
     $replyPayload=$payload;
     unset($replyPayload['text']);
+    $structuredPayload=null;
+    foreach([$responsePayload,$dataResponse,$resultResponse,$data,$result] as $candidate){
+        if(!is_array($candidate))continue;
+        if(array_key_exists('tutor_reply',$candidate)||array_key_exists('assessment',$candidate)||array_key_exists('overall_feedback',$candidate)||array_key_exists('transcript',$candidate)){
+            $structuredPayload=$candidate;
+            break;
+        }
+    }
     $reply='';
-    foreach([$data,$replyPayload,$result] as $source){$reply=free_response_text($source);if($reply!=='')break;}
+    if($structuredPayload!==null){
+        $encoded=json_encode($structuredPayload,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
+        if(is_string($encoded))$reply=$encoded;
+    }
+    $responseSources=[$data,$responsePayload,$dataResponse,$result,$resultResponse,$replyPayload];
+    if($reply===''){
+        foreach($responseSources as $source){$reply=free_response_text($source);if($reply!=='')break;}
+    }
     if($reply===''&&(is_string($payload['data']??null)||is_numeric($payload['data']??null)))$reply=free_response_text($payload['data']);
     if($reply===''&&isset($payload['text'])&&is_string($payload['text']))$reply=trim($payload['text']);
     $transcript='';
+    $transcriptSources=array_merge([$payload],$responseSources,[$structuredPayload??[]]);
     foreach(['userTranscript','user_transcript'] as $key){
-        foreach([$payload,$data,$result] as $source){
+        foreach($transcriptSources as $source){
             if(isset($source[$key])&&is_string($source[$key])&&trim($source[$key])!==''){$transcript=trim($source[$key]);break 2;}
         }
     }
     if($transcript===''&&isset($payload['text'])&&is_string($payload['text']))$transcript=trim($payload['text']);
     if($transcript===''){
-        foreach([$payload,$data,$result] as $source){
+        foreach($transcriptSources as $source){
             if(isset($source['transcript'])&&is_string($source['transcript'])&&trim($source['transcript'])!==''){$transcript=trim($source['transcript']);break;}
         }
+    }
+    if($reply===''&&$transcript===''){
+        $rootKeys=array_slice(array_map(fn($key)=>substr((string)preg_replace('/[^A-Za-z0-9_.:-]/','',(string)$key),0,40),array_keys($payload)),0,12);
+        $responseKeys=array_slice(array_map(fn($key)=>substr((string)preg_replace('/[^A-Za-z0-9_.:-]/','',(string)$key),0,40),array_keys($responsePayload)),0,12);
+        $detail='Respons Free API berstatus sukses, tetapi tidak memuat teks/transkrip pada field yang dikenali. Root keys: '.($rootKeys?implode(', ',$rootKeys):'(none)').'.';
+        if($responseKeys)$detail.=' response keys: '.implode(', ',$responseKeys).'.';
+        return ['ok'=>false,'status'=>502,'error'=>'Free API Key mengembalikan JSON tanpa teks atau transkrip yang dikenali.','detail'=>$detail];
     }
     return ['ok'=>true,'status'=>200,'reply'=>$reply,'transcript'=>$transcript];
 }
@@ -1156,14 +1182,19 @@ if($action==='live-assessment'&&$method==='POST'){
     if($c['provider']==='free'){
         // The Free API adapter is form-data /chat with the full task in `prompt`.
         $prompt=$system."\n\n".$context;
-        $upstream=free_request($prompt,null,'audio/webm','live-assessment.txt',25);
+        // Transcript feedback returns a full structured report, unlike speech-score's scalar; allow the normal provider latency window.
+        $upstream=free_request($prompt,null,'audio/webm','live-assessment.txt',55);
         $parsed=parse_free_response($upstream);
         if(!$parsed['ok']){
+            $diagnostics=free_response_diagnostics($upstream);
             error_log(sprintf(
-                'SpeakUp live-assessment upstream failed: provider=free http=%d elapsed_ms=%d transport=%s',
-                (int)($upstream['status']??0),
+                'SpeakUp live-assessment upstream failed: provider=free http=%d node=%s elapsed_ms=%d response=%s code=%s transport=%s',
+                $diagnostics['http_status'],
+                $diagnostics['node_host'],
                 (int)round((microtime(true)-$assessmentStarted)*1000),
-                substr((string)($upstream['error']??''),0,120)
+                $diagnostics['response_kind'],
+                $diagnostics['error_code'],
+                $diagnostics['transport']
             ));
             respond(['error'=>$parsed['error'],'detail'=>$parsed['detail']??''],(int)$parsed['status']);
         }

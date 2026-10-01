@@ -23,7 +23,7 @@ assert.match(assessmentRoute, /\$c\['provider'\]==='free'/);
 assert.match(assessmentRoute, /read_json\(64000\)/);
 assert.match(
   assessmentRoute,
-  /free_request\(\$prompt,null,'audio\/webm','live-assessment\.txt',25\)/,
+  /free_request\(\$prompt,null,'audio\/webm','live-assessment\.txt',55\)/,
 );
 assert.match(
   assessmentRoute,
