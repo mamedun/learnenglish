@@ -1,0 +1,70 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+
+const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
+const [
+  app,
+  settings,
+  generator,
+  legacyStudio,
+  courseStudio,
+  cacheApi,
+  courseware,
+  catalog,
+] = await Promise.all([
+  read("src/app/App.jsx"),
+  read("src/features/settings/SettingsPage.jsx"),
+  read("src/features/admin/SharedTtsCacheGenerator.jsx"),
+  read("src/features/admin/ContentStudio.jsx"),
+  read("src/features/admin/CourseStudio.jsx"),
+  read("api/tts_cache.php"),
+  read("api/courseware.php"),
+  read("api/catalog.php"),
+]);
+
+assert.match(app, /const engine = isSmallViewport \? "native"/);
+assert.ok(
+  app.indexOf("if (context) {") < app.indexOf('if (engine === "native"'),
+  "authored-content cache lookup must precede the learner's selected engine",
+);
+assert.match(app, /if \(context\) \{[\s\S]*?getSharedTtsAudio\([\s\S]*?"auto"/);
+assert.doesNotMatch(app, /generateKokoroAudio|saveSharedTtsAudio/);
+assert.match(app, /Audio lesson belum tersedia; menggunakan Browser Native/);
+assert.match(settings, /const isSmallViewport = useSmallViewport\(\)/);
+assert.match(settings, /!isSmallViewport && \(/);
+assert.match(
+  settings,
+  /Materi Listening dan AI Lesson selalu memeriksa shared audio/,
+);
+
+assert.match(generator, /KOKORO_VOICES\.map/);
+assert.match(generator, /Promise\.allSettled/);
+assert.match(generator, /generateKokoroCompositeAudio/);
+assert.match(generator, /Generate ulang mengganti file lama/);
+assert.match(legacyStudio, /<SharedTtsCacheGenerator/);
+assert.match(courseStudio, /<SharedTtsCacheGenerator/);
+assert.match(courseStudio, /audioSourceChanged/);
+assert.match(
+  courseStudio,
+  /modules: \{ \.\.\.\(current\.modules \|\| \{\}\), \[modality\]: imported \}/,
+);
+
+assert.match(cacheApi, /\$voice !== 'auto'/);
+assert.match(
+  cacheApi,
+  /if \(count\(\$segments\) >= 2\) \$voiceCandidates\[\] = 'multi'/,
+);
+assert.match(cacheApi, /tts_cache_default_voice/);
+assert.match(cacheApi, /function tts_cache_delete_course/);
+assert.match(courseware, /courseware_tts_revision_value/);
+assert.match(
+  courseware,
+  /\$unit\['ttsRevision'\] = courseware_tts_revision_value/,
+);
+assert.match(courseware, /tts_cache_delete_content\(\$cacheType, \$cacheId\)/);
+assert.match(courseware, /tts_cache_delete_course\(\$pdo, \$courseId\)/);
+assert.match(catalog, /tts_cache_delete_content\(\$contentType, \$id\)/);
+
+console.log(
+  "PASS: authored lessons use cache-first auto voice selection, mobile uses Browser Native, admin batch generation is parallel, and cache writes invalidate stale course content.",
+);

@@ -346,10 +346,16 @@ function catalog_save_listening(PDO $pdo, array $d, ?string $id): string
 }
 function catalog_archive(PDO $pdo, string $table, string $id): void
 {
-    $table = $table === 'unit' ? 'speaking_units' : 'listening_lessons';
+    $contentType = $table === 'unit' ? 'speaking' : 'listening';
+    $table = $contentType === 'speaking' ? 'speaking_units' : 'listening_lessons';
     $q = $pdo->prepare("UPDATE $table SET published=0, updated_at=? WHERE id=?");
     $q->execute([gmdate('c'), $id]);
-    if (!$q->rowCount()) respond(['error' => 'Materi tidak ditemukan.'], 404);
+    if (!$q->rowCount()) {
+        $exists = $pdo->prepare("SELECT 1 FROM $table WHERE id=?");
+        $exists->execute([$id]);
+        if (!$exists->fetchColumn()) respond(['error' => 'Materi tidak ditemukan.'], 404);
+    }
+    tts_cache_delete_content($contentType, $id);
 }
 function catalog_check_answer(PDO $pdo, array $d): array
 {

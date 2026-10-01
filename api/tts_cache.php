@@ -52,6 +52,22 @@ function tts_cache_delete_content(string $type, string $id): int
     return count($rows);
 }
 
+function tts_cache_delete_course(PDO $pdo, string $courseId): int
+{
+    $rows = $pdo->query('SELECT content_type,content_id,file_path FROM shared_tts_cache')->fetchAll();
+    $delete = $pdo->prepare('DELETE FROM shared_tts_cache WHERE content_type=? AND content_id=?');
+    $deleted = 0;
+    foreach ($rows as $row) {
+        $type = (string) $row['content_type'];
+        $contentId = (string) $row['content_id'];
+        if (!in_array($type, ['speaking', 'listening'], true) || !str_starts_with($contentId, $courseId . ':')) continue;
+        tts_cache_remove_file((string) $row['file_path']);
+        $delete->execute([$type, $contentId]);
+        $deleted++;
+    }
+    return $deleted;
+}
+
 function tts_cache_clear_all(): int
 {
     $pdo = db();
@@ -88,6 +104,23 @@ function tts_cache_content_segments(PDO $pdo, string $type, string $id): array
     return is_array($segments) && array_is_list($segments) ? $segments : [];
 }
 
+function tts_cache_default_voice(PDO $pdo, string $type, string $id, ?array $courseContent = null): string
+{
+    $voice = $courseContent['defaultVoice'] ?? null;
+    if ($courseContent === null) {
+        if ($type === 'speaking') {
+            $query = $pdo->prepare('SELECT default_voice FROM speaking_units WHERE id=?');
+        } else {
+            $query = $pdo->prepare('SELECT default_voice FROM listening_lessons WHERE id=?');
+        }
+        $query->execute([$id]);
+        $voice = $query->fetchColumn();
+    }
+    return is_string($voice) && in_array($voice, catalog_tts_voice_ids(), true)
+        ? $voice
+        : 'af_heart';
+}
+
 function tts_cache_content_is_published(PDO $pdo, string $type, string $id): bool
 {
     if ($type === 'speaking') {
@@ -112,17 +145,19 @@ function tts_cache_get_audio(array $user): never
     }
     if ($courseId !== '' && !preg_match('/^[A-Za-z0-9_-]{1,80}$/', $courseId)) respond(['error'=>'ID course tidak valid.'],422);
     if (!preg_match('/^[a-f0-9]{64}$/', $revision)) respond(['error' => 'Versi materi audio tidak valid.'], 422);
-    if ($voice !== 'multi' && !in_array($voice, catalog_tts_voice_ids(), true)) {
+    if ($voice !== 'auto' && $voice !== 'multi' && !in_array($voice, catalog_tts_voice_ids(), true)) {
         respond(['error' => 'Model suara audio tidak didukung.'], 422);
     }
 
     $pdo = db();
     $cacheId = $id;
+    $courseContent = null;
     if ($courseId !== '') {
         $modality = $type === 'speaking' ? 'ai_lesson' : 'listening';
         $context = courseware_request_context($pdo,$user,['course_id'=>$courseId,'unit_id'=>$id],$modality,false);
+        $courseContent = (array) ($context['unit']['content'] ?? []);
         $currentRevision = courseware_tts_revision($pdo,$courseId,$type,$id);
-        $segments = (array)($context['unit']['content']['ttsSegments'] ?? []);
+        $segments = (array)($courseContent['ttsSegments'] ?? []);
         $cacheId = $courseId . ':' . $id;
     } else {
         $currentRevision = catalog_tts_revision($pdo, $type, $id);
@@ -137,19 +172,42 @@ function tts_cache_get_audio(array $user): never
     if ($voice === 'multi' && count($segments) < 2)
         respond(['error' => 'Materi ini belum memiliki dialog multi-speaker.'], 404);
 
-    $key = tts_cache_key($type, $cacheId, $revision, $voice);
-    $query = $pdo->prepare('SELECT file_path,file_size FROM shared_tts_cache WHERE cache_key=?');
-    $query->execute([$key]);
-    $asset = $query->fetch();
-    if (!$asset || !is_file((string) $asset['file_path'])) {
-        if ($asset) $pdo->prepare('DELETE FROM shared_tts_cache WHERE cache_key=?')->execute([$key]);
-        respond(['error' => 'Audio belum tersedia di shared cache.'], 404);
+    $voiceCandidates = [$voice];
+    if ($voice === 'auto') {
+        $voiceCandidates = [];
+        if (count($segments) >= 2) $voiceCandidates[] = 'multi';
+        $voiceCandidates[] = tts_cache_default_voice($pdo, $type, $id, $courseContent);
+        foreach (catalog_tts_voice_ids() as $candidateVoice) $voiceCandidates[] = $candidateVoice;
+        $voiceCandidates = array_values(array_unique($voiceCandidates));
     }
+    $query = $pdo->prepare('SELECT file_path,file_size FROM shared_tts_cache WHERE cache_key=?');
+    $asset = null;
+    $key = null;
+    $selectedVoice = null;
+    foreach ($voiceCandidates as $candidateVoice) {
+        if ($candidateVoice === 'multi' && count($segments) < 2) continue;
+        $candidateKey = tts_cache_key($type, $cacheId, $revision, $candidateVoice);
+        $query->execute([$candidateKey]);
+        $candidateAsset = $query->fetch();
+        if (!$candidateAsset) continue;
+        if (!is_file((string) $candidateAsset['file_path'])) {
+            $pdo->prepare('DELETE FROM shared_tts_cache WHERE cache_key=?')->execute([$candidateKey]);
+            continue;
+        }
+        $asset = $candidateAsset;
+        $key = $candidateKey;
+        $selectedVoice = $candidateVoice;
+        break;
+    }
+    if (!$asset || !$key || !$selectedVoice)
+        respond(['error' => 'Audio belum tersedia di shared cache.'], 404);
+
     $pdo->prepare('UPDATE shared_tts_cache SET last_accessed_at=? WHERE cache_key=?')->execute([gmdate('c'), $key]);
     header('Content-Type: audio/wav');
     header('Content-Length: ' . (string) filesize((string) $asset['file_path']));
     header('Content-Disposition: inline; filename="lesson-audio.wav"');
     header('X-Content-Type-Options: nosniff');
+    header('X-Speakup-TTS-Voice: ' . $selectedVoice);
     readfile((string) $asset['file_path']);
     exit;
 }

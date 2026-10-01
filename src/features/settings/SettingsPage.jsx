@@ -17,6 +17,7 @@ import PasswordForm from "../auth/PasswordForm";
 import { toast } from "sonner";
 import Swal from "sweetalert2";
 import { useEffect, useState } from "react";
+import useSmallViewport from "../../hooks/useSmallViewport";
 import {
   getKokoroCacheInfo,
   isTtsBusy,
@@ -42,6 +43,12 @@ export default function SettingsPage({
 }) {
   const [cacheInfo, setCacheInfo] = useState(null);
   const [backupBusy, setBackupBusy] = useState(false);
+  const isSmallViewport = useSmallViewport();
+  const activeTtsEngine = isSmallViewport
+    ? "native"
+    : data.settings.tts === "native"
+      ? "native"
+      : "kokoro";
   const ttsBusy = isTtsBusy(ttsStatus);
   useEffect(() => {
     getKokoroCacheInfo().then(setCacheInfo);
@@ -111,23 +118,26 @@ export default function SettingsPage({
               role="group"
               aria-label="Mesin text to speech"
             >
+              {!isSmallViewport && (
+                <button
+                  type="button"
+                  className={`tts-option ${activeTtsEngine === "kokoro" ? "selected" : ""}`}
+                  aria-pressed={activeTtsEngine === "kokoro"}
+                  onClick={() => update("tts", "kokoro")}
+                >
+                  <span className="radio-dot" />
+                  <span>
+                    <b>Kokoro · TTS.Rocks</b>
+                    <small>Suara neural lokal · WebGPU atau WASM</small>
+                  </span>
+                  <span className="ready-tag">DEFAULT</span>
+                </button>
+              )}
               <button
                 type="button"
-                className={`tts-option ${data.settings.tts !== "native" ? "selected" : ""}`}
-                aria-pressed={data.settings.tts !== "native"}
-                onClick={() => update("tts", "kokoro")}
-              >
-                <span className="radio-dot" />
-                <span>
-                  <b>Kokoro · TTS.Rocks</b>
-                  <small>Suara neural lokal · WebGPU atau WASM</small>
-                </span>
-                <span className="ready-tag">DEFAULT</span>
-              </button>
-              <button
-                type="button"
-                className={`tts-option ${data.settings.tts === "native" ? "selected" : ""}`}
-                aria-pressed={data.settings.tts === "native"}
+                className={`tts-option ${activeTtsEngine === "native" ? "selected" : ""}`}
+                aria-pressed={activeTtsEngine === "native"}
+                disabled={isSmallViewport}
                 onClick={() => update("tts", "native")}
               >
                 <span className="radio-dot" />
@@ -135,44 +145,29 @@ export default function SettingsPage({
                   <b>Browser Native</b>
                   <small>Suara sistem operasi · tanpa unduhan model</small>
                 </span>
-                <span className="ready-tag">READY</span>
+                <span className="ready-tag">
+                  {isSmallViewport ? "DEFAULT" : "READY"}
+                </span>
               </button>
             </div>
-            {data.settings.tts !== "native" ? (
+            {activeTtsEngine === "kokoro" ? (
               <>
-                <div className="toggle-row cached-voice-toggle">
+                <div className="info-box">
+                  <CircleHelp size={15} />
                   <span>
-                    <b>Gunakan cached voice</b>
-                    <small>
-                      Untuk prompt/cue card dan naskah listening. Aktif: putar
-                      WAV bersama; cache miss memakai Browser Native. Nonaktif:
-                      cek cache dulu, lalu Kokoro lokal membuat dan mengunggah
-                      WAV saat miss. Balasan tutor dinamis tidak disimpan.
-                    </small>
+                    Materi Listening dan AI Lesson selalu memeriksa shared audio
+                    terlebih dahulu; jika cache tidak ada atau gagal diputar,
+                    Browser Native digunakan. Pilihan Kokoro ini berlaku untuk
+                    balasan tutor dinamis.
                   </span>
-                  <button
-                    type="button"
-                    className={`switch ${data.settings.useCachedVoice !== false ? "on" : ""}`}
-                    aria-label="Gunakan cached voice"
-                    aria-pressed={data.settings.useCachedVoice !== false}
-                    onClick={() =>
-                      update(
-                        "useCachedVoice",
-                        data.settings.useCachedVoice === false,
-                      )
-                    }
-                  >
-                    <i />
-                  </button>
                 </div>
                 <label className="field-label">
-                  KOKORO VOICE · SAAT CACHE NONAKTIF
+                  KOKORO VOICE · BALASAN TUTOR DINAMIS
                 </label>
                 <div className="voice-row">
                   <select
                     className="text-field"
                     value={data.settings.voice || "af_heart"}
-                    disabled={data.settings.useCachedVoice !== false}
                     onChange={(e) => update("voice", e.target.value)}
                   >
                     {KOKORO_VOICES.map((voice) => (
@@ -305,8 +300,10 @@ export default function SettingsPage({
                 <div className="info-box">
                   <CircleHelp size={15} />
                   <span>
-                    Daftar suara tergantung browser dan sistem operasi. Kokoro
-                    tetap dapat dipilih kapan saja di pengaturan ini.
+                    Daftar suara tergantung browser dan sistem operasi. Di
+                    ponsel, Browser Native menjadi default agar model besar
+                    tidak perlu diunduh; shared audio lesson tetap
+                    diprioritaskan.
                   </span>
                 </div>
               </>

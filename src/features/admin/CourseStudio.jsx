@@ -23,6 +23,7 @@ import {
 import { apiJson } from "../../api";
 import { toast } from "sonner";
 import CourseContentEditor from "./CourseContentEditor";
+import SharedTtsCacheGenerator from "./SharedTtsCacheGenerator";
 import "./CourseStudio.css";
 
 const NEW_COURSE = {
@@ -159,6 +160,7 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
   const [tab, setTab] = useState("settings");
   const [courseListCollapsed, setCourseListCollapsed] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [generatingCache, setGeneratingCache] = useState(false);
   const [loading, setLoading] = useState(false);
   const [modality, setModality] = useState("listening");
   const [moduleDrafts, setModuleDrafts] = useState({});
@@ -360,6 +362,22 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
   }, [contentText, selectedUnit?.content]);
   const contentDraft = contentParseState.content;
   const contentParseError = contentParseState.error;
+  const savedUnit = courseData?.modules?.[modality]?.units?.find(
+    (unit) => unit.id === selectedUnit?.id,
+  );
+  const audioSourceField = modality === "ai_lesson" ? "prompt" : "script";
+  const draftSegments = Array.isArray(contentDraft.ttsSegments)
+    ? contentDraft.ttsSegments
+    : [];
+  const savedSegments = Array.isArray(savedUnit?.content?.ttsSegments)
+    ? savedUnit.content.ttsSegments
+    : [];
+  const audioSourceChanged =
+    Boolean(contentParseError) ||
+    !selectedUnit?.ttsRevision ||
+    !savedUnit ||
+    contentDraft[audioSourceField] !== savedUnit.content?.[audioSourceField] ||
+    JSON.stringify(draftSegments) !== JSON.stringify(savedSegments);
   function patchContent(patch) {
     if (contentParseError) {
       setContentView("json");
@@ -537,6 +555,14 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
         units: response.content?.units || body.units,
       };
       setModuleDrafts((current) => ({ ...current, [modality]: imported }));
+      setCourseData((current) =>
+        current
+          ? {
+              ...current,
+              modules: { ...(current.modules || {}), [modality]: imported },
+            }
+          : current,
+      );
       setContentText(
         JSON.stringify(
           imported.units.find((unit) => unit.id === selectedUnitId)?.content ||
@@ -615,13 +641,22 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
         },
       );
       const next = saved.content || payload;
+      const imported = {
+        categories: next.categories || [],
+        units: next.units || [],
+      };
       setModuleDrafts((current) => ({
         ...current,
-        [modality]: {
-          categories: next.categories || [],
-          units: next.units || [],
-        },
+        [modality]: imported,
       }));
+      setCourseData((current) =>
+        current
+          ? {
+              ...current,
+              modules: { ...(current.modules || {}), [modality]: imported },
+            }
+          : current,
+      );
       setSelectedUnitId(next.units?.[0]?.id || "");
       toast.success("JSON modul berhasil diimpor.");
       onCatalogChange?.();
@@ -1624,11 +1659,36 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
                               </label>
                             )}
                           </div>
+                          {modality !== "live_lesson" && selectedUnit && (
+                            <SharedTtsCacheGenerator
+                              key={`${selectedId}:${modality}:${selectedUnit.id}`}
+                              contentType={
+                                modality === "ai_lesson"
+                                  ? "speaking"
+                                  : "listening"
+                              }
+                              item={{
+                                ...selectedUnit,
+                                courseId: selectedUnit.courseId || selectedId,
+                              }}
+                              sourceText={
+                                draftSegments.length >= 2
+                                  ? draftSegments
+                                      .map((turn) => turn.text)
+                                      .join(" ")
+                                  : contentDraft[audioSourceField]
+                              }
+                              segments={draftSegments}
+                              sourceChanged={audioSourceChanged}
+                              disabled={busy || isNew || generatingCache}
+                              onGeneratingChange={setGeneratingCache}
+                            />
+                          )}
                           <div className="course-editor-actions course-module-save">
                             <button
                               className="btn-primary"
                               onClick={saveModule}
-                              disabled={busy || isNew}
+                              disabled={busy || isNew || generatingCache}
                             >
                               <Check size={15} />
                               {busy
@@ -1639,6 +1699,7 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
                             </button>
                             <button
                               className="outline-btn"
+                              disabled={busy || generatingCache}
                               onClick={() =>
                                 setContentText(
                                   JSON.stringify(

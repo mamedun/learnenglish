@@ -566,7 +566,7 @@ function courseware_units_for_modality(PDO $pdo, string $courseId, string $modal
             }
             unset($question);
         }
-        $units[] = [
+        $unit = [
             'id' => (string) $row['id'], 'courseId' => (string) $row['course_id'],
             'modality' => (string) $row['modality'], 'categoryId' => (string) $row['category_id'],
             'title' => (string) $row['title'], 'subtitle' => (string) $row['subtitle'],
@@ -574,6 +574,24 @@ function courseware_units_for_modality(PDO $pdo, string $courseId, string $modal
             'sortOrder' => (int) $row['sort_order'], 'published' => (bool) $row['published'],
             'content' => is_array($content) ? $content : [],
         ];
+        if ($modality === 'ai_lesson') {
+            $unit['ttsRevision'] = courseware_tts_revision_value(
+                $courseId,
+                'speaking',
+                (string) $row['id'],
+                (string) ($content['prompt'] ?? ''),
+                is_array($content['ttsSegments'] ?? null) ? $content['ttsSegments'] : [],
+            );
+        } elseif ($modality === 'listening') {
+            $unit['ttsRevision'] = courseware_tts_revision_value(
+                $courseId,
+                'listening',
+                (string) $row['id'],
+                (string) ($content['script'] ?? ''),
+                is_array($content['ttsSegments'] ?? null) ? $content['ttsSegments'] : [],
+            );
+        }
+        $units[] = $unit;
     }
     return $units;
 }
@@ -815,6 +833,7 @@ function courseware_delete_course(PDO $pdo, string $courseId): void
     $check = $pdo->prepare('SELECT (SELECT COUNT(*) FROM course_enrollments WHERE course_id=?)+(SELECT COUNT(*) FROM course_purchases WHERE course_id=?)+(SELECT COUNT(*) FROM course_usage_events WHERE course_id=?)');
     $check->execute([$courseId,$courseId,$courseId]);
     if ((int) $check->fetchColumn() > 0) respond(['error' => 'Course memiliki enrollment, pembelian, atau riwayat penggunaan. Ubah status menjadi closed agar riwayat tetap aman.'], 409);
+    tts_cache_delete_course($pdo, $courseId);
     $pdo->prepare('DELETE FROM courses WHERE id=?')->execute([$courseId]);
 }
 
@@ -900,6 +919,63 @@ function courseware_save_content(PDO $pdo, string $courseId, string $modality, a
     $course = courseware_course_row($pdo, $courseId);
     if (!$course) respond(['error' => 'Course tidak ditemukan.'], 404);
     $normalized = courseware_normalize_content_payload($modality, $input);
+
+    $cacheType = match ($modality) {
+        'ai_lesson' => 'speaking',
+        'listening' => 'listening',
+        default => null,
+    };
+    $cacheIdsToDelete = [];
+    if ($cacheType !== null) {
+        $textField = $cacheType === 'speaking' ? 'prompt' : 'script';
+        $existingQuery = $pdo->prepare('SELECT id,content_json FROM course_units WHERE course_id=? AND modality=?');
+        $existingQuery->execute([$courseId, $modality]);
+        $oldRevisions = [];
+        foreach ($existingQuery->fetchAll() as $row) {
+            $unitId = (string) $row['id'];
+            $oldContent = json_decode((string) ($row['content_json'] ?? '{}'), true);
+            if (!is_array($oldContent)) $oldContent = [];
+            $oldRevisions[$unitId] = courseware_tts_revision_value(
+                $courseId,
+                $cacheType,
+                $unitId,
+                (string) ($oldContent[$textField] ?? ''),
+                is_array($oldContent['ttsSegments'] ?? null) ? $oldContent['ttsSegments'] : [],
+            );
+        }
+        $newRevisions = [];
+        foreach ($normalized['units'] as $unit) {
+            $content = $unit['content'];
+            $newRevisions[$unit['id']] = courseware_tts_revision_value(
+                $courseId,
+                $cacheType,
+                $unit['id'],
+                (string) ($content[$textField] ?? ''),
+                is_array($content['ttsSegments'] ?? null) ? $content['ttsSegments'] : [],
+            );
+        }
+        // Also sweep cache records orphaned by saves made before this invalidation
+        // path existed, including entries whose old unit row has already vanished.
+        $cachePrefix = $courseId . ':';
+        $cacheQuery = $pdo->prepare('SELECT DISTINCT content_id,source_revision FROM shared_tts_cache WHERE content_type=? AND substr(content_id,1,?)=?');
+        $cacheQuery->execute([$cacheType, strlen($cachePrefix), $cachePrefix]);
+        foreach ($cacheQuery->fetchAll() as $cachedRow) {
+            $cacheContentId = (string) $cachedRow['content_id'];
+            $unitId = substr($cacheContentId, strlen($cachePrefix));
+            if (!isset($newRevisions[$unitId]) || !hash_equals($newRevisions[$unitId], (string) $cachedRow['source_revision']))
+                $cacheIdsToDelete[] = $cacheContentId;
+        }
+        foreach ($oldRevisions as $unitId => $oldRevision) {
+            if (!isset($newRevisions[$unitId]) || $newRevisions[$unitId] !== $oldRevision)
+                $cacheIdsToDelete[] = $courseId . ':' . $unitId;
+        }
+        // Clear an orphan from an earlier delete/re-create of the same unit ID.
+        foreach ($newRevisions as $unitId => $_newRevision) {
+            if (!array_key_exists($unitId, $oldRevisions))
+                $cacheIdsToDelete[] = $courseId . ':' . $unitId;
+        }
+    }
+
     $pdo->beginTransaction();
     try {
         $pdo->prepare('DELETE FROM course_units WHERE course_id=? AND modality=?')->execute([$courseId,$modality]);
@@ -920,6 +996,11 @@ function courseware_save_content(PDO $pdo, string $courseId, string $modality, a
     } catch (Throwable $error) {
         if ($pdo->inTransaction()) $pdo->rollBack();
         throw $error;
+    }
+
+    if ($cacheType !== null) {
+        foreach (array_unique($cacheIdsToDelete) as $cacheId)
+            tts_cache_delete_content($cacheType, $cacheId);
     }
 }
 

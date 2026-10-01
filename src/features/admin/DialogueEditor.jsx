@@ -68,7 +68,7 @@ export default function DialogueEditor({
         <p className="dialogue-hint">
           {turns.length < 2
             ? "Tambahkan minimal satu giliran lagi agar segmen ini menjadi dialog multi-speaker. Sementara itu, audio tetap memakai naskah utama dan suara default."
-            : "Saat cache aktif, murid mendengar file dialog bersama. Jika belum ada, pemutaran beralih ke Browser Native. Dengan cache nonaktif, Kokoro memakai satu suara pilihan murid untuk seluruh naskah."}
+            : "Murid selalu mendengar audio multi-speaker bersama jika tersedia. Jika file dialog belum dibuat atau gagal diputar, lesson beralih ke Browser Native."}
         </p>
       )}
       {turns.map((turn, index) => (

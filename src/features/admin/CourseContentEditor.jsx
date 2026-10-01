@@ -52,7 +52,7 @@ function VoiceField({ value, onChange, disabled }) {
   const knownVoice = KOKORO_VOICES.some((voice) => voice.id === value);
   return (
     <label className="course-schema-field">
-      <span>Suara Kokoro default</span>
+      <span>Prioritas voice tunggal</span>
       <select
         value={value || "af_heart"}
         disabled={disabled}
@@ -67,7 +67,10 @@ function VoiceField({ value, onChange, disabled }) {
           </option>
         ))}
       </select>
-      <small>Dipakai untuk audio satu suara dan giliran baru.</small>
+      <small>
+        Prioritas untuk memilih file cache single-speaker. Jika tidak tersedia,
+        lesson memakai Browser Native.
+      </small>
     </label>
   );
 }
@@ -240,7 +243,7 @@ function AudioVoices({ content, onChange, disabled }) {
   return (
     <SchemaCard
       title="Audio & voices"
-      description="Atur suara bawaan atau buat dialog beberapa speaker. Setiap giliran bisa memakai nama dan suara Kokoro sendiri."
+      description="Atur prioritas voice tunggal dan dialog beberapa speaker. Murid selalu menerima shared audio jika tersedia; bila cache belum ada, pemutaran memakai Browser Native."
     >
       <div className="course-schema-grid">
         <VoiceField

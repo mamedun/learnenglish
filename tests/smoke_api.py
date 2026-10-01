@@ -106,13 +106,13 @@ def request_bytes(client, path, expected=200):
     assert response.status == expected, f'GET {path}: expected {expected}, got {response.status}: {body[:200]!r}'
     return body, response.headers.get('Content-Type', '')
 
-def tiny_wav():
+def tiny_wav(sample=0):
     output = io.BytesIO()
     with wave.open(output, 'wb') as wav:
         wav.setnchannels(1)
         wav.setsampwidth(2)
         wav.setframerate(24000)
-        wav.writeframes(b'\x00\x00' * 240)
+        wav.writeframes(int(sample).to_bytes(2, 'little', signed=True) * 240)
     return output.getvalue()
 
 
@@ -304,18 +304,40 @@ request_form(
     expected=201,
     files={'audio': ('smoke.wav', wav_data, 'audio/wav')},
 )
+replacement_wav = tiny_wav(1300)
+request_form(
+    admin,
+    'tts-cache',
+    {'type': 'speaking', 'id': unit_id, 'revision': stored_unit['ttsRevision'], 'voice': 'af_heart'},
+    expected=201,
+    files={'audio': ('smoke-rebuild.wav', replacement_wav, 'audio/wav')},
+)
 request_form(
     regular,
     'tts-cache',
     {'type': 'speaking', 'id': unit_id, 'revision': stored_unit['ttsRevision'], 'voice': 'multi'},
     expected=403,
 )
+multi_wav = tiny_wav(-900)
+request_form(
+    admin,
+    'tts-cache',
+    {'type': 'speaking', 'id': unit_id, 'revision': stored_unit['ttsRevision'], 'voice': 'multi'},
+    expected=201,
+    files={'audio': ('smoke-dialog.wav', multi_wav, 'audio/wav')},
+)
 cache_path = 'tts-cache?' + urllib.parse.urlencode({
     'type': 'speaking', 'id': unit_id, 'revision': stored_unit['ttsRevision'], 'voice': 'af_heart',
 })
 shared_audio, shared_mime = request_bytes(regular, cache_path)
-assert shared_audio.startswith(b'RIFF') and 'wav' in shared_mime
-assert request(admin, 'admin/tts-cache')['cache']['bytes'] == len(wav_data)
+assert shared_audio == replacement_wav and 'wav' in shared_mime
+cache_auto_path = 'tts-cache?' + urllib.parse.urlencode({
+    'type': 'speaking', 'id': unit_id, 'revision': stored_unit['ttsRevision'], 'voice': 'auto',
+})
+shared_auto_audio, _ = request_bytes(regular, cache_auto_path)
+assert shared_auto_audio == multi_wav, 'auto playback should prefer multi-speaker cache when dialog segments exist'
+cache_summary = request(admin, 'admin/tts-cache')['cache']
+assert cache_summary['items'] == 2 and cache_summary['bytes'] == len(replacement_wav) + len(multi_wav)
 unit.update(title='Edited speaking quest', prompt=unit['prompt'] + ' Updated.', published=False)
 request(admin, f'admin/units/{unit_id}', 'PUT', unit)
 request(regular, cache_path, expected=404)
@@ -323,7 +345,19 @@ assert request(admin, 'admin/tts-cache')['cache']['items'] == 0
 assert all(x['id'] != unit_id for x in request(admin, 'catalog')['levels'][0]['units'])
 assert any(x['id'] == unit_id and not x['published'] for x in request(admin, 'admin/catalog')['levels'][0]['units'])
 request(admin, f'admin/units/{unit_id}', 'PUT', {**unit, 'published': True})
+restored_unit = next(
+    item for level in request(admin, 'admin/catalog')['levels'] for item in level['units']
+    if item['id'] == unit_id
+)
+request_form(
+    admin,
+    'tts-cache',
+    {'type': 'speaking', 'id': unit_id, 'revision': restored_unit['ttsRevision'], 'voice': 'bm_george'},
+    expected=201,
+    files={'audio': ('archive.wav', tiny_wav(), 'audio/wav')},
+)
 request(admin, f'admin/units/{unit_id}', 'DELETE')
+assert request(admin, 'admin/tts-cache')['cache']['items'] == 0
 assert all(x['id'] != unit_id for x in request(admin, 'catalog')['levels'][0]['units'])
 
 # Listening writes question + key together transactionally and checks keys server-side.
@@ -362,8 +396,144 @@ request(admin, f'admin/listening/{new_id}', 'PUT', new_lesson)
 request(admin, listening_cache_path, expected=404)
 assert request(admin, 'admin/tts-cache')['cache']['items'] == 0
 assert not request(regular, 'listening/check', 'POST', {'lesson_id': new_id, 'question_id': next(l for l in request(regular, 'catalog')['listening'] if l['id'] == new_id)['questions'][0]['id'], 'answer': 0})['correct']
+updated_lesson = next(
+    lesson for lesson in request(admin, 'admin/catalog')['listening']
+    if lesson['id'] == new_id
+)
+request_form(
+    admin,
+    'tts-cache',
+    {'type': 'listening', 'id': new_id, 'revision': updated_lesson['ttsRevision'], 'voice': 'af_heart'},
+    expected=201,
+    files={'audio': ('archive-listening.wav', tiny_wav(), 'audio/wav')},
+)
 request(admin, f'admin/listening/{new_id}', 'DELETE')
+assert request(admin, 'admin/tts-cache')['cache']['items'] == 0
 assert all(l['id'] != new_id for l in request(regular, 'catalog')['listening'])
+
+# Course Studio keeps unchanged audio caches, invalidates edited/deleted content,
+# and removes every course cache when an empty course is deleted.
+course_smoke_id = f'tts-smoke-{secrets.token_hex(4)}'
+request(admin, 'admin/courses', 'POST', {
+    'id': course_smoke_id, 'name': 'TTS Cache Smoke Course', 'description': '',
+    'posterUrl': '', 'bannerUrl': '', 'status': 'draft', 'price': 0,
+    'color': '#315C45', 'label': '', 'level': '', 'sortOrder': 0,
+    'enableListening': True, 'enableAiLesson': True, 'enableLiveLesson': False,
+}, expected=201)
+course_category = {
+    'id': 'cache-group', 'name': 'Cache tests', 'label': '', 'guide': '',
+    'color': '#315C45', 'sortOrder': 0,
+}
+course_unit = {
+    'id': 'cache-unit', 'categoryId': course_category['id'],
+    'title': 'Shared-cache prompt', 'subtitle': '', 'masterPrompt': '',
+    'mediaUrl': '', 'sortOrder': 0, 'published': True,
+    'content': {
+        'prompt': 'Describe your favorite place and explain why you enjoy it.',
+        'defaultVoice': 'bf_emma',
+        'ttsSegments': [
+            {'speaker': 'Teacher', 'voice': 'bf_emma', 'text': 'Where do you like to go?'} ,
+            {'speaker': 'Learner', 'voice': 'am_puck', 'text': 'I like the park.'},
+        ],
+    },
+}
+course_module = {'categories': [course_category], 'units': [course_unit]}
+course_saved = request(
+    admin,
+    f'admin/courses/{course_smoke_id}/content/ai_lesson',
+    'PUT',
+    course_module,
+)
+course_saved_unit = course_saved['content']['units'][0]
+course_revision = course_saved_unit['ttsRevision']
+course_cache_fields = {
+    'type': 'speaking', 'id': course_unit['id'],
+    'revision': course_revision, 'course_id': course_smoke_id,
+}
+request_form(
+    admin, 'tts-cache', {**course_cache_fields, 'voice': 'bf_emma'}, expected=201,
+    files={'audio': ('course-single.wav', tiny_wav(), 'audio/wav')},
+)
+course_multi_wav = tiny_wav(-1700)
+request_form(
+    admin, 'tts-cache', {**course_cache_fields, 'voice': 'multi'}, expected=201,
+    files={'audio': ('course-dialog.wav', course_multi_wav, 'audio/wav')},
+)
+course_auto_path = 'tts-cache?' + urllib.parse.urlencode({
+    **course_cache_fields, 'voice': 'auto',
+})
+assert request_bytes(admin, course_auto_path)[0] == course_multi_wav
+assert request(admin, 'admin/tts-cache')['cache']['items'] == 2
+
+# Changing the title alone does not invalidate authored audio.
+renamed_course_unit = {**course_unit, 'title': 'Renamed shared-cache prompt'}
+request(
+    admin,
+    f'admin/courses/{course_smoke_id}/content/ai_lesson',
+    'PUT',
+    {'categories': [course_category], 'units': [renamed_course_unit]},
+)
+assert request_bytes(admin, course_auto_path)[0] == course_multi_wav
+assert request(admin, 'admin/tts-cache')['cache']['items'] == 2
+
+# Changing the prompt deletes every voice for that course unit.
+changed_course_unit = {
+    **renamed_course_unit,
+    'content': {
+        **renamed_course_unit['content'],
+        'prompt': renamed_course_unit['content']['prompt'] + ' Give an example.',
+    },
+}
+changed_course_module = {'categories': [course_category], 'units': [changed_course_unit]}
+changed_course = request(
+    admin,
+    f'admin/courses/{course_smoke_id}/content/ai_lesson',
+    'PUT',
+    changed_course_module,
+)
+request_bytes(admin, course_auto_path, expected=404)
+assert request(admin, 'admin/tts-cache')['cache']['items'] == 0
+changed_course_revision = changed_course['content']['units'][0]['ttsRevision']
+changed_cache_fields = {
+    **course_cache_fields, 'revision': changed_course_revision,
+}
+single_fallback_wav = tiny_wav(1700)
+request_form(
+    admin, 'tts-cache', {**changed_cache_fields, 'voice': 'am_puck'}, expected=201,
+    files={'audio': ('course-fallback.wav', single_fallback_wav, 'audio/wav')},
+)
+changed_auto_path = 'tts-cache?' + urllib.parse.urlencode({
+    **changed_cache_fields, 'voice': 'auto',
+})
+assert request_bytes(admin, changed_auto_path)[0] == single_fallback_wav
+
+# Removing the unit from the replacement-style Course Studio payload purges it.
+request(
+    admin,
+    f'admin/courses/{course_smoke_id}/content/ai_lesson',
+    'PUT',
+    {'categories': [course_category], 'units': []},
+)
+assert request(admin, 'admin/tts-cache')['cache']['items'] == 0
+
+# Re-create an audio cache and verify deleting its course purges that storage too.
+recreated_course = request(
+    admin,
+    f'admin/courses/{course_smoke_id}/content/ai_lesson',
+    'PUT',
+    changed_course_module,
+)
+recreated_revision = recreated_course['content']['units'][0]['ttsRevision']
+request_form(
+    admin,
+    'tts-cache',
+    {**course_cache_fields, 'revision': recreated_revision, 'voice': 'af_heart'},
+    expected=201,
+    files={'audio': ('course-delete.wav', tiny_wav(), 'audio/wav')},
+)
+request(admin, f'admin/courses/{course_smoke_id}', 'DELETE')
+assert request(admin, 'admin/tts-cache')['cache']['items'] == 0
+
 cleared_cache = request(admin, 'admin/tts-cache/clear', 'POST')
 assert cleared_cache['ok'] and cleared_cache['cache']['items'] == 0
 

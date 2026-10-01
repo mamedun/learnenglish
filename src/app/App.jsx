@@ -56,13 +56,13 @@ import ModuleErrorBoundary from "../components/ModuleErrorBoundary";
 import ProcessingStatus from "../components/ProcessingStatus";
 import { convertRecordingToWav } from "../lib/audio";
 import {
-  generateKokoroAudio,
   isTtsBusy,
   KOKORO_VOICES,
   preloadKokoro,
   speakKokoro,
 } from "../lib/ttsRocks";
-import { getSharedTtsAudio, saveSharedTtsAudio } from "../lib/ttsCache";
+import { getSharedTtsAudio } from "../lib/ttsCache";
+import useSmallViewport from "../hooks/useSmallViewport";
 import {
   encodePcm16Base64,
   getGeminiLiveMessageError,
@@ -86,6 +86,7 @@ const ShopPage = lazy(() => import("../features/shop/ShopPage"));
 function App() {
   const navigate = useNavigate();
   const location = useLocation();
+  const isSmallViewport = useSmallViewport();
   const route = useMemo(
     () => parseAppRoute(location.pathname),
     [location.pathname],
@@ -1969,9 +1970,8 @@ function App() {
       )
         options.onPlaybackComplete();
     };
-    const engine = data.settings.tts || "kokoro";
-    const cachedMode = data.settings.useCachedVoice !== false;
-    const forceKokoro = options?.forceKokoro === true;
+    const engine = isSmallViewport ? "native" : data.settings.tts || "kokoro";
+    const forceKokoro = !isSmallViewport && options?.forceKokoro === true;
     const context = options?.type && options?.item ? options : null;
     const authoredSegments = Array.isArray(context?.item?.ttsSegments)
       ? context.item.ttsSegments.filter((turn) =>
@@ -1993,43 +1993,23 @@ function App() {
       ? data.settings.voice
       : "af_heart";
 
-    if (engine === "native") {
-      try {
-        speakWithBrowser(spokenText, requestId, "", notifyPlaybackComplete);
-      } catch (error) {
-        setTtsStatus({ phase: "error", message: error.message });
-        toast.error(error.message || "Browser TTS gagal diputar.");
-      }
-      return;
-    }
-
-    if (!forceKokoro && context) {
-      const item = context.item;
-      const voice = cachedMode ? item.defaultVoice || "af_heart" : userVoice;
-      let cachedAudio = null;
+    // Authored lesson audio is shared across learners and always takes
+    // priority over personal engine/voice settings. The API chooses a multi-
+    // speaker cache for dialog, then any available single-speaker variant.
+    if (context) {
       setTtsStatus({
         phase: "cache-lookup",
-        message: "Memeriksa shared Kokoro cache…",
+        message: "Memeriksa audio bersama…",
       });
+      let cachedAudio = null;
       try {
-        if (segments.length >= 2) {
-          cachedAudio = await getSharedTtsAudio(context.type, item, "multi");
-          if (!cachedAudio && !cachedMode)
-            cachedAudio = await getSharedTtsAudio(context.type, item, voice);
-        } else {
-          cachedAudio = await getSharedTtsAudio(context.type, item, voice);
-        }
+        cachedAudio = await getSharedTtsAudio(
+          context.type,
+          context.item,
+          "auto",
+        );
       } catch {
-        if (requestId !== ttsRequestIdRef.current) return;
-        if (cachedMode) {
-          speakNativeFallback(
-            spokenText,
-            requestId,
-            "Shared cache tidak tersedia; menggunakan Browser Native.",
-            notifyPlaybackComplete,
-          );
-          return;
-        }
+        // An unavailable cache service is equivalent to a cache miss for playback.
       }
       if (requestId !== ttsRequestIdRef.current) return;
       if (cachedAudio) {
@@ -2038,7 +2018,7 @@ function App() {
           notifyPlaybackComplete();
         } catch {
           if (requestId !== ttsRequestIdRef.current) return;
-          toast.info("Audio cache gagal diputar; memakai Browser Native.");
+          toast.info("Audio bersama gagal diputar; memakai Browser Native.");
           speakNativeFallback(
             spokenText,
             requestId,
@@ -2048,81 +2028,22 @@ function App() {
         }
         return;
       }
-      if (cachedMode) {
-        speakNativeFallback(
-          spokenText,
-          requestId,
-          "Audio belum tersedia di shared cache; menggunakan Browser Native.",
-          notifyPlaybackComplete,
-        );
-        return;
-      }
-
-      try {
-        const audio = await generateKokoroAudio(spokenText, {
-          voice: userVoice,
-          compute: data.settings.ttsCompute || "auto",
-          speed: 0.88,
-          onStatus: (status) => {
-            if (requestId === ttsRequestIdRef.current) setTtsStatus(status);
-          },
-        });
-        if (requestId !== ttsRequestIdRef.current) return;
-        setTtsStatus({
-          phase: "cache-upload",
-          message: "Audio siap; mengunggah ke shared cache…",
-        });
-        try {
-          await saveSharedTtsAudio({
-            contentType: context.type,
-            item,
-            voiceId: userVoice,
-            audio,
-          });
-          if (requestId === ttsRequestIdRef.current)
-            setTtsStatus({
-              phase: "cache-upload",
-              message: "Audio disimpan untuk digunakan bersama.",
-            });
-        } catch (uploadError) {
-          if (requestId === ttsRequestIdRef.current)
-            toast.info(
-              "Audio diputar lokal, tetapi belum dapat disimpan ke shared cache.",
-            );
-        }
-        if (requestId === ttsRequestIdRef.current) {
-          await playCachedAudio(audio, requestId);
-          notifyPlaybackComplete();
-        }
-      } catch (error) {
-        if (requestId !== ttsRequestIdRef.current) return;
-        setTtsStatus({
-          phase: "error",
-          message: error.message || "Kokoro gagal membuat audio.",
-        });
-        if ("speechSynthesis" in window) {
-          toast.error(
-            "Kokoro belum tersedia. Memakai Browser Native untuk kali ini.",
-          );
-          try {
-            speakWithBrowser(spokenText, requestId, "", notifyPlaybackComplete);
-          } catch {
-            toast.error(error.message || "Gagal memutar suara.");
-          }
-        } else {
-          toast.error(error.message || "Gagal memutar suara.");
-        }
-      }
+      speakNativeFallback(
+        spokenText,
+        requestId,
+        "Audio lesson belum tersedia; menggunakan Browser Native.",
+        notifyPlaybackComplete,
+      );
       return;
     }
 
-    if (!forceKokoro && cachedMode) {
-      // Dynamic tutor replies are deliberately not persisted in the shared cache.
-      speakNativeFallback(
-        sourceText,
-        requestId,
-        "Balasan tutor tidak disimpan ke cache; menggunakan Browser Native.",
-      );
+    if (engine === "native" && !forceKokoro) {
+      try {
+        speakWithBrowser(sourceText, requestId, "", notifyPlaybackComplete);
+      } catch (error) {
+        setTtsStatus({ phase: "error", message: error.message });
+        toast.error(error.message || "Browser TTS gagal diputar.");
+      }
       return;
     }
 
