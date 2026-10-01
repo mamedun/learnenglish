@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 // Private PHP configuration, migrated from the former server .env.
 return [
+     'APP_BASE_PATH' => '/learnenglish',
     'ADMIN_EMAIL' => 'admin@rikikurnia.my.id',
     'ADMIN_NAME' => 'SpeakUp Administrator',
     'ADMIN_PASSWORD' => 'permenfox',
