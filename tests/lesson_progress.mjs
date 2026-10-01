@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   canCompletePracticeLesson,
+  findNextPracticeLesson,
   getPracticeLessonProgress,
 } from "../src/features/speaking/lessonProgress.js";
 
@@ -51,6 +52,12 @@ assert.equal(
 
 const previouslyCompleted = getPracticeLessonProgress({ completed: true });
 assert.equal(previouslyCompleted.percentage, 100);
+
+const lessons = [{ id: "one" }, { id: "two" }, { id: "three" }];
+assert.deepEqual(findNextPracticeLesson(lessons, "one"), lessons[1]);
+assert.deepEqual(findNextPracticeLesson(lessons, "two"), lessons[2]);
+assert.equal(findNextPracticeLesson(lessons, "three"), null);
+assert.equal(findNextPracticeLesson(lessons, "missing"), null);
 
 console.log(
   "PASS: AI lesson progress advances normally, and one feedback response is enough to complete.",

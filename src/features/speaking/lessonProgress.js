@@ -2,6 +2,13 @@ export function canCompletePracticeLesson(feedbackCount = 0) {
   return Number.isFinite(Number(feedbackCount)) && Number(feedbackCount) > 0;
 }
 
+export function findNextPracticeLesson(lessons, currentLessonId) {
+  const currentIndex = lessons.findIndex(
+    (lesson) => lesson.id === currentLessonId,
+  );
+  return currentIndex < 0 ? null : (lessons[currentIndex + 1] ?? null);
+}
+
 export const PRACTICE_PROGRESS_STEPS = [
   "Dengarkan skenario",
   "Rekam jawaban",

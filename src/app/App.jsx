@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import Swal from "sweetalert2";
 import { toast } from "sonner";
 import {
@@ -20,7 +21,10 @@ import { initialData } from "../data";
 import { awardXP } from "../gamification";
 import { deleteAllRecordings, exportBackup, importBackup } from "../storage";
 import { apiFetch, apiJson, refreshSession } from "../api";
-import { canCompletePracticeLesson } from "../features/speaking/lessonProgress";
+import {
+  canCompletePracticeLesson,
+  findNextPracticeLesson,
+} from "../features/speaking/lessonProgress";
 import { useAuthStore } from "../store/authStore";
 import { useLearningStore } from "../store/learningStore";
 const greet = () => {
@@ -59,6 +63,7 @@ import {
   mergeLiveTranscriptText,
 } from "../lib/liveTranscript";
 import { stripTranscriptSourceLabel, toPlainText } from "../lib/plainText";
+import { appRouteFor, parseAppRoute } from "../lib/appRoutes";
 
 const AdminPage = lazy(() => import("../features/admin/AdminPage"));
 const ListeningPage = lazy(() => import("../features/listening/ListeningPage"));
@@ -68,6 +73,12 @@ const ProgressPage = lazy(() => import("../features/progress/ProgressPage"));
 const SettingsPage = lazy(() => import("../features/settings/SettingsPage"));
 
 function App() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const route = useMemo(
+    () => parseAppRoute(location.pathname),
+    [location.pathname],
+  );
   const page = useLearningStore((s) => s.page);
   const setPage = useLearningStore((s) => s.setPage);
   const catalog = useLearningStore((s) => s.catalog);
@@ -208,7 +219,6 @@ function App() {
       speakingCompleted: progress.progress?.speakingCompleted || [],
       speakingScores: progress.progress?.speakingScores || {},
     });
-    setPage("home");
     setDataReady(true);
   }
   async function reloadCatalog() {
@@ -399,6 +409,92 @@ function App() {
     ? Math.round((totalDone / allUnits.length) * 100)
     : 0;
   const hasPremiumAccess = user?.role === "admin" || user?.plan === "premium";
+  useEffect(() => {
+    if (!authReady || !dataReady) return;
+
+    if (!route) {
+      setPage("home");
+      navigate("/home", { replace: true });
+      return;
+    }
+
+    if (route.page === "practice") {
+      if (!hasPremiumAccess) {
+        toast.info(
+          "AI Lesson dan Live Lesson tersedia untuk Premium. Listening tetap gratis.",
+        );
+        navigate("/listening", { replace: true });
+        return;
+      }
+      const unit = allUnits.find((item) => item.id === route.unitId);
+      if (!unit) {
+        navigate("/home", { replace: true });
+        return;
+      }
+      const firstIncompleteIndex = allUnits.findIndex(
+        (item) => !completed.has(item.id),
+      );
+      const routeUnitIndex = allUnits.findIndex((item) => item.id === unit.id);
+      if (firstIncompleteIndex >= 0 && routeUnitIndex > firstIncompleteIndex) {
+        toast.info("Selesaikan lesson sebelumnya untuk membuka materi ini.");
+        navigate(
+          appRouteFor("practice", {
+            unitId: allUnits[firstIncompleteIndex].id,
+          }),
+          { replace: true },
+        );
+        return;
+      }
+      if (activeUnitId !== unit.id) {
+        setTurns([]);
+        setTranscript("");
+        setAudioBlob(null);
+        setSessionSaveAudio(null);
+        setElapsed(0);
+        setShowLessonList(false);
+      }
+      setActiveUnitId(unit.id);
+    } else if (route.page === "listening") {
+      if (
+        route.listeningId &&
+        !listeningLessons.some((lesson) => lesson.id === route.listeningId)
+      ) {
+        navigate("/listening", { replace: true });
+        return;
+      }
+      setSelectedListeningId(route.listeningId || null);
+    } else {
+      setSelectedListeningId(null);
+      if (route.page === "live" && !hasPremiumAccess) {
+        toast.info(
+          "AI Lesson dan Live Lesson tersedia untuk Premium. Listening tetap gratis.",
+        );
+        navigate("/listening", { replace: true });
+        return;
+      }
+      if (route.page === "admin" && user?.role !== "admin") {
+        navigate("/home", { replace: true });
+        return;
+      }
+    }
+
+    setPage(route.page);
+    if (location.pathname === "/") navigate("/home", { replace: true });
+  }, [
+    activeUnitId,
+    allUnits,
+    authReady,
+    data.completed,
+    dataReady,
+    hasPremiumAccess,
+    listeningLessons,
+    location.pathname,
+    navigate,
+    route,
+    setPage,
+    user?.role,
+  ]);
+
   const nav = (p) => {
     if (!hasPremiumAccess && ["practice", "live"].includes(p)) {
       toast.info(
@@ -406,13 +502,28 @@ function App() {
       );
       p = "listening";
     }
-    if (p === "practice" && !allUnits.length)
-      return toast.info("Belum ada unit speaking yang diterbitkan.");
+    if (p === "practice") {
+      if (!allUnits.length)
+        return toast.info("Belum ada unit speaking yang diterbitkan.");
+      const targetUnit =
+        allUnits.find((unit) => unit.id === activeUnitId) ||
+        allUnits.find((unit) => !completed.has(unit.id)) ||
+        allUnits[0];
+      const targetPath = appRouteFor("practice", { unitId: targetUnit.id });
+      if (location.pathname === targetPath) return;
+      startUnit(targetUnit);
+      return;
+    }
+    const targetPath = appRouteFor(p);
+    if (location.pathname === targetPath) return;
     setPage(p);
+    navigate(targetPath);
   };
   const startListening = (id) => {
     setSelectedListeningId(id || null);
     setPage("listening");
+    const targetPath = appRouteFor("listening", { listeningId: id });
+    if (location.pathname !== targetPath) navigate(targetPath);
   };
   const startUnit = (unit) => {
     if (!hasPremiumAccess) return nav("practice");
@@ -430,6 +541,8 @@ function App() {
     setSessionSaveAudio(null);
     setPage("practice");
     setShowLessonList(false);
+    const targetPath = appRouteFor("practice", { unitId: unit.id });
+    if (location.pathname !== targetPath) navigate(targetPath);
   };
   async function requestMic() {
     if (micRequestRef.current) return micRequestRef.current;
@@ -959,14 +1072,32 @@ function App() {
       );
       return;
     }
-    if (!completed.has(activeUnit.id)) {
+
+    const alreadyCompleted = completed.has(activeUnit.id);
+    if (!alreadyCompleted) {
       setData((prev) => ({
         ...awardXP(prev, 25),
         completed: [...prev.completed, activeUnit.id],
       }));
-      toast.success("Pelajaran selesai! +25 XP");
     }
-    nav("home");
+
+    const nextLesson = findNextPracticeLesson(allUnits, activeUnit.id);
+    if (nextLesson) {
+      toast.success(
+        alreadyCompleted
+          ? "Lesson selesai. Membuka lesson berikutnya."
+          : "Pelajaran selesai! +25 XP · membuka lesson berikutnya.",
+      );
+      navigate(appRouteFor("practice", { unitId: nextLesson.id }));
+      return;
+    }
+
+    setShowLessonList(true);
+    toast.success(
+      alreadyCompleted
+        ? "Ini lesson terakhir yang tersedia. Daftar lesson tetap terbuka."
+        : "Lesson terakhir selesai! +25 XP. Daftar lesson tetap terbuka.",
+    );
   }
   function stopCurrentSpeech() {
     window.speechSynthesis?.cancel();
@@ -2192,6 +2323,7 @@ Because this is a live audio conversation, notice pronunciation or word stress o
                   levels={curriculum}
                   lessons={listeningLessons}
                   initialLessonId={selectedListeningId}
+                  onSelectLesson={startListening}
                   data={data}
                   setData={setData}
                   speak={speak}

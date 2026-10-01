@@ -20,6 +20,7 @@ export default function ListeningPage({
   lessons: allLessons,
   levels: curriculum,
   initialLessonId,
+  onSelectLesson,
   data,
   setData,
   speak,
@@ -33,10 +34,8 @@ export default function ListeningPage({
   const [level, setLevel] = useState("All");
   const [activeId, setActiveId] = useState(null);
   useEffect(() => {
-    if (initialLessonId) {
-      setLevel("All");
-      setActiveId(initialLessonId);
-    }
+    if (initialLessonId) setLevel("All");
+    setActiveId(initialLessonId || null);
   }, [initialLessonId]);
   const [answers, setAnswers] = useState({});
   const [results, setResults] = useState({});
@@ -178,6 +177,7 @@ export default function ListeningPage({
               onClick={() => {
                 setLevel("All");
                 setActiveId(null);
+                onSelectLesson?.(null);
               }}
             >
               Semua
@@ -189,6 +189,7 @@ export default function ListeningPage({
                 onClick={() => {
                   setLevel(x.id);
                   setActiveId(null);
+                  onSelectLesson?.(null);
                 }}
               >
                 {x.id}
@@ -206,6 +207,7 @@ export default function ListeningPage({
                 onClick={() => {
                   setActiveId(l.id);
                   setShowScript(false);
+                  onSelectLesson?.(l.id);
                 }}
               >
                 <span className="listen-level">{l.level}</span>
@@ -415,6 +417,7 @@ export default function ListeningPage({
                 onClick={() => {
                   setLevel("All");
                   setActiveId(next.id);
+                  onSelectLesson?.(next.id);
                   window.scrollTo({ top: 0, behavior: "smooth" });
                 }}
               >
