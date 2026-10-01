@@ -20,8 +20,16 @@ assert.notEqual(
 );
 const assessmentRoute = source.slice(assessmentStart, assessmentEnd);
 assert.match(assessmentRoute, /\$c\['provider'\]==='free'/);
-assert.match(assessmentRoute, /free_request\(\$prompt/);
-assert.match(assessmentRoute, /provider_request\('\/chat\/completions'/);
+assert.match(assessmentRoute, /read_json\(64000\)/);
+assert.match(
+  assessmentRoute,
+  /free_request\(\$prompt,null,'audio\/webm','live-assessment\.txt',25\)/,
+);
+assert.match(
+  assessmentRoute,
+  /provider_request\('\/chat\/completions',\$body,25\)/,
+);
+assert.match(assessmentRoute, /elapsed_ms/);
 assert.doesNotMatch(
   assessmentRoute,
   /generativelanguage\.googleapis\.com|generateContent/,
@@ -44,6 +52,24 @@ assert.match(
   /provider_request\('\/chat\/completions'/,
 );
 
+const app = await readFile(
+  new URL("../src/app/App.jsx", import.meta.url),
+  "utf8",
+);
+assert.match(
+  app,
+  /buildLearnerAssessmentTranscript\(\s*liveTranscriptLinesRef\.current,\s*12000,?\s*\)/,
+);
+assert.match(app, /const responseText = await response\.text\(\)/);
+assert.match(app, /Hosting gateway returned HTTP/);
+assert.match(app, /retryLiveAssessment/);
+const livePage = await readFile(
+  new URL("../src/features/live/LivePage.jsx", import.meta.url),
+  "utf8",
+);
+assert.match(livePage, /liveAssessmentFailed/);
+assert.match(livePage, /Retry feedback/);
+
 console.log(
-  "PASS: Live assessment uses the selected Free/Clario provider; Clario chat routing remains available.",
+  "PASS: Live assessment uses the selected provider, sends learner-only text, and can retry gateway failures.",
 );

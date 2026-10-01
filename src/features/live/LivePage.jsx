@@ -14,8 +14,10 @@ export default function LivePage({
   liveStatus,
   liveLoading = false,
   liveAssessment,
+  liveAssessmentFailed = false,
   beginLive,
   endLive,
+  retryLiveAssessment = () => {},
 }) {
   const loadingLabel = liveStatus.toLowerCase().includes("feedback")
     ? "Menyiapkan feedback…"
@@ -26,6 +28,11 @@ export default function LivePage({
         : liveStatus.toLowerCase().includes("mikrofon")
           ? "Meminta mikrofon…"
           : "Menghubungkan…";
+  const canRetryAssessment =
+    liveAssessmentFailed &&
+    !liveOn &&
+    !liveLoading &&
+    liveLines.some((line) => line.who === "learner");
   return (
     <div className="live-page">
       <div className="live-heading">
@@ -117,6 +124,18 @@ export default function LivePage({
             </p>
           ))}
         </div>
+      )}
+      {canRetryAssessment && (
+        <section className="settings-card live-assessment-card">
+          <h2>Feedback temporarily unavailable</h2>
+          <p>
+            The transcript is still available above. Retry post-session feedback
+            without repeating the conversation.
+          </p>
+          <button className="btn-primary" onClick={retryLiveAssessment}>
+            Retry feedback
+          </button>
+        </section>
       )}
       {liveAssessment && (
         <section className="settings-card live-assessment-card">

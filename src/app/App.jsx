@@ -53,7 +53,10 @@ import {
   getGeminiLiveMessageError,
   parseGeminiLiveMessage,
 } from "../lib/geminiLiveProtocol";
-import { mergeLiveTranscriptText } from "../lib/liveTranscript";
+import {
+  buildLearnerAssessmentTranscript,
+  mergeLiveTranscriptText,
+} from "../lib/liveTranscript";
 import { stripTranscriptSourceLabel, toPlainText } from "../lib/plainText";
 
 const AdminPage = lazy(() => import("../features/admin/AdminPage"));
@@ -115,6 +118,7 @@ function App() {
   const [liveStatus, setLiveStatus] = useState("Ready");
   const [liveLoading, setLiveLoading] = useState(false);
   const [liveAssessment, setLiveAssessment] = useState(null);
+  const [liveAssessmentFailed, setLiveAssessmentFailed] = useState(false);
   const liveWsRef = useRef(null);
   const liveSetupTimerRef = useRef(null);
   const ttsRequestIdRef = useRef(0);
@@ -123,7 +127,6 @@ function App() {
   const liveStreamRef = useRef(null);
   const liveSourceRef = useRef(null);
   const liveProcessorRef = useRef(null);
-  const liveTranscriptRef = useRef("");
   const submitTurnLockRef = useRef(false);
   const liveTranscriptLinesRef = useRef([]);
   const liveCurrentSpeakerRef = useRef(null);
@@ -1304,11 +1307,6 @@ Because this is a live audio conversation, notice pronunciation or word stress o
     }
     liveTranscriptLinesRef.current = nextLines;
     liveCurrentSpeakerRef.current = who;
-    liveTranscriptRef.current = nextLines
-      .map(
-        (line) => `${line.who === "coach" ? "Maya" : "Learner"}: ${line.text}`,
-      )
-      .join("\n");
     setLiveLines(nextLines);
   }
 
@@ -1409,10 +1407,10 @@ Because this is a live audio conversation, notice pronunciation or word stress o
       if (!consent.isConfirmed) return;
       setLiveLoading(true);
       setLiveAssessment(null);
+      setLiveAssessmentFailed(false);
       setLiveLines([]);
       liveTranscriptLinesRef.current = [];
       liveCurrentSpeakerRef.current = null;
-      liveTranscriptRef.current = "";
       livePlayheadRef.current = 0;
       setLiveSeconds(0);
       setLiveStatus("Meminta akses mikrofon…");
@@ -1587,6 +1585,70 @@ Because this is a live audio conversation, notice pronunciation or word stress o
       toast.error(e.message || "Gemini Live gagal dimulai.");
     }
   }
+  async function assessLiveTranscript(transcript) {
+    setLiveLoading(true);
+    setLiveAssessmentFailed(false);
+    setLiveStatus("Mengirim transkrip untuk feedback sesi…");
+    try {
+      const response = await apiFetch("live-assessment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          transcript,
+          level: activeUnit?.level || "unspecified",
+        }),
+      });
+      setLiveStatus("Menerima feedback sesi…");
+      const responseText = await response.text();
+      let payload;
+      try {
+        payload = JSON.parse(responseText);
+      } catch {
+        const contentType = response.headers.get("content-type") || "unknown";
+        console.error("Live assessment returned a non-JSON response", {
+          status: response.status,
+          contentType,
+          bodyLength: responseText.length,
+        });
+        if ([502, 503, 504].includes(response.status))
+          throw new Error(
+            `Hosting gateway returned HTTP ${response.status} before feedback finished. Your transcript is still available; retry feedback without repeating the session.`,
+          );
+        throw new Error(
+          `Feedback server returned an unexpected response (HTTP ${response.status}). You can retry without repeating the session.`,
+        );
+      }
+      if (!response.ok)
+        throw new Error(
+          `${payload.error || "Feedback gagal dibuat."} You can retry without repeating the session.`,
+        );
+      if (!payload?.assessment || typeof payload.assessment !== "object")
+        throw new Error(
+          "Feedback server returned an invalid assessment. You can retry.",
+        );
+      setLiveAssessment(payload.assessment);
+      setLiveStatus("Feedback ready");
+      toast.success("Feedback sesi Live siap.");
+    } catch (error) {
+      setLiveAssessmentFailed(true);
+      setLiveStatus("Session ended · feedback unavailable");
+      toast.error(error.message || "Transkrip sesi tidak dapat dinilai.");
+    } finally {
+      setLiveLoading(false);
+    }
+  }
+  async function retryLiveAssessment() {
+    const transcript = buildLearnerAssessmentTranscript(
+      liveTranscriptLinesRef.current,
+      12000,
+    );
+    if (!transcript) {
+      setLiveAssessmentFailed(false);
+      toast.info("Belum ada transkrip ucapan untuk dinilai.");
+      return;
+    }
+    await assessLiveTranscript(transcript);
+  }
   async function endLive() {
     clearLiveSetupTimer();
     setLiveLoading(true);
@@ -1610,35 +1672,17 @@ Because this is a live audio conversation, notice pronunciation or word stress o
     liveContextRef.current = null;
     if (ctx) await ctx.close().catch(() => {});
     setLiveOn(false);
-    const transcript2 = liveTranscriptRef.current.trim().slice(0, 12e3);
-    if (!transcript2) {
+    const transcript = buildLearnerAssessmentTranscript(
+      liveTranscriptLinesRef.current,
+      12000,
+    );
+    if (!transcript) {
       setLiveStatus("Sesi berakhir");
       setLiveLoading(false);
-      toast.info("Sesi ditutup. Belum ada transkrip untuk dinilai.");
+      toast.info("Sesi ditutup. Belum ada transkrip ucapan untuk dinilai.");
       return;
     }
-    setLiveStatus("Mengirim transkrip untuk feedback sesi…");
-    try {
-      const r = await apiFetch("live-assessment", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          transcript: transcript2,
-          level: activeUnit.level,
-        }),
-      });
-      setLiveStatus("Menerima feedback sesi…");
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error || "Feedback gagal dibuat.");
-      setLiveAssessment(j.assessment);
-      setLiveStatus("Feedback ready");
-      toast.success("Feedback sesi Live siap.");
-    } catch (e) {
-      setLiveStatus("Session ended \xB7 feedback unavailable");
-      toast.error(e.message || "Transkrip sesi tidak dapat dinilai.");
-    } finally {
-      setLiveLoading(false);
-    }
+    await assessLiveTranscript(transcript);
   }
   async function authenticate(mode, payload) {
     const result = await apiJson(mode, {
@@ -2019,8 +2063,10 @@ Because this is a live audio conversation, notice pronunciation or word stress o
                   liveStatus={liveStatus}
                   liveLoading={liveLoading}
                   liveAssessment={liveAssessment}
+                  liveAssessmentFailed={liveAssessmentFailed}
                   beginLive={beginLive}
                   endLive={endLive}
+                  retryLiveAssessment={retryLiveAssessment}
                 />
               )}
               {page === "progress" && (
