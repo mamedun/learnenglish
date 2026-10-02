@@ -124,34 +124,35 @@ export default function AdminPurchasesPanel() {
         </div>
       </div>
       <div className="admin-purchases-toolbar">
-        <label className="admin-search-box">
-          <Search size={16} />
-          <input
-            className="text-field"
-            type="search"
-            value={search}
+        <div className="admin-purchases-toolbar-left">
+          <label className="admin-search-box">
+            <Search size={16} />
+            <input
+              type="search"
+              value={search}
+              onChange={(event) => {
+                setSearch(event.target.value);
+                setPage(1);
+              }}
+              placeholder="Cari nama, email, atau ID pesanan…"
+              aria-label="Cari pembelian"
+            />
+          </label>
+          <select
+            className="admin-select-filter"
+            value={status}
             onChange={(event) => {
-              setSearch(event.target.value);
+              setStatus(event.target.value);
               setPage(1);
             }}
-            placeholder="Cari nama, email, atau ID pesanan…"
-            aria-label="Cari pembelian"
-          />
-        </label>
-        <select
-          className="text-field admin-status-filter"
-          value={status}
-          onChange={(event) => {
-            setStatus(event.target.value);
-            setPage(1);
-          }}
-          aria-label="Filter status pembelian"
-        >
-          <option value="pending">Menunggu</option>
-          <option value="paid">Lunas</option>
-          <option value="expired">Kedaluwarsa</option>
-          <option value="">Semua aktif</option>
-        </select>
+            aria-label="Filter status pembelian"
+          >
+            <option value="pending">Menunggu</option>
+            <option value="paid">Lunas</option>
+            <option value="expired">Kedaluwarsa</option>
+            <option value="">Semua aktif</option>
+          </select>
+        </div>
         <span className="admin-user-total">{total} pesanan</span>
       </div>
       <div className="admin-users-table-wrap">

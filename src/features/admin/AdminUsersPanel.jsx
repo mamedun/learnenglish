@@ -218,7 +218,6 @@ export default function AdminUsersPanel() {
         <label className="admin-search-box">
           <Search size={16} />
           <input
-            className="text-field"
             type="search"
             value={search}
             onChange={(event) => {
@@ -229,10 +228,12 @@ export default function AdminUsersPanel() {
             aria-label="Cari pengguna"
           />
         </label>
-        <span className="admin-user-total">{total} akun</span>
-        <button className="btn-primary" type="button" onClick={startCreate}>
-          <Plus size={16} /> Tambah user
-        </button>
+        <div className="admin-users-toolbar-actions">
+          <span className="admin-user-total">{total} akun</span>
+          <button className="btn-primary" type="button" onClick={startCreate}>
+            <Plus size={16} /> Tambah user
+          </button>
+        </div>
       </div>
 
       {formMode && (

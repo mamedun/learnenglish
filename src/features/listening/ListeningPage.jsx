@@ -61,6 +61,7 @@ export default function ListeningPage({
     () => allLessons.filter((x) => level === "All" || x.level === level),
     [allLessons, level],
   );
+  const active = lessons.find((x) => x.id === activeId) || lessons[0] || allLessons[0];
   const done = scopedData.listeningCompleted || [];
   const firstIncompleteIdx = isLinear
     ? allLessons.findIndex((item) => !done.includes(item.id))

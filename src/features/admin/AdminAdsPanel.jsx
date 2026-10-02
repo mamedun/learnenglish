@@ -81,7 +81,7 @@ export default function AdminAdsPanel() {
   }
 
   return (
-    <section className="course-admin-panel">
+    <section className="course-admin-panel settings-card">
       <div className="course-admin-toolbar">
         <div>
           <h2>
