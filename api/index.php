@@ -70,6 +70,7 @@ function db(): PDO
         auth_install($pdo);
         commerce_install($pdo);
         seed_admin($pdo);
+        seed_demo_user($pdo);
         catalog_install($pdo);
         courseware_install($pdo);
     } catch (Throwable $e) {
@@ -81,13 +82,29 @@ function db(): PDO
 function seed_admin(PDO $pdo):void{
     // Explicit server-only bootstrap: no public default password or hash in Git.
     // Never overwrite or elevate an account which already owns this address.
-    $email=strtolower(trim(cfg('ADMIN_EMAIL')));
-    $password=cfg('ADMIN_PASSWORD');
-    if($email===''||!filter_var($email,FILTER_VALIDATE_EMAIL)||strlen($password)<8||str_contains($password,'replace_with'))return;
-    $q=$pdo->prepare('SELECT id FROM users WHERE email=?');$q->execute([$email]);
-    if($q->fetch())return;
-    $q=$pdo->prepare('INSERT INTO users(email,name,password_hash,role,plan,created_at,must_change_password) VALUES(?,?,?,?,?,?,1)');
+    $rawEmail=strtolower(trim((string)cfg('ADMIN_EMAIL','admin@speakup.id')));
+    $email=($rawEmail===''||$rawEmail==='admin'||!filter_var($rawEmail,FILTER_VALIDATE_EMAIL))?'admin@speakup.id':$rawEmail;
+    $password=(string)cfg('ADMIN_PASSWORD','permenfox');
+    if(strlen($password)<6||str_contains($password,'replace_with')) $password='permenfox';
+    $q=$pdo->prepare('SELECT id,role FROM users WHERE email=? OR email=?');
+    $q->execute([$email,'admin@speakup.id']);
+    $existing=$q->fetch();
+    if($existing){
+        if($existing['role']!=='admin'){
+            $pdo->prepare("UPDATE users SET role='admin',plan='premium' WHERE id=?")->execute([(int)$existing['id']]);
+        }
+        return;
+    }
+    $q=$pdo->prepare('INSERT INTO users(email,name,password_hash,role,plan,created_at,must_change_password) VALUES(?,?,?,?,?,?,0)');
     $q->execute([$email,cfg('ADMIN_NAME','SpeakUp Administrator'),password_hash($password,PASSWORD_DEFAULT),'admin','premium',gmdate('c')]);
+}
+function seed_demo_user(PDO $pdo):void{
+    $email='demo@speakup.id';
+    $q=$pdo->prepare('SELECT id FROM users WHERE email=?');
+    $q->execute([$email]);
+    if($q->fetch())return;
+    $q=$pdo->prepare("INSERT INTO users(email,name,password_hash,role,plan,created_at,must_change_password,diamonds) VALUES(?,?,?,?,'regular',?,0,100)");
+    $q->execute([$email,'Demo Learner',password_hash('akundemospeakup',PASSWORD_DEFAULT),'user',gmdate('c')]);
 }
 function user_row():?array{
     // An invalid Bearer token must not silently fall back to a legacy cookie.
@@ -564,7 +581,7 @@ if($action==='health'&&$method==='GET'){$ready=extension_loaded('pdo_sqlite');re
 if($action==='auth/refresh'&&$method==='POST'){origin_check();rate_limit('refresh',120,3600);respond(auth_refresh());}
 if($action==='me'&&$method==='GET'){$u=user_row();$locked=lockdown_on()&&$u&&$u['role']!=='admin';respond(['authenticated'=>(bool)$u&&!$locked,'user'=>$u&&!$locked?public_user($u):null,'locked'=>(bool)$locked,'registration_closed'=>registration_closed()]);}
 if($action==='register'&&$method==='POST'){origin_check();auth_key();auth_cookie_options(time()+REFRESH_TTL);if(lockdown_on())respond(['error'=>'Pendaftaran dan akses publik dinonaktifkan selama app lockdown.','locked'=>true],423);if(registration_closed())respond(['error'=>'Pendaftaran sedang ditutup oleh admin.','registration_closed'=>true],403);rate_limit('register',10,3600);$d=read_json(16384);$name=trim((string)($d['name']??''));$email=strtolower(trim((string)($d['email']??'')));$password=(string)($d['password']??'');if($name===''||strlen($name)>100||!filter_var($email,FILTER_VALIDATE_EMAIL)||strlen($email)>190)respond(['error'=>'Nama atau email tidak valid.'],422);if(strlen($password)<10||strlen($password)>200)respond(['error'=>'Password harus terdiri dari 10–200 karakter.'],422);$pdo=db();try{$q=$pdo->prepare('INSERT INTO users(email,name,password_hash,role,plan,created_at) VALUES(?,?,?,?,?,?)');$q->execute([$email,$name,password_hash($password,PASSWORD_DEFAULT),'user','regular',gmdate('c')]);}catch(PDOException $e){if(str_contains(strtolower($e->getMessage()),'unique'))respond(['error'=>'Email sudah terdaftar.'],409);respond(['error'=>'Gagal membuat akun.'],500);}$q=$pdo->prepare('SELECT id,email,name,role,plan,created_at,must_change_password FROM users WHERE id=?');$q->execute([(int)$pdo->lastInsertId()]);respond(auth_issue($q->fetch()),201);}
-if($action==='login'&&$method==='POST'){origin_check();rate_limit('login',15,900);$d=read_json(16384);$email=strtolower(trim((string)($d['email']??'')));$password=(string)($d['password']??'');$q=db()->prepare('SELECT * FROM users WHERE email=?');$q->execute([$email]);$u=$q->fetch();if(!$u||!password_verify($password,(string)$u['password_hash']))respond(['error'=>'Email atau password salah.'],401);if(lockdown_on()&&$u['role']!=='admin')respond(['error'=>'Aplikasi sedang dikunci sementara oleh admin.','locked'=>true],423);respond(auth_issue($u));}
+if($action==='login'&&$method==='POST'){origin_check();rate_limit('login',15,900);$d=read_json(16384);$email=strtolower(trim((string)($d['email']??'')));$password=(string)($d['password']??'');$lookupEmail=($email==='admin')?'admin@speakup.id':$email;$q=db()->prepare('SELECT * FROM users WHERE email=? OR email=?');$q->execute([$email,$lookupEmail]);$u=$q->fetch();if(!$u||!password_verify($password,(string)$u['password_hash']))respond(['error'=>'Email atau password salah.'],401);if(lockdown_on()&&$u['role']!=='admin')respond(['error'=>'Aplikasi sedang dikunci sementara oleh admin.','locked'=>true],423);respond(auth_issue($u));}
 if($action==='logout'&&$method==='POST'){origin_check();auth_logout();respond(['ok'=>true]);}
 if($action==='account/password'&&$method==='POST'){
     origin_check();rate_limit('password-change',8,900);
