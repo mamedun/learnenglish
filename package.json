@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
+    "test": "for f in tests/*.mjs; do node \"$f\"; done",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
     "php:dev": "php -S 0.0.0.0:8787 api/router.php",

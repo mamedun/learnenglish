@@ -35,7 +35,7 @@ assert.doesNotMatch(
   /Apakah Anda yakin ingin mengirim rekaman suara ke server AI\?/,
   "audio evaluation must not prompt consent confirmation dialog",
 );
-assert.match(app, /canCompletePracticeLesson\(passedCount, points\)/);
+assert.match(app, /canCompletePracticeLesson\(passedCount, points/);
 assert.match(
   app,
   /const segments = authoredSegments\.length >= 2 \? authoredSegments : \[\]/,
@@ -46,7 +46,7 @@ assert.match(app, /passed:\s*practiceStars >= 4/);
 assert.match(app, /slot,\s*passed:/);
 assert.match(
   app,
-  /practicePoints\(turns, appConfig\.speech_similarity_threshold/,
+  /practicePoints\(\s*turns,\s*appConfig\.speech_similarity_threshold/,
 );
 assert.match(app, /live-billing\/start/);
 assert.match(app, /live-billing\/started/);
