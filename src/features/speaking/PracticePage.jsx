@@ -5,6 +5,7 @@ import {
   BookOpen,
   Check,
   CheckCircle2,
+  Lock,
   ChevronDown,
   ChevronRight,
   FileAudio2,
@@ -124,7 +125,9 @@ export default function PracticePage(p) {
     unlimitedDiamonds = false,
     similarityThreshold = 90,
     resetRecording,
+    learningProgressionMode = "parallel",
   } = p;
+  const isLinear = learningProgressionMode === "linear";
   const [responseMode, setResponseMode] = useState("transcript");
   const currentUnitIdRef = useRef(unit.id);
   currentUnitIdRef.current = unit.id;
@@ -282,24 +285,56 @@ export default function PracticePage(p) {
           </div>
           {showLessonList && (
             <div className="lesson-dropdown">
-              {allUnits
-                .filter((u) => u.level === unit.level)
-                .map((u) => (
-                  <button key={u.id} onClick={() => startUnit(u)}>
-                    <span>{u.emoji}</span>
-                    <span>
-                      <b>{u.title}</b>
-                      <small>
-                        {completed.has(u.id) ? "Selesai" : "Belum selesai"}
-                      </small>
-                    </span>
-                    {completed.has(u.id) ? (
-                      <CheckCircle2 size={16} />
-                    ) : (
-                      <ChevronRight size={15} />
-                    )}
-                  </button>
-                ))}
+              {(() => {
+                const firstIncompleteIdx = isLinear
+                  ? allUnits.findIndex((item) => !completed.has(item.id))
+                  : -1;
+                return allUnits
+                  .filter((u) => u.level === unit.level)
+                  .map((u) => {
+                    const unitIdx = allUnits.findIndex(
+                      (item) => item.id === u.id,
+                    );
+                    const isLocked =
+                      isLinear &&
+                      firstIncompleteIdx >= 0 &&
+                      unitIdx > firstIncompleteIdx;
+                    return (
+                      <button
+                        key={u.id}
+                        className={isLocked ? "locked" : ""}
+                        onClick={() => {
+                          if (isLocked) {
+                            toast.info(
+                              "Mode Linear: Selesaikan lesson sebelumnya untuk membuka materi ini.",
+                            );
+                            return;
+                          }
+                          startUnit(u);
+                        }}
+                      >
+                        <span>{u.emoji}</span>
+                        <span>
+                          <b>{u.title}</b>
+                          <small>
+                            {completed.has(u.id)
+                              ? "Selesai"
+                              : isLocked
+                                ? "Terkunci · Selesaikan sebelumnya"
+                                : "Belum selesai"}
+                          </small>
+                        </span>
+                        {completed.has(u.id) ? (
+                          <CheckCircle2 size={16} />
+                        ) : isLocked ? (
+                          <Lock size={15} />
+                        ) : (
+                          <ChevronRight size={15} />
+                        )}
+                      </button>
+                    );
+                  });
+              })()}
             </div>
           )}
         </div>
@@ -716,7 +751,7 @@ export default function PracticePage(p) {
                 <span>
                   {mobileTranscriptEditable
                     ? "Bisa diedit di HP · gunakan mikrofon keyboard untuk dikte; audio tidak dikirim"
-                    : "Read-only · transkrip dikirim ke tutor AI; audio tidak dikirim"}
+                    : "Read-only · Text akan otomatis ter generate saat anda bicara"}
                 </span>
                 <button
                   className="text-button"
@@ -731,8 +766,7 @@ export default function PracticePage(p) {
             <div className="audio-pending-note">
               <FileAudio2 size={17} />
               <span>
-                Transkrip jawabanmu ditampilkan setelah audio diproses oleh AI.
-                Rekaman tidak diunggah sebelum kamu menyetujui pengiriman.
+                Transkrip jawabanmu ditampilkan setelah audio didengarkan oleh Tutor Digital
               </span>
               {audioBlob && (
                 <button className="text-button" onClick={resetSpeechInput}>
@@ -750,11 +784,9 @@ export default function PracticePage(p) {
                   : "Akses Admin unlimited · rekaman dikirim setelah persetujuan"
                 : liveTranscription
                   ? "Transkrip saja dikirim ke AI · 2 diamond"
-                  : p.sessionSaveAudio === null
-                    ? "arsip audio ditanyakan terpisah · 5 diamond"
-                    : p.sessionSaveAudio
-                      ? "arsip audio disimpan di akun server · 5 diamond"
-                      : "audio tidak diarsipkan · 5 diamond"}
+                  : p.sessionSaveAudio
+                    ? "arsip audio disimpan di akun server · 5 diamond"
+                    : "audio tidak diarsipkan · 5 diamond"}
             </span>
             <button
               className="btn-primary"
@@ -1040,17 +1072,6 @@ export default function PracticePage(p) {
           <div className="tip-example">
             <small>TRY THIS</small>
             <span>“I’m from Bandung, and I...”</span>
-          </div>
-        </div>
-        <div className="privacy-card">
-          <ShieldCheck size={18} />
-          <div>
-            <b>Privasi & audio</b>
-            <p>
-              {liveTranscription
-                ? "Live transcription memakai layanan SpeechRecognition browser; transkrip hanya-baca dan audio tidak dikirim ke provider AI aplikasi."
-                : "Rekaman dikirim untuk transkripsi dan feedback AI hanya setelah persetujuan. Arsip audio memerlukan persetujuan terpisah."}
-            </p>
           </div>
         </div>
       </aside>

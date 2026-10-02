@@ -98,23 +98,22 @@ export default function AuthScreen({ onAuth }) {
             <em>actually speak.</em>
           </h1>
           <p>
-            Belajar bahasa Inggris lewat misi kecil yang seru. Dengarkan, berani
-            bicara, dan tumbuh dari A1 hingga C2.
+            Belajar bahasa Inggris secara mandiri dengan bantuan Tutor Digital
           </p>
           <div className="auth-benefits">
             <div>
               <CheckCircle2 size={17} />
-              <span>18 listening lesson gratis, selalu bisa diulang</span>
+              <span>Latihan Listening dan Speaking Gratis</span>
             </div>
             <div>
               <CheckCircle2 size={17} />
               <span>
-                AI Lesson dengan diamond · Live Lesson maksimal 10 menit
+                Belajar secara mandiri dengan Tutor Digital 24 jam
               </span>
             </div>
             <div>
               <ShieldCheck size={17} />
-              <span>XP, badge & progres tersimpan di akunmu</span>
+              <span>Makin PeDe dengan ngobrol bareng Tutor Digital secara Live</span>
             </div>
           </div>
           <div className="auth-illustration">
@@ -225,8 +224,7 @@ export default function AuthScreen({ onAuth }) {
             </div>
           )}
           <small className="auth-terms">
-            Dengan melanjutkan, progres dan rekaman pilihanmu akan disimpan pada
-            server ini.
+            Silahkan coba masuk dengan demo@speakup.id dan password: akundemospeakup untuk melihat fiturnya
           </small>
           {server === "offline" && (
             <div className="auth-lock-banner" role="alert">
@@ -243,7 +241,7 @@ export default function AuthScreen({ onAuth }) {
         </div>
       </div>
       <div className="auth-footer">
-        SpeakUp · IELTS-inspired practice · Bukan layanan resmi IELTS
+        SpeakUp · Upgrade Yourself!
       </div>
     </div>
   );

@@ -9,6 +9,7 @@ import {
   Flame,
   Gem,
   Home,
+  LogOut,
   MoreHorizontal,
   RotateCcw,
   Settings,
@@ -157,6 +158,8 @@ function App() {
   const [deviceId, setDeviceId] = useState("");
   const [audioBlob, setAudioBlob] = useState(null);
   const [sessionSaveAudio, setSessionSaveAudio] = useState(null);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const profileMenuRef = useRef(null);
   const [elapsed, setElapsed] = useState(0);
   const [showLessonList, setShowLessonList] = useState(false);
   const [liveOn, setLiveOn] = useState(false);
@@ -552,6 +555,23 @@ function App() {
     };
   }, []);
   useEffect(() => {
+    if (!profileMenuOpen) return;
+    function handleClickOutside(event) {
+      if (profileMenuRef.current && !profileMenuRef.current.contains(event.target)) {
+        setProfileMenuOpen(false);
+      }
+    }
+    function handleKeyDown(event) {
+      if (event.key === "Escape") setProfileMenuOpen(false);
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [profileMenuOpen]);
+  useEffect(() => {
     if (!user || !dataReady) return;
     const id = user.id;
     const timer = window.setTimeout(
@@ -827,7 +847,9 @@ function App() {
         );
         return;
       }
-      if (routeCourseId === "ielts") {
+      const isLinear =
+        appConfig.courseware_policy?.learning_progression_mode === "linear";
+      if (isLinear) {
         const firstIncompleteIndex = allUnits.findIndex(
           (item) => !completed.has(item.id),
         );
@@ -838,10 +860,13 @@ function App() {
           firstIncompleteIndex >= 0 &&
           routeUnitIndex > firstIncompleteIndex
         ) {
-          toast.info("Selesaikan lesson sebelumnya untuk membuka materi ini.");
+          toast.info(
+            "Mode Linear: Selesaikan lesson sebelumnya untuk membuka materi ini.",
+          );
           navigate(
             appRouteFor("practice", {
               unitId: allUnits[firstIncompleteIndex].id,
+              courseId: routeCourseId !== "ielts" ? routeCourseId : undefined,
             }),
             { replace: true },
           );
@@ -882,6 +907,36 @@ function App() {
           { replace: true },
         );
         return;
+      }
+      const isLinear =
+        appConfig.courseware_policy?.learning_progression_mode === "linear";
+      if (isLinear && route.listeningId) {
+        const scopedListeningData =
+          routeCourseId === "ielts"
+            ? data
+            : (data.courseProgress || {})[routeCourseId] || {};
+        const completedListening = new Set(
+          scopedListeningData.listeningCompleted || [],
+        );
+        const firstIncompleteIdx = listeningLessons.findIndex(
+          (l) => !completedListening.has(l.id),
+        );
+        const currentIdx = listeningLessons.findIndex(
+          (l) => l.id === route.listeningId,
+        );
+        if (firstIncompleteIdx >= 0 && currentIdx > firstIncompleteIdx) {
+          toast.info(
+            "Mode Linear: Selesaikan lesson sebelumnya untuk membuka materi ini.",
+          );
+          navigate(
+            appRouteFor("listening", {
+              listeningId: listeningLessons[firstIncompleteIdx].id,
+              courseId: routeCourseId !== "ielts" ? routeCourseId : undefined,
+            }),
+            { replace: true },
+          );
+          return;
+        }
       }
       setSelectedListeningId(route.listeningId || null);
       noteActivity("listening", route.listeningId || null);
@@ -1328,29 +1383,15 @@ function App() {
 
     setProcessingMessage(
       useServerAudio
-        ? "Menunggu persetujuan pengiriman audio…"
+        ? "Menyiapkan rekaman untuk dikirim ke AI…"
         : "Mengirim transkrip ke tutor AI…",
     );
     let replyObj = null;
     let audioResult = null;
-    let saveThisAudio = Boolean(sessionSaveAudio);
+    let saveThisAudio = Boolean(data.settings?.saveAudio);
+    setSessionSaveAudio(saveThisAudio);
     try {
       if (useServerAudio) {
-        const consent = await Swal.fire({
-          title: "Kirim audio untuk diproses AI?",
-          text:
-            currentConfig.ai_provider === "free" &&
-            currentConfig.free_browser_debug &&
-            user?.role === "admin"
-              ? "Rekaman akan dikirim satu kali langsung dari browser Admin ke node Free untuk diagnosis. Debug ini tidak menyimpan hasil maupun arsip audio ke akun atau server PHP."
-              : "Rekaman akan dikirim satu kali ke server AI yang dipilih admin untuk transkripsi dan feedback. Audio tidak disimpan oleh endpoint ini. Penyimpanan arsip audio (jika dipilih) adalah persetujuan terpisah.",
-          icon: "info",
-          showCancelButton: true,
-          confirmButtonText: "Setuju & kirim audio",
-          cancelButtonText: "Batal",
-          confirmButtonColor: "#315c45",
-        });
-        if (!consent.isConfirmed) return;
         setProcessingMessage("Menyiapkan rekaman untuk dikirim…");
 
         const audioForAI =
@@ -1465,6 +1506,16 @@ function App() {
           return;
         }
 
+        const unitTurns =
+          turns.length > 0
+            ? turns
+            : currentUnitSessions.flatMap((s) => s.turns || []);
+        const recentTurns = unitTurns.slice(-6).map((turn) => ({
+          user: stripTranscriptSourceLabel(turn.userText),
+          assistant: toPlainText(turn.reply),
+          passed: turn.stars ? turn.stars >= 4 : turn.passed !== false,
+        }));
+
         const form = new FormData();
         form.append("consent", "1");
         form.append("task_mode", "response");
@@ -1473,6 +1524,14 @@ function App() {
         form.append("course_id", practiceCourseId);
         form.append("unit_id", activeUnit.id);
         form.append("duration_seconds", String(elapsed));
+        form.append("recent_turns", JSON.stringify(recentTurns));
+        form.append(
+          "memory_summary",
+          currentUnitSessions
+            .map((session) => session.summary)
+            .filter(Boolean)
+            .slice(-1)[0] || "",
+        );
         form.append(
           "audio",
           audioForAI,
@@ -1564,27 +1623,6 @@ function App() {
         throw new Error(
           "AI belum menghasilkan transkrip. Silakan rekam ulang atau ganti mode input di admin.",
         );
-      }
-
-      if (useServerAudio && sessionSaveAudio === null) {
-        const choice = await Swal.fire({
-          title: "Simpan rekaman ke akun?",
-          text: "Ini terpisah dari pengiriman audio untuk evaluasi AI. Rekaman arsip tidak akan dikirim ulang otomatis.",
-          input: "radio",
-          inputOptions: {
-            save: "Simpan audio ke akun server",
-            discard: "Jangan simpan audio",
-          },
-          inputValue: data.settings.saveAudio ? "save" : "discard",
-          showCancelButton: true,
-          confirmButtonText: "Lanjutkan",
-          cancelButtonText: "Lewati",
-          confirmButtonColor: "#315c45",
-          inputValidator: (value) =>
-            !value ? "Pilih salah satu opsi." : undefined,
-        });
-        saveThisAudio = Boolean(choice.isConfirmed && choice.value === "save");
-        setSessionSaveAudio(saveThisAudio);
       }
 
       let audioId = null;
@@ -1728,18 +1766,20 @@ function App() {
   }
   async function clearPracticeHistory(unitId = activeUnit?.id) {
     if (!unitId) return;
+    const practiceCourseId = activeUnit?.courseId || currentCourseId;
     const archivedAudioIds = new Set(
       [
         ...turns,
         ...(data.sessions || [])
           .filter(
             (session) =>
-              (session.courseId || "ielts") === currentCourseId &&
+              (session.courseId || "ielts") === practiceCourseId &&
               session.unitId === unitId,
           )
           .flatMap((session) => session.turns || []),
+        ...(data.recordings || []).filter((r) => r.unitId === unitId),
       ]
-        .map((turn) => turn.audioId)
+        .map((turn) => turn.audioId || turn.id)
         .filter(Boolean),
     );
     const deletions = await Promise.allSettled(
@@ -1755,8 +1795,11 @@ function App() {
       ...previous,
       sessions: (previous.sessions || []).filter(
         (session) =>
-          (session.courseId || "ielts") !== currentCourseId ||
+          (session.courseId || "ielts") !== practiceCourseId ||
           session.unitId !== unitId,
+      ),
+      recordings: (previous.recordings || []).filter(
+        (rec) => rec.unitId !== unitId,
       ),
     }));
     setAudioBlob(null);
@@ -2974,8 +3017,80 @@ Because this is live audio, comment on pronunciation or word stress only when a 
             </button>
           ))}
         </nav>
-        <div className="sidebar-bottom">
-          <button className="profile-row" onClick={() => nav("settings")}>
+        <div className="sidebar-bottom" ref={profileMenuRef}>
+          {profileMenuOpen && (
+            <div className="profile-dropdown-menu" role="menu">
+              <div className="profile-menu-header">
+                <span className="avatar">
+                  {user.name?.charAt(0)?.toUpperCase() || "S"}
+                </span>
+                <div className="profile-menu-info">
+                  <b>{user.name}</b>
+                  <small>{user.email}</small>
+                </div>
+              </div>
+              <div className="profile-menu-divider" />
+              <button
+                type="button"
+                className="profile-menu-item"
+                role="menuitem"
+                onClick={() => {
+                  setProfileMenuOpen(false);
+                  nav("settings");
+                }}
+              >
+                <Settings size={16} />
+                <span>Pengaturan Akun</span>
+              </button>
+              {user.role === "admin" && (
+                <button
+                  type="button"
+                  className="profile-menu-item"
+                  role="menuitem"
+                  onClick={() => {
+                    setProfileMenuOpen(false);
+                    nav("admin");
+                  }}
+                >
+                  <ShieldCheck size={16} />
+                  <span>Panel Admin</span>
+                </button>
+              )}
+              <button
+                type="button"
+                className="profile-menu-item"
+                role="menuitem"
+                onClick={() => {
+                  setProfileMenuOpen(false);
+                  nav("shop");
+                }}
+              >
+                <Gem size={16} />
+                <span>Toko Diamond</span>
+              </button>
+              <div className="profile-menu-divider" />
+              <button
+                type="button"
+                className="profile-menu-item logout"
+                role="menuitem"
+                onClick={() => {
+                  setProfileMenuOpen(false);
+                  void logout();
+                }}
+              >
+                <LogOut size={16} />
+                <span>Keluar</span>
+              </button>
+            </div>
+          )}
+          <button
+            type="button"
+            className={`profile-row ${profileMenuOpen ? "active" : ""}`}
+            onClick={() => setProfileMenuOpen((prev) => !prev)}
+            aria-expanded={profileMenuOpen}
+            aria-haspopup="menu"
+            aria-label="Menu profil"
+          >
             <span className="avatar">
               {user.name?.charAt(0)?.toUpperCase() || "S"}
             </span>
@@ -3030,7 +3145,7 @@ Because this is live audio, comment on pronunciation or word stress only when a 
               <Flame size={17} fill="currentColor" /> {data.streak || 0} hari
             </span>
             <button
-              className="icon-btn"
+              className="icon-btn topbar-settings-btn"
               onClick={() => nav("settings")}
               aria-label="Pengaturan"
             >
@@ -3162,6 +3277,10 @@ Because this is live audio, comment on pronunciation or word stress only when a 
                     }
                     aiProvider={appConfig.ai_provider}
                     unlimitedDiamonds={user?.unlimited_diamonds}
+                    learningProgressionMode={
+                      appConfig.courseware_policy?.learning_progression_mode ||
+                      "parallel"
+                    }
                     onDiamondsChanged={applyDiamondBalance}
                     onCourseProgress={incrementCourseProgress}
                   />
@@ -3245,6 +3364,10 @@ Because this is live audio, comment on pronunciation or word stress only when a 
                     similarityThreshold={appConfig.speech_similarity_threshold}
                     sessionSaveAudio={sessionSaveAudio}
                     resetRecording={resetRecording}
+                    learningProgressionMode={
+                      appConfig.courseware_policy?.learning_progression_mode ||
+                      "parallel"
+                    }
                   />
                 </>
               )}

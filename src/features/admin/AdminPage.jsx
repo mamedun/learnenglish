@@ -14,6 +14,7 @@ import {
   ShieldCheck,
   Users,
   ShoppingBag,
+  Megaphone,
 } from "lucide-react";
 import { apiFetch, apiJson } from "../../api";
 import ModuleLoading from "../../components/ModuleLoading";
@@ -21,6 +22,7 @@ import AdminAudioCache from "./AdminAudioCache";
 import AdminUsersPanel from "./AdminUsersPanel";
 import AdminPurchasesHub from "./AdminPurchasesHub";
 import AdminCourseUsagePanel from "./AdminCourseUsagePanel";
+import AdminAdsPanel from "./AdminAdsPanel";
 import CourseStudio from "./CourseStudio";
 import { toast } from "sonner";
 
@@ -72,6 +74,7 @@ export default function AdminPage({
       cost_live_per_minute: 2,
       live_block_minutes: 5,
       diamond_price_idr: 100,
+      learning_progression_mode: "parallel",
     },
   });
   const [models, setModels] = useState([]);
@@ -298,6 +301,14 @@ export default function AdminPage({
         </button>
         <button
           role="tab"
+          aria-selected={adminTab === "ads"}
+          className={adminTab === "ads" ? "active" : ""}
+          onClick={() => setAdminTab("ads")}
+        >
+          <Megaphone size={17} /> Iklan
+        </button>
+        <button
+          role="tab"
           aria-selected={adminTab === "purchases"}
           className={adminTab === "purchases" ? "active" : ""}
           onClick={() => setAdminTab("purchases")}
@@ -327,6 +338,8 @@ export default function AdminPage({
         <AdminAudioCache />
       ) : adminTab === "users" ? (
         <AdminUsersPanel />
+      ) : adminTab === "ads" ? (
+        <AdminAdsPanel />
       ) : adminTab === "purchases" ? (
         <AdminPurchasesHub />
       ) : adminTab === "usage" ? (
@@ -1044,6 +1057,74 @@ export default function AdminPage({
               <div className="info-box">
                 <CircleHelp size={15}/>
                 <span>Admin utama tidak mengonsumsi diamond. Biaya Live Assessment default 0; Gemini Live tetap menangani audio langsung, sedangkan assessment memakai provider AI global terpilih.</span>
+              </div>
+              <div className="admin-divider" />
+              <div className="setting-title">
+                <div className="setting-icon purple">
+                  <BookOpen size={18} />
+                </div>
+                <div>
+                  <b>Alur Belajar Listening & AI Lesson</b>
+                  <small>
+                    Tentukan apakah learner dapat memilih materi secara bebas (paralel) atau harus bertahap (linear).
+                  </small>
+                </div>
+              </div>
+              <div className="admin-radio-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 12, marginTop: 12 }}>
+                <label
+                  style={{
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: 10,
+                    padding: "14px 16px",
+                    borderRadius: 12,
+                    border: `1.5px solid ${settings.courseware_policy?.learning_progression_mode !== "linear" ? "#5846c8" : "var(--border, #e5e0f5)"}`,
+                    background: settings.courseware_policy?.learning_progression_mode !== "linear" ? "#fbfaff" : "var(--surface, #fff)",
+                    cursor: "pointer",
+                  }}
+                >
+                  <input
+                    type="radio"
+                    name="learning_progression_mode"
+                    value="parallel"
+                    checked={settings.courseware_policy?.learning_progression_mode !== "linear"}
+                    onChange={() => changePolicy("learning_progression_mode", "parallel")}
+                    style={{ marginTop: 3 }}
+                  />
+                  <div>
+                    <b style={{ color: "#312d52", display: "block", fontSize: 14 }}>Belajar Paralel</b>
+                    <small style={{ color: "#797392", display: "block", marginTop: 2, fontSize: 12, lineHeight: 1.4 }}>
+                      Learner dapat bebas memilih materi tanpa harus menyelesaikan materi sebelumnya (mirip listening saat ini).
+                    </small>
+                  </div>
+                </label>
+                <label
+                  style={{
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: 10,
+                    padding: "14px 16px",
+                    borderRadius: 12,
+                    border: `1.5px solid ${settings.courseware_policy?.learning_progression_mode === "linear" ? "#5846c8" : "var(--border, #e5e0f5)"}`,
+                    background: settings.courseware_policy?.learning_progression_mode === "linear" ? "#fbfaff" : "var(--surface, #fff)",
+                    cursor: "pointer",
+                  }}
+                >
+                  <input
+                    type="radio"
+                    name="learning_progression_mode"
+                    value="linear"
+                    checked={settings.courseware_policy?.learning_progression_mode === "linear"}
+                    onChange={() => changePolicy("learning_progression_mode", "linear")}
+                    style={{ marginTop: 3 }}
+                  />
+                  <div>
+                    <b style={{ color: "#312d52", display: "block", fontSize: 14 }}>Belajar Linear</b>
+                    <small style={{ color: "#797392", display: "block", marginTop: 2, fontSize: 12, lineHeight: 1.4 }}>
+                      Learner harus menyelesaikan materi secara bertahap satu per satu dari awal sebelum membuka materi berikutnya.
+                    </small>
+                  </div>
+                </label>
               </div>
               <div className="admin-divider" />
               <div className="setting-title">

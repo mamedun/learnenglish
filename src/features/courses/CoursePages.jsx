@@ -423,8 +423,7 @@ export function CourseDetailPage({
       <section className="course-detail-note">
         <CheckCircle2 size={18} />
         <span>
-          Progres disimpan per course. Untuk IELTS, progres lama tetap
-          digunakan.
+          Yuk, lanjutkan progressmu agar semakin pintar!
         </span>
       </section>
     </div>

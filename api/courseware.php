@@ -27,6 +27,7 @@ function courseware_policy_defaults(): array
         'cost_live_per_minute' => 2,
         'live_block_minutes' => 5,
         'diamond_price_idr' => 100,
+        'learning_progression_mode' => 'parallel',
     ];
 }
 
@@ -49,11 +50,12 @@ function courseware_policy(): array
         'diamond_price_idr' => [1, 5000],
     ];
     $values = [];
-    foreach ($defaults as $key => $default) {
-        $raw = (int) app_setting($key, (string) $default);
-        [$minimum, $maximum] = $bounds[$key];
+    foreach ($bounds as $key => [$minimum, $maximum]) {
+        $raw = (int) app_setting($key, (string) $defaults[$key]);
         $values[$key] = max($minimum, min($maximum, $raw));
     }
+    $progression = (string) app_setting('learning_progression_mode', 'parallel');
+    $values['learning_progression_mode'] = in_array($progression, ['parallel', 'linear'], true) ? $progression : 'parallel';
     return $values;
 }
 
@@ -77,19 +79,24 @@ function courseware_save_policy(array $input): array
         'diamond_price_idr' => [1, 5000],
     ];
     $values = [];
-    foreach ($defaults as $key => $default) {
-        $value = $input[$key] ?? $current[$key] ?? $default;
+    foreach ($bounds as $key => [$minimum, $maximum]) {
+        $value = $input[$key] ?? $current[$key] ?? $defaults[$key];
         if (!is_numeric($value) || floor((float) $value) !== (float) $value) {
             respond(['error' => "Nilai kebijakan $key harus berupa bilangan bulat."], 422);
         }
         $value = (int) $value;
-        [$minimum, $maximum] = $bounds[$key];
         if ($value < $minimum || $value > $maximum) {
             respond(['error' => "Nilai $key harus berada di antara $minimum dan $maximum."], 422);
         }
         $values[$key] = $value;
     }
     foreach ($values as $key => $value) put_setting($key, (string) $value);
+    $progression = (string) ($input['learning_progression_mode'] ?? $current['learning_progression_mode'] ?? 'parallel');
+    if (!in_array($progression, ['parallel', 'linear'], true)) {
+        $progression = 'parallel';
+    }
+    put_setting('learning_progression_mode', $progression);
+    $values['learning_progression_mode'] = $progression;
     return $values;
 }
 

@@ -458,9 +458,9 @@ export default function ListeningSpeakingTask({
                 ? "AI menilai rekaman langsung; akses Admin tidak memakai diamond."
                 : "AI menilai audio langsung tanpa transkripsi browser terlebih dahulu · 3 diamond per penilaian."
               : speechScoringMode === "ai"
-                ? `Pencocokan AI memakai ${unlimitedDiamonds ? "akses Admin tanpa diamond" : "1 diamond"}${liveInput ? "; audio tidak dikirim." : "; transkripsi audio juga memakai 1 diamond."}`
+                ? `Pencocokan AI memakai ${unlimitedDiamonds ? "akses Admin tanpa diamond" : "1 diamond"}${liveInput ? "" : "; transkripsi audio juga memakai 1 diamond."}`
                 : liveInput
-                  ? "Pencocokan lokal gratis; audio tidak dikirim."
+                  ? ""
                   : `Pencocokan lokal gratis; transkripsi audio AI memakai ${unlimitedDiamonds ? "akses Admin tanpa diamond" : "1 diamond"}.`}
           </p>
         </div>
