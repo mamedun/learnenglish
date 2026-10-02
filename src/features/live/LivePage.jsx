@@ -15,6 +15,7 @@ export default function LivePage({
   liveLines,
   liveStatus,
   liveLoading = false,
+  liveStream = null,
   liveAssessment,
   liveAssessmentFailed = false,
   diamonds = 0,
@@ -101,6 +102,7 @@ export default function LivePage({
         </p>
         {liveOn && (
           <AudioRadarWaveform
+            stream={liveStream}
             theme="emerald"
             label="Gemini Live Aktif · Maya Mendengarkan & Merespons"
             subLabel="Mikrofon aktif dua arah — bicaralah secara alami kapan saja"

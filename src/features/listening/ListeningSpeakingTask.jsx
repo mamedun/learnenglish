@@ -52,6 +52,7 @@ export default function ListeningSpeakingTask({
 
   const [recording, setRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [recordingStream, setRecordingStream] = useState(null);
   const [requestingMic, setRequestingMic] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [processingMessage, setProcessingMessage] = useState("");
@@ -160,6 +161,7 @@ export default function ListeningSpeakingTask({
     chunksRef.current = [];
     recognition.reset();
     setRecording(false);
+    setRecordingStream(null);
     setAudioBlob(null);
     setAiTranscript("");
     setChecked(null);
@@ -222,12 +224,14 @@ export default function ListeningSpeakingTask({
         stream.getTracks().forEach((track) => track.stop());
         streamRef.current = null;
         setRecording(false);
+        setRecordingStream(null);
       };
       setRecordingSeconds(0);
       recorder.start(250);
       setAudioBlob(null);
       setAiTranscript("");
       setRecording(true);
+      setRecordingStream(stream);
     } catch (error) {
       streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
@@ -583,6 +587,7 @@ export default function ListeningSpeakingTask({
               {/* Audio Radar & Waveform Animation when Recording Audio for AI */}
               {recording && (
                 <AudioRadarWaveform
+                  stream={recordingStream}
                   theme="coral"
                   label={`Merekam Audio Langsung (${recordingSeconds} detik)`}
                   subLabel="Bicaralah dengan tempo wajar. Tekan selesai jika telah membaca naskah."

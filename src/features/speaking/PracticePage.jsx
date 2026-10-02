@@ -701,6 +701,7 @@ export default function PracticePage(p) {
                 </span>
                 <AudioRadarWaveform
                   compact
+                  stream={recording ? p.audioStream : null}
                   theme={liveTranscription ? "emerald" : "coral"}
                   label={
                     liveTranscription

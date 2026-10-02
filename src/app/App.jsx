@@ -3446,6 +3446,7 @@ Because this is live audio, comment on pronunciation or word stress only when a 
                   )}
                   <PracticePage
                     showBackButton={!route?.courseId}
+                    audioStream={recording ? streamRef.current : null}
                     onBack={() =>
                       route?.courseId
                         ? openCourse(
@@ -3530,6 +3531,7 @@ Because this is live audio, comment on pronunciation or word stress only when a 
                   )}
                   <LivePage
                     courseId={currentCourseId}
+                    liveStream={liveOn ? liveStreamRef.current : null}
                     topics={currentLiveTopics}
                     liveMaxSeconds={liveMaxSeconds}
                     liveBlockMinutes={liveRuntimeBlockMinutes}
