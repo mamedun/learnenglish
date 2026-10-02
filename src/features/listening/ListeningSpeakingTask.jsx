@@ -478,9 +478,11 @@ export default function ListeningSpeakingTask({
           {/* Controls & Inputs based on Mode */}
           {mode === "system" ? (
             <>
-              <div className="shadowing-controls">
+              {/* Catchy Hero Action Button for System Mode */}
+              <div className="listening-mic-hero-wrap">
                 <button
-                  className={`mic-control ${recognition.listening ? "granted is-listening-live" : ""}`}
+                  type="button"
+                  className={`listening-mic-hero-btn ${recognition.listening ? "is-active system-active" : "system-idle"}`}
                   onClick={
                     recognition.listening
                       ? recognition.stop
@@ -488,12 +490,30 @@ export default function ListeningSpeakingTask({
                   }
                   disabled={!recognition.supported || processing}
                 >
-                  {recognition.listening ? (
-                    <Pause size={15} />
-                  ) : (
-                    <Mic size={15} />
-                  )}
-                  {recognition.listening ? "Selesai bicara" : "Mulai bicara"}
+                  <div className="mic-hero-icon-bubble">
+                    {recognition.listening ? (
+                      <Pause size={24} />
+                    ) : (
+                      <Mic size={24} />
+                    )}
+                  </div>
+                  <div className="mic-hero-content">
+                    <div className="mic-hero-title-row">
+                      <span className="mic-hero-main-title">
+                        {recognition.listening
+                          ? "Selesai Bicara · Klik di Sini"
+                          : "Ketuk untuk Mulai Bicara"}
+                      </span>
+                      <span className="mic-hero-badge system">
+                        {recognition.listening ? "MENDENGARKAN…" : "GRATIS · SISTEM"}
+                      </span>
+                    </div>
+                    <span className="mic-hero-subtitle">
+                      {recognition.listening
+                        ? "Klik untuk berhenti bicara & melihat teks hasil transkripsimu di bawah"
+                        : "Nyalakan mikrofon, lalu bacakan naskah di atas dengan lantang dan jelas"}
+                    </span>
+                  </div>
                 </button>
               </div>
 
@@ -563,24 +583,42 @@ export default function ListeningSpeakingTask({
             </>
           ) : (
             <>
-              <div className="shadowing-controls">
+              {/* Catchy Hero Action Button for AI Mode */}
+              <div className="listening-mic-hero-wrap">
                 <button
-                  className={`mic-control ${recording ? "granted is-recording-live" : ""}`}
+                  type="button"
+                  className={`listening-mic-hero-btn ${recording ? "is-active ai-active" : "ai-idle"}`}
                   onClick={recording ? stopAudioRecording : startAudioRecording}
                   disabled={processing || requestingMic}
                 >
-                  {requestingMic ? (
-                    <span className="spinner" />
-                  ) : recording ? (
-                    <Pause size={15} />
-                  ) : (
-                    <Mic size={15} />
-                  )}
-                  {recording
-                    ? `Selesai merekam (${recordingSeconds}s)`
-                    : requestingMic
-                      ? "Meminta akses mikrofon…"
-                      : "Mulai merekam suara"}
+                  <div className="mic-hero-icon-bubble">
+                    {requestingMic ? (
+                      <span className="spinner" />
+                    ) : recording ? (
+                      <Pause size={24} />
+                    ) : (
+                      <Mic size={24} />
+                    )}
+                  </div>
+                  <div className="mic-hero-content">
+                    <div className="mic-hero-title-row">
+                      <span className="mic-hero-main-title">
+                        {recording
+                          ? `Selesai Merekam (${recordingSeconds}s) · Klik di Sini`
+                          : requestingMic
+                            ? "Meminta Izin Mikrofon…"
+                            : "Mulai Merekam Suara (Penilaian AI)"}
+                      </span>
+                      <span className="mic-hero-badge ai">
+                        {recording ? "MEREKAM LIVE" : costLabel}
+                      </span>
+                    </div>
+                    <span className="mic-hero-subtitle">
+                      {recording
+                        ? "Klik untuk menyelesaikan rekaman, dengarkan kembali, lalu minta penilaian AI"
+                        : "Suara direkam langsung untuk dinilai akurasi pengucapan & artikulasinya oleh AI"}
+                    </span>
+                  </div>
                 </button>
               </div>
 
