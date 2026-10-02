@@ -2256,3 +2256,291 @@
     font-size: 12px !important;
   }
 }
+
+/* AI Lesson Step Roadmap & Hero Audio Player (Listening-Lab-Grade UX) */
+.practice-flow-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 16px;
+  background: #fbf9ff;
+  border: 1px solid #e7e1f7;
+  border-radius: 12px;
+  padding: 8px 12px;
+  overflow-x: auto;
+}
+.practice-flow-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #797198;
+  padding: 6px 12px;
+  border-radius: 8px;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+}
+.practice-flow-step.active {
+  background: #ffffff;
+  color: #5544be;
+  box-shadow: 0 2px 8px rgba(85, 68, 190, 0.14);
+}
+.practice-flow-step.done {
+  background: #eef8f1;
+  color: #29743c;
+}
+.flow-step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #eeeaf8;
+  color: #5c4eb8;
+  font-size: 11px;
+}
+.practice-flow-step.active .flow-step-num {
+  background: #5544be;
+  color: #ffffff;
+}
+.practice-flow-step.done .flow-step-num {
+  background: #399151;
+  color: #ffffff;
+}
+.practice-flow-arrow {
+  color: #c4bcd8;
+  font-size: 12px;
+  flex: none;
+}
+
+/* Practice Hero Audio Card */
+.practice-audio-hero-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: linear-gradient(135deg, #27214f 0%, #1e1942 100%);
+  border: 1px solid #3c336b;
+  border-radius: 18px;
+  padding: 18px 22px;
+  color: #ffffff;
+  box-shadow: 0 8px 24px rgba(31, 25, 66, 0.22);
+  margin-bottom: 14px;
+}
+.practice-audio-disc {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: #4c3f87;
+  color: #ffe082;
+  display: grid;
+  place-items: center;
+  flex: none;
+  transition: all 0.25s ease;
+}
+.practice-audio-disc.playing {
+  background: #5b4db0;
+  box-shadow: 0 0 0 6px rgba(113, 94, 222, 0.28);
+}
+.soundwave-bars {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 22px;
+}
+.soundwave-bar {
+  width: 3.5px;
+  background: #ffe082;
+  border-radius: 2px;
+  animation: soundwave 0.8s ease-in-out infinite alternate;
+}
+.soundwave-bar:nth-child(1) { height: 10px; animation-delay: 0.1s; }
+.soundwave-bar:nth-child(2) { height: 20px; animation-delay: 0.25s; }
+.soundwave-bar:nth-child(3) { height: 14px; animation-delay: 0.15s; }
+.soundwave-bar:nth-child(4) { height: 18px; animation-delay: 0.35s; }
+
+@keyframes soundwave {
+  0% { transform: scaleY(0.4); }
+  100% { transform: scaleY(1.15); }
+}
+
+.practice-audio-info {
+  flex: 1;
+  min-width: 0;
+}
+.practice-step-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: #ffd87c;
+  margin-bottom: 3px;
+}
+.practice-audio-info b {
+  display: block;
+  font-size: 17px;
+  color: #ffffff;
+  margin-bottom: 3px;
+}
+.practice-audio-info p {
+  margin: 0;
+  color: #c9c2e4;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+/* Catchy Animated Play Button */
+.practice-play-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 12px 22px;
+  border-radius: 999px;
+  font-weight: 800;
+  font-size: 14px;
+  background: #ffd87c;
+  color: #2b1f4c;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  flex: none;
+  box-shadow: 0 4px 14px rgba(255, 216, 124, 0.3);
+}
+.practice-play-cta:hover {
+  background: #ffe39a;
+  transform: translateY(-1px);
+}
+.practice-play-cta:disabled {
+  opacity: 0.85;
+  cursor: wait;
+}
+.practice-play-cta.idle-pulse {
+  animation: pulse-catchy 2.2s infinite;
+}
+
+@keyframes pulse-catchy {
+  0% {
+    box-shadow: 0 0 0 0 rgba(255, 216, 124, 0.7);
+    transform: scale(1);
+  }
+  60% {
+    box-shadow: 0 0 0 12px rgba(255, 216, 124, 0);
+    transform: scale(1.03);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 216, 124, 0);
+    transform: scale(1);
+  }
+}
+
+/* Practice Prompt Accordion & Text Box */
+.practice-prompt-accordion {
+  margin: 4px 0 14px;
+}
+.practice-prompt-text-box {
+  background: #f7f5fd;
+  border-left: 4px solid #715ede;
+  border-radius: 6px 14px 14px 6px;
+  padding: 13px 16px;
+  margin: 8px 0 14px;
+  color: #312b54;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+/* Gamified Congratulations Modal */
+.congrats-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(18, 14, 40, 0.65);
+  backdrop-filter: blur(4px);
+  display: grid;
+  place-items: center;
+  z-index: 10000;
+  padding: 16px;
+  animation: fadeIn 0.22s ease-out;
+}
+.congrats-modal-card {
+  background: #ffffff;
+  border-radius: 24px;
+  max-width: 480px;
+  width: 100%;
+  padding: 30px 26px;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(28, 20, 68, 0.32);
+  position: relative;
+  animation: modalBounce 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+@keyframes modalBounce {
+  0% { transform: scale(0.85); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+@keyframes trophyFloat {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-7px) rotate(3deg); }
+}
+.congrats-trophy-wrap {
+  width: 78px;
+  height: 78px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #ffd87c 0%, #ff9e43 100%);
+  display: grid;
+  place-items: center;
+  margin: 0 auto 14px;
+  box-shadow: 0 8px 24px rgba(255, 170, 60, 0.35);
+  animation: trophyFloat 2.5s ease-in-out infinite;
+}
+.congrats-trophy-wrap svg {
+  color: #ffffff;
+}
+.congrats-stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 18px 0;
+}
+.congrats-stat-box {
+  background: #fbf9ff;
+  border: 1px solid #ebe5f8;
+  border-radius: 14px;
+  padding: 12px 14px;
+}
+.congrats-stat-box small {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  color: #797198;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+.congrats-stat-box b {
+  display: block;
+  font-size: 18px;
+  color: #2e265c;
+  margin-top: 4px;
+}
+
+@media (max-width: 700px) {
+  .practice-audio-hero-card {
+    flex-direction: column;
+    align-items: stretch;
+    text-align: center;
+    padding: 16px;
+  }
+  .practice-audio-disc {
+    margin: 0 auto;
+  }
+  .practice-play-cta {
+    width: 100%;
+    justify-content: center;
+  }
+  .congrats-stats-grid {
+    grid-template-columns: 1fr;
+  }
+}
+

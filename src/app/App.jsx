@@ -1753,8 +1753,14 @@ function App() {
       if (isEligibleNow && !alreadyNotified) {
         assistantReply = `${assistantReply.trim()} ${completionNotice}`;
       }
+      const rawSpeechText = replyObj.tutor_reply?.speech_text;
+      const baseSpeechText = rawSpeechText
+        ? (isEligibleNow && !alreadyNotified
+            ? `${rawSpeechText.trim()} ${completionNotice}`
+            : rawSpeechText)
+        : assistantReply;
       const assistantSpeech =
-        toPlainText(replyObj.tutor_reply?.speech_text || assistantReply, {
+        toPlainText(baseSpeechText, {
           forSpeech: true,
         }) || toPlainText(assistantReply, { forSpeech: true });
       const retrySlot = replacingFailedTurn ? failedTurnToRetry : null;
@@ -1846,8 +1852,32 @@ function App() {
           item.pointsEarned > 0
             ? awardXP(previous, item.pointsEarned)
             : previous;
-        return { ...earned, sessions };
+        let finalData = { ...earned, sessions };
+        if (isEligibleNow && !completed.has(activeUnit.id)) {
+          finalData = awardXP(finalData, 25);
+          if (practiceCourseId === "ielts") {
+            finalData.completed = Array.from(
+              new Set([...(finalData.completed || []), activeUnit.id]),
+            );
+          } else {
+            const courseProgress = finalData.courseProgress || {};
+            const current = courseProgress[practiceCourseId] || {};
+            finalData.courseProgress = {
+              ...courseProgress,
+              [practiceCourseId]: {
+                ...current,
+                completed: Array.from(
+                  new Set([...(current.completed || []), activeUnit.id]),
+                ),
+              },
+            };
+          }
+        }
+        return finalData;
       });
+      if (isEligibleNow && !completed.has(activeUnit.id)) {
+        incrementCourseProgress(practiceCourseId);
+      }
       setAudioBlob(null);
       setTranscript("");
       if (assistantSpeech) void speak(assistantSpeech);
