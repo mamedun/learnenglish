@@ -524,14 +524,6 @@ export default function ListeningSpeakingTask({
               </small>
             )}
           </div>
-          {liveInput && recognition.braveDetected && (
-            <div className="speech-browser-warning" role="note">
-              <b>Google Chrome diperlukan untuk live transcription.</b>
-              Brave dapat menampilkan tombol Web Speech tetapi tidak mencapai
-              layanan transkripsinya. Gunakan Google Chrome untuk live
-              transcription.
-            </div>
-          )}
           <div className="shadowing-controls">
             {liveInput ? (
               <>
@@ -544,7 +536,6 @@ export default function ListeningSpeakingTask({
                   }
                   disabled={
                     !recognition.supported ||
-                    recognition.braveDetected ||
                     processing
                   }
                 >
@@ -681,11 +672,9 @@ export default function ListeningSpeakingTask({
                 placeholder={
                   mobileTranscriptEditable
                     ? "Ketik jawaban atau gunakan mikrofon keyboard untuk dikte…"
-                    : recognition.braveDetected
-                      ? "Live transcription tidak tersedia di Brave. Gunakan Google Chrome."
-                      : recognition.supported
-                        ? "Ketuk Mulai bicara, lalu ucapkan paragraf…"
-                        : "Browser tidak mendukung Web Speech API. Minta admin mengaktifkan mode rekaman AI."
+                    : recognition.supported
+                      ? "Ketuk Mulai bicara, lalu ucapkan paragraf…"
+                      : "Browser tidak mendukung Web Speech API. Minta admin mengaktifkan mode rekaman AI."
                 }
               />
               <div className="transcript-foot">

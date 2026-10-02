@@ -227,7 +227,7 @@ export default function ListeningPage({
         <div>
           <b>Audio lesson & privasi mic</b>
           <span>
-            Latihan Speaking dengan auto transcribe hanya bisa digunakan di PC / Laptop dengan Google Chrome, Selain Google Chrome, anda hanya bisa mengirim suara ke server, atau gunakan icon mic pada keyboard untuk pengguna smartphone
+            Latihan Speaking dengan auto transcribe mendukung browser berbasis Chromium (Google Chrome, Brave, Microsoft Edge) di PC/Laptop maupun Smartphone. Untuk browser lain, audio dapat dikirim ke server AI untuk dievaluasi.
           </span>
         </div>
       </div>

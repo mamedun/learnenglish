@@ -141,7 +141,7 @@ export default function PracticePage(p) {
   );
   const transcribing = liveTranscription && recognizer.listening;
   const liveRecognitionUnavailable =
-    liveTranscription && (!recognizer.supported || recognizer.braveDetected);
+    liveTranscription && !recognizer.supported;
   const responseCaptured = liveTranscription
     ? Boolean(stripTranscriptSourceLabel(transcript)) && !transcribing
     : Boolean(audioBlob);
@@ -622,11 +622,9 @@ export default function PracticePage(p) {
                     : !scenarioComplete
                       ? "Putar audio atau tampilkan teks soal untuk membuka mikrofon"
                       : liveTranscription
-                        ? recognizer.braveDetected
-                          ? "Live transcription tidak tersedia di Brave; gunakan rekaman AI atau Google Chrome"
-                          : recognizer.supported
-                            ? "Transkrip muncul langsung dan tidak dapat diedit"
-                            : "Transkripsi langsung tidak didukung browser ini"
+                        ? recognizer.supported
+                          ? "Transkrip muncul langsung dan tidak dapat diedit"
+                          : "Transkripsi langsung tidak didukung browser ini"
                         : "Audio baru dikirim setelah kamu menyetujui proses AI"}
                 </span>
               </>
@@ -634,14 +632,12 @@ export default function PracticePage(p) {
             {liveTranscription ? (
               <div className="mic-controls">
                 <span
-                  className={`mic-control ${recognizer.supported && !recognizer.braveDetected ? "granted" : ""}`}
+                  className={`mic-control ${recognizer.supported ? "granted" : ""}`}
                 >
                   <Mic size={14} />
-                  {recognizer.braveDetected
-                    ? "Google Chrome diperlukan"
-                    : recognizer.supported
-                      ? "Live transcription siap"
-                      : "Browser tidak didukung"}
+                  {recognizer.supported
+                    ? "Live transcription siap"
+                    : "Browser tidak didukung"}
                 </span>
               </div>
             ) : (
@@ -694,9 +690,7 @@ export default function PracticePage(p) {
               <Languages size={16} />
               <div className="speech-browser-warning-content">
                 <span>
-                  {recognizer.braveDetected
-                    ? "Brave tidak mendukung layanan transkripsi live ini. Pilih evaluasi rekaman AI atau gunakan Google Chrome."
-                    : "Browser ini tidak mendukung transkripsi live. Pilih evaluasi rekaman AI atau gunakan Google Chrome."}
+                  Browser ini tidak mendukung Web Speech API live. Gunakan browser Chromium (Chrome, Brave, Edge) atau pilih mode evaluasi rekaman AI.
                 </span>
                 <button
                   className="text-button"
