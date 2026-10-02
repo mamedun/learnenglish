@@ -407,6 +407,41 @@ export async function speakKokoro(
   // Follow the TTS.Rocks API flow; their player consumes Kokoro's stream and
   // plays generated chunks locally without uploading the learner's text.
   await TTS.kokoroTTS(String(text));
+
+  // TTS.kokoroTTS starts playback via TTS.audio (HTMLAudioElement), but its Promise
+  // resolves as soon as generation/queueing finishes. We must wait until the audio
+  // element has actually finished playing so the speaking toast stays visible!
+  const audio = TTS.audio;
+  if (audio && typeof audio.addEventListener === "function") {
+    if (!audio.ended && !audio.paused) {
+      await new Promise((resolve) => {
+        let settled = false;
+        const done = () => {
+          if (settled) return;
+          settled = true;
+          audio.removeEventListener("ended", done);
+          audio.removeEventListener("pause", done);
+          audio.removeEventListener("error", done);
+          resolve();
+        };
+        audio.addEventListener("ended", done);
+        audio.addEventListener("pause", done);
+        audio.addEventListener("error", done);
+
+        const textWords = String(text || "").trim().split(/\s+/).length;
+        const estimatedMs = Math.max(
+          3000,
+          Math.ceil((textWords / 2.2) * 1000) + 2000,
+        );
+        const maxDurationMs =
+          Number.isFinite(audio.duration) && audio.duration > 0
+            ? Math.ceil(audio.duration * 1000) + 1500
+            : estimatedMs;
+        setTimeout(done, maxDurationMs);
+      });
+    }
+  }
+
   emitStatus(onStatus, {
     phase: "ready",
     progress: 100,

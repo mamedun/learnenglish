@@ -178,6 +178,7 @@ function App() {
   const liveSetupTimerRef = useRef(null);
   const ttsRequestIdRef = useRef(0);
   const ttsAudioRef = useRef(null);
+  const currentUtteranceRef = useRef(null);
   const slowRenderTimerRef = useRef(null);
   const liveInputContextRef = useRef(null);
   const liveOutputContextRef = useRef(null);
@@ -2026,6 +2027,16 @@ function App() {
       clearTimeout(slowRenderTimerRef.current);
       slowRenderTimerRef.current = null;
     }
+    currentUtteranceRef.current = null;
+    if (typeof window !== "undefined") {
+      window.__activeUtterance = null;
+      if (window.TTS?.audio) {
+        try {
+          window.TTS.audio.pause();
+          window.TTS.audio.currentTime = 0;
+        } catch {}
+      }
+    }
     window.speechSynthesis?.cancel();
     const active = ttsAudioRef.current;
     if (!active) return;
@@ -2094,13 +2105,20 @@ function App() {
     if (!cleanText) return;
     const synth = window.speechSynthesis;
     if (!synth) throw new Error("Text-to-speech tidak didukung browser ini.");
-    synth.cancel();
+    if (synth.speaking || synth.pending) {
+      synth.cancel();
+    }
     const availableVoices = synth.getVoices();
     const voice = selectBestVoice(availableVoices, data.settings.nativeVoice);
     const utterance = new SpeechSynthesisUtterance(cleanText);
     utterance.lang = voice?.lang || "en-GB";
     utterance.rate = 0.88;
     if (voice) utterance.voice = voice;
+    currentUtteranceRef.current = utterance;
+    if (typeof window !== "undefined") {
+      window.__activeUtterance = utterance;
+    }
+
     setTtsStatus({
       phase: "speaking",
       engine: "native",
@@ -2118,22 +2136,36 @@ function App() {
     };
     utterance.onend = () => {
       if (requestId !== ttsRequestIdRef.current) return;
+      currentUtteranceRef.current = null;
+      if (typeof window !== "undefined" && window.__activeUtterance === utterance) {
+        window.__activeUtterance = null;
+      }
       setTtsStatus({
         phase: "ready",
         engine: "native",
-        message: "Browser Native siap.",
+        message: "Audio selesai diputar.",
       });
       onPlaybackComplete?.();
     };
     utterance.onerror = (event) => {
-      if (requestId !== ttsRequestIdRef.current) return;
       if (event.error === "canceled" || event.error === "interrupted") {
+        if (synth.speaking || synth.pending) return;
+        if (requestId !== ttsRequestIdRef.current) return;
+        currentUtteranceRef.current = null;
+        if (typeof window !== "undefined" && window.__activeUtterance === utterance) {
+          window.__activeUtterance = null;
+        }
         setTtsStatus({
           phase: "ready",
           engine: "native",
           message: "Pemutaran suara dihentikan.",
         });
         return;
+      }
+      if (requestId !== ttsRequestIdRef.current) return;
+      currentUtteranceRef.current = null;
+      if (typeof window !== "undefined" && window.__activeUtterance === utterance) {
+        window.__activeUtterance = null;
       }
       setTtsStatus({
         phase: "error",
