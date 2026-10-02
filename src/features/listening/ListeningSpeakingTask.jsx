@@ -673,24 +673,6 @@ export default function ListeningSpeakingTask({
             </>
           )}
 
-          {requestingMic && (
-            <ProcessingStatus
-              message="Meminta akses mikrofon…"
-              detail="Pilih Izinkan pada dialog izin browser."
-              compact
-              className="shadowing-processing-status"
-            />
-          )}
-
-          {processing && (
-            <ProcessingStatus
-              message={processingMessage || "Memproses audio…"}
-              detail="Audio sedang dianalisis oleh AI server. Mohon tunggu beberapa detik."
-              compact
-              className="shadowing-processing-status"
-            />
-          )}
-
           {/* Gamified Mascot Bottom Loading Toast */}
           <MascotLoadingToast
             active={processing}

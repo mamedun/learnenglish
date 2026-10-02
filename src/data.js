@@ -12,6 +12,7 @@ export const initialData = {
   streak: 0,
   lastPracticeDate: null,
   sessions: [],
+  liveHistory: [],
   settings: {
     tts: "kokoro",
     voice: "af_heart",

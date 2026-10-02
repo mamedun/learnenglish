@@ -29,29 +29,13 @@ export default function MascotLoadingToast({
       setDisplayMessage(message);
       setDisplayProgress(progress);
     } else if (visible && !isClosing) {
-      // When active becomes false, show success briefly if it was an active loading operation
-      if (displayType !== "success") {
-        setDisplayType("success");
-        setDisplayTitle("Proses Selesai!");
-        setDisplayMessage("Audio dan jawabanmu telah siap.");
-        setDisplayProgress(100);
-
-        timerRef.current = setTimeout(() => {
-          setIsClosing(true);
-          setTimeout(() => {
-            setVisible(false);
-            setIsClosing(false);
-            onClose?.();
-          }, 350); // animation out duration
-        }, 1200);
-      } else {
-        setIsClosing(true);
-        setTimeout(() => {
-          setVisible(false);
-          setIsClosing(false);
-          onClose?.();
-        }, 350);
-      }
+      // Smoothly dismiss toast without confusing success text
+      setIsClosing(true);
+      timerRef.current = setTimeout(() => {
+        setVisible(false);
+        setIsClosing(false);
+        onClose?.();
+      }, 300);
     }
   }, [active, type, title, message, progress]);
 

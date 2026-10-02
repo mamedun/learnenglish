@@ -2635,4 +2635,145 @@
   margin: 18px auto 6px;
 }
 
+/* ==========================================================================
+   Live Lesson History (Self-Review Archive)
+   ========================================================================== */
+
+.live-history-section {
+  margin-top: 26px;
+  padding: 22px;
+  border-radius: 18px;
+}
+.live-history-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #e7ede8;
+}
+.live-history-card {
+  background: #ffffff;
+  border: 1px solid #e1ebe3;
+  border-radius: 14px;
+  padding: 14px 18px;
+  transition: all 0.2s ease;
+}
+.live-history-card:hover {
+  border-color: #315c45;
+  box-shadow: 0 4px 14px rgba(49, 92, 69, 0.08);
+}
+.live-history-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.live-history-card-meta b {
+  display: block;
+  font-size: 15px;
+  color: #1e3a29;
+  margin-bottom: 4px;
+}
+.live-history-pills {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.live-meta-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: #f1f6f2;
+  color: #4b6253;
+}
+.live-history-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.icon-btn-danger {
+  background: transparent;
+  border: 1px solid #f2d1cc;
+  color: #c04235;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.icon-btn-danger:hover {
+  background: #fdf0ee;
+  border-color: #c04235;
+}
+.live-history-transcript-expanded {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid #edf2ee;
+}
+.live-transcript-lines-box {
+  display: grid;
+  gap: 8px;
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 8px;
+  background: #f8faf8;
+  border-radius: 10px;
+}
+.live-hist-bubble {
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.live-hist-bubble.coach {
+  background: #eef6f0;
+  border-left: 3px solid #315c45;
+  color: #1d3f2a;
+}
+.live-hist-bubble.learner {
+  background: #ffffff;
+  border-left: 3px solid #6b7280;
+  color: #272c34;
+}
+.live-hist-bubble b {
+  display: block;
+  font-size: 11.5px;
+  margin-bottom: 2px;
+  opacity: 0.85;
+}
+.live-hist-bubble p {
+  margin: 0;
+}
+.live-hist-assessment {
+  margin-top: 12px;
+  padding: 12px 14px;
+  background: #fcf9f2;
+  border: 1px solid #fae6c6;
+  border-radius: 10px;
+  font-size: 12.5px;
+  color: #4d3a17;
+}
+.live-hist-assessment b {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #925807;
+  font-size: 13px;
+}
+.live-hist-assessment p {
+  margin: 4px 0 0;
+  line-height: 1.4;
+}
+
+
 

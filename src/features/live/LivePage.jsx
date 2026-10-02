@@ -1,9 +1,16 @@
+import { useState } from "react";
 import {
   AudioLines,
+  BookOpen,
+  Calendar,
+  ChevronDown,
+  ChevronUp,
   Clock3,
   Headphones,
+  MessageSquare,
   Pause,
-  ShieldCheck,
+  Sparkles,
+  Trash2,
 } from "lucide-react";
 import { formatTime } from "../../lib/formatTime";
 import { LIVE_TOPICS } from "../../data/liveTopics";
@@ -31,7 +38,11 @@ export default function LivePage({
   beginLive,
   endLive,
   retryLiveAssessment = () => {},
+  liveHistory = [],
+  deleteLiveHistoryItem = () => {},
+  clearAllLiveHistory = () => {},
 }) {
+  const [expandedHistoryId, setExpandedHistoryId] = useState(null);
   const loadingLabel = liveStatus.toLowerCase().includes("feedback")
     ? "Menyiapkan feedback…"
     : liveStatus.toLowerCase().includes("mengakhiri")
@@ -154,22 +165,11 @@ export default function LivePage({
         </button>
         <div className="live-status">
           <span>
-            <span className="status-dot" /> Browser → Gemini direct
-          </span>
-          <span>
             {unlimitedAccess
               ? `Admin unlimited access · no diamonds used · max ${sessionLimit} min`
               : `${Number(liveRate)} diamonds / minute · ${Number(liveBlockMinutes)}-minute reserve blocks · max ${sessionLimit} min · balance ${Number(diamonds).toLocaleString("id-ID")}`}
           </span>
         </div>
-      </div>
-      <div className="live-disclaimer">
-        <ShieldCheck size={16} />
-        <span>
-          Audio dikirim langsung ke Google Gemini menggunakan ephemeral token
-          satu kali. Audio tidak disimpan oleh SpeakUp. Setelah sesi, transkrip
-          dapat dikirim untuk feedback AI.
-        </span>
       </div>
       {liveLines.length > 0 && (
         <div className="live-transcript">
@@ -232,6 +232,156 @@ export default function LivePage({
           </small>
         </section>
       )}
+
+      {/* RIWAYAT PERCAKAPAN LIVE (SELF-REVIEW) */}
+      <section className="settings-card live-history-section">
+        <div className="live-history-header">
+          <div>
+            <div className="eyebrow" style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "#315c45" }}>
+              <BookOpen size={14} /> RIWAYAT PERCAKAPAN LIVE · SELF-REVIEW
+            </div>
+            <h2 style={{ margin: "4px 0 2px", fontSize: 19, color: "#243c2c" }}>
+              Arsip Percakapan Mandiri
+            </h2>
+            <p style={{ margin: 0, fontSize: 13, color: "#6a7b70" }}>
+              Transkrip sesi tersimpan untuk bahan evaluasi dan review mandirimu. Tidak dapat digunakan untuk melanjutkan percakapan.
+            </p>
+          </div>
+          {liveHistory.length > 0 && (
+            <button
+              type="button"
+              className="outline-btn live-clear-history-btn"
+              onClick={clearAllLiveHistory}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                color: "#b3392d",
+                borderColor: "#f2c6c0",
+                fontSize: 12,
+                fontWeight: 700,
+                padding: "6px 12px",
+                borderRadius: 8,
+              }}
+            >
+              <Trash2 size={13} /> Hapus Semua ({liveHistory.length})
+            </button>
+          )}
+        </div>
+
+        {liveHistory.length === 0 ? (
+          <div className="live-history-empty" style={{ textAlign: "center", padding: "28px 16px", color: "#8a9a8f" }}>
+            <MessageSquare size={32} style={{ margin: "0 auto 8px", opacity: 0.45 }} />
+            <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "#4f6356" }}>
+              Belum ada riwayat percakapan live
+            </p>
+            <small style={{ fontSize: 12, color: "#7a8c80" }}>
+              Transkrip sesi akan otomatis tersimpan di sini setelah kamu menyelesaikan sesi percakapan dengan Maya.
+            </small>
+          </div>
+        ) : (
+          <div className="live-history-list" style={{ display: "grid", gap: 12, marginTop: 16 }}>
+            {liveHistory.map((item) => {
+              const isExpanded = expandedHistoryId === item.id;
+              const formattedDate = item.date
+                ? new Date(item.date).toLocaleDateString("id-ID", {
+                    day: "numeric",
+                    month: "short",
+                    year: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })
+                : "Baru saja";
+              return (
+                <div key={item.id} className="live-history-card">
+                  <div className="live-history-card-top">
+                    <div className="live-history-card-meta">
+                      <b>{item.topicTitle || "Topik Percakapan"}</b>
+                      <div className="live-history-pills">
+                        <span className="live-meta-pill date">
+                          <Calendar size={12} /> {formattedDate}
+                        </span>
+                        <span className="live-meta-pill duration">
+                          <Clock3 size={12} /> {formatTime(item.durationSeconds || 0)}
+                        </span>
+                        <span className="live-meta-pill turns">
+                          <MessageSquare size={12} /> {item.lines?.length || 0} pesan
+                        </span>
+                      </div>
+                    </div>
+                    <div className="live-history-card-actions">
+                      <button
+                        type="button"
+                        className="text-button"
+                        onClick={() => setExpandedHistoryId(isExpanded ? null : item.id)}
+                      >
+                        {isExpanded ? "Tutup Transkrip" : "Buka Transkrip"}{" "}
+                        {isExpanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+                      </button>
+                      <button
+                        type="button"
+                        className="icon-btn-danger"
+                        title="Hapus riwayat ini"
+                        onClick={() => deleteLiveHistoryItem(item.id)}
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                  </div>
+
+                  {isExpanded && (
+                    <div className="live-history-transcript-expanded">
+                      <div className="eyebrow" style={{ fontSize: 11, marginBottom: 8, color: "#315c45" }}>
+                        TRANSKRIP PERCAKAPAN LENGKAP
+                      </div>
+                      <div className="live-transcript-lines-box">
+                        {(item.lines || []).map((line, idx) => (
+                          <div
+                            key={idx}
+                            className={`live-hist-bubble ${line.who === "coach" ? "coach" : "learner"}`}
+                          >
+                            <b>{line.who === "coach" ? "Maya" : "You"}:</b>
+                            <p>{line.text}</p>
+                          </div>
+                        ))}
+                      </div>
+
+                      {item.assessment && (
+                        <div className="live-hist-assessment">
+                          <b>
+                            <Sparkles size={14} /> Review & Feedback AI:
+                          </b>
+                          <p>{item.assessment.overall_feedback}</p>
+                          {item.assessment.strengths?.length > 0 && (
+                            <div style={{ marginTop: 8 }}>
+                              <small style={{ fontWeight: 700, color: "#256338" }}>Kekuatan:</small>
+                              <ul style={{ margin: "4px 0", paddingLeft: 18 }}>
+                                {item.assessment.strengths.map((s, i) => (
+                                  <li key={i}>{s}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                          {item.assessment.improvements?.length > 0 && (
+                            <div style={{ marginTop: 8 }}>
+                              <small style={{ fontWeight: 700, color: "#8a5814" }}>Saran Peningkatan:</small>
+                              <ul style={{ margin: "4px 0", paddingLeft: 18 }}>
+                                {item.assessment.improvements.map((imp, i) => (
+                                  <li key={i}>{imp}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
     </div>
   );
 }

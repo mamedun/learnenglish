@@ -194,6 +194,7 @@ function App() {
   const liveBillingReserveLockRef = useRef(false);
   const liveBillingStartedRef = useRef(false);
   const liveEndingRef = useRef(false);
+  const liveHistorySessionIdRef = useRef(null);
   const recorder = useRef(null);
   const streamRef = useRef(null);
   const chunks = useRef([]);
@@ -2060,7 +2061,7 @@ function App() {
         finish(new Error("File audio bersama tidak dapat diputar."));
       setTtsStatus({
         phase: "speaking",
-        message: "Memutar audio Kokoro dari shared cache…",
+        message: "Tutor sedang berbicara…",
       });
       try {
         const playback = audio.play();
@@ -2101,7 +2102,7 @@ function App() {
       if (requestId === ttsRequestIdRef.current)
         setTtsStatus({
           phase: "speaking",
-          message: fallbackReason || "Membacakan dengan Browser Native…",
+          message: fallbackReason || "Tutor sedang berbicara…",
         });
     };
     utterance.onend = () => {
@@ -2527,20 +2528,6 @@ Because this is live audio, comment on pronunciation or word stress only when a 
   async function beginLive() {
     if (liveBillingSessionRef.current || liveOn || liveLoading) return;
     try {
-      const consent = await Swal.fire({
-        title: "Izinkan Live Lesson?",
-        text:
-          user?.role === "admin"
-            ? `Audio mikrofon dikirim langsung dari browser ke Gemini dan tidak diarsipkan oleh SpeakUp. Setelah sesi, hanya transkrip dikirim ke provider global Admin untuk feedback. Akun Admin tidak memakai diamond; sesi dibatasi ${Math.ceil(liveMaxSeconds / 60)} menit.`
-            : `Audio mikrofon dikirim langsung dari browser ke Gemini dan tidak diarsipkan oleh SpeakUp. Setelah sesi, hanya transkrip dikirim ke provider global Admin untuk feedback. Biaya ${liveCostPerMinute} diamond per menit; cadangan per blok ${liveBlockMinutes} menit. Batas sesi ${Math.ceil(liveMaxSeconds / 60)} menit.`,
-        icon: "info",
-        showCancelButton: true,
-        confirmButtonText: "Setuju & lanjutkan",
-        cancelButtonText: "Batal",
-        confirmButtonColor: "#315c45",
-      });
-      if (!consent.isConfirmed || useLearningStore.getState().page !== "live")
-        return;
       setLiveLoading(true);
       liveEndingRef.current = false;
       const billing = await apiJson("live-billing/start", {
@@ -2916,6 +2903,15 @@ Because this is live audio, comment on pronunciation or word stress only when a 
           "Feedback server returned an invalid assessment. You can retry.",
         );
       setLiveAssessment(payload.assessment);
+      if (liveHistorySessionIdRef.current) {
+        const histId = liveHistorySessionIdRef.current;
+        setData((prev) => ({
+          ...prev,
+          liveHistory: (prev.liveHistory || []).map((h) =>
+            h.id === histId ? { ...h, assessment: payload.assessment } : h,
+          ),
+        }));
+      }
       setLiveStatus("Feedback ready");
       toast.success("Feedback sesi Live siap.");
     } catch (error) {
@@ -2947,6 +2943,23 @@ Because this is live audio, comment on pronunciation or word stress only when a 
     const completed =
       (data.courseProgress || {})[courseId]?.liveCompleted || [];
     if (!completed.includes(topicId)) incrementCourseProgress(courseId);
+  }
+
+  function deleteLiveHistoryItem(id) {
+    setData((prev) => ({
+      ...prev,
+      liveHistory: (prev.liveHistory || []).filter((item) => item.id !== id),
+    }));
+    toast.success("Riwayat percakapan berhasil dihapus.");
+  }
+
+  function clearAllLiveHistory() {
+    if (!window.confirm("Hapus semua riwayat percakapan live?")) return;
+    setData((prev) => ({
+      ...prev,
+      liveHistory: [],
+    }));
+    toast.success("Semua riwayat percakapan live telah dihapus.");
   }
   async function retryLiveAssessment() {
     const transcript = buildLearnerAssessmentTranscript(
@@ -2993,6 +3006,30 @@ Because this is live audio, comment on pronunciation or word stress only when a 
     setLiveOn(false);
     await settleLiveBilling(false);
     liveEndingRef.current = false;
+
+    // Save live session to history for user self-review
+    const finalLines = [...liveTranscriptLinesRef.current];
+    if (finalLines.length > 0) {
+      const createdHistoryId = crypto.randomUUID();
+      liveHistorySessionIdRef.current = createdHistoryId;
+      const liveContext = liveCourseContextRef.current || {};
+      const assessmentCourseId = liveContext.courseId || currentCourseId;
+      const historyItem = {
+        id: createdHistoryId,
+        date: new Date().toISOString(),
+        courseId: assessmentCourseId,
+        topicId: activeLiveTopic?.id || null,
+        topicTitle: activeLiveTopic?.label || "General Conversation",
+        durationSeconds: liveSeconds,
+        lines: finalLines,
+        assessment: null,
+      };
+      setData((prev) => ({
+        ...prev,
+        liveHistory: [historyItem, ...(prev.liveHistory || [])],
+      }));
+    }
+
     const transcript = buildLearnerAssessmentTranscript(
       liveTranscriptLinesRef.current,
       maxTranscriptChars,
@@ -3148,14 +3185,11 @@ Because this is live audio, comment on pronunciation or word stress only when a 
         ? "Mengunduh Model Suara Kokoro…"
         : ttsStatus.phase === "load-model" || ttsStatus.phase === "cache-hit"
           ? "Memuat Engine Suara Kokoro…"
-          : ttsStatus.phase === "speaking"
-            ? "Memutar Suara Audio Tutor…"
-            : "Audio Tutor Sedang Diproses…";
+          : "Tutor sedang berbicara…";
     mascotToastMessage =
-      ttsStatus.message ||
-      (ttsStatus.phase === "download"
+      ttsStatus.phase === "download"
         ? "Unduhan awal model ~82 MB ke memori perangkat."
-        : "GPU/WASM sedang merender gelombang suara audio.");
+        : "Tutor sedang berbicara…";
     mascotToastProgress = ttsStatus.progress ?? null;
   } else if (liveLoading) {
     mascotToastType = "ai";
@@ -3356,53 +3390,6 @@ Because this is live audio, comment on pronunciation or word stress only when a 
           </div>
         )}
         <div className="page-content">
-          {processing ? (
-            <ProcessingStatus
-              message={processingMessage || "Memproses jawaban…"}
-              detail="Permintaan sedang diproses. Koneksi lambat bisa membutuhkan waktu lebih lama."
-              className="processing-status-global"
-            />
-          ) : ttsBusy ? (
-            <ProcessingStatus
-              message={ttsStatus.message || "Menyiapkan audio…"}
-              progress={ttsStatus.progress}
-              detail={
-                ttsStatus.phase === "download"
-                  ? "Unduhan awal model sekitar 82 MB. Model akan tersimpan di perangkat untuk pemutaran berikutnya."
-                  : ttsStatus.phase === "load-model" ||
-                      ttsStatus.phase === "cache-hit"
-                    ? "Model sedang dimuat di perangkat sebelum suara mulai diputar."
-                    : ttsStatus.phase === "speaking"
-                      ? "Suara sedang dibuat dan diputar di perangkat."
-                      : "Menyiapkan mesin suara. Proses pertama kali bisa memerlukan waktu."
-              }
-              className="processing-status-global"
-            />
-          ) : liveLoading ? (
-            <ProcessingStatus
-              message={liveStatus || "Menghubungkan ke Gemini Live…"}
-              detail="Menyiapkan mikrofon, koneksi, atau feedback sesi."
-              className="processing-status-global"
-            />
-          ) : loadingRecordingId ? (
-            <ProcessingStatus
-              message="Memuat rekaman audio…"
-              detail="Audio sedang diambil dari akunmu."
-              className="processing-status-global"
-            />
-          ) : permission === "requesting" ? (
-            <ProcessingStatus
-              message="Meminta akses mikrofon…"
-              detail="Pilih Izinkan pada dialog browser jika diminta."
-              className="processing-status-global"
-            />
-          ) : operationStatus ? (
-            <ProcessingStatus
-              message={operationStatus}
-              detail="Menunggu proses selesai; jangan tutup halaman ini."
-              className="processing-status-global"
-            />
-          ) : null}
           <ModuleErrorBoundary module={page}>
             <Suspense fallback={<ModuleLoading label={pageTitle} />}>
               {page === "home" && (
@@ -3610,6 +3597,9 @@ Because this is live audio, comment on pronunciation or word stress only when a 
                     beginLive={beginLive}
                     endLive={endLive}
                     retryLiveAssessment={retryLiveAssessment}
+                    liveHistory={data.liveHistory || []}
+                    deleteLiveHistoryItem={deleteLiveHistoryItem}
+                    clearAllLiveHistory={clearAllLiveHistory}
                   />
                 </>
               )}
