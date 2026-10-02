@@ -470,7 +470,7 @@ export default function ListeningSpeakingTask({
               <>
                 <span className="speaking-mode-pill ai">Penilaian AI (Akurasi Tinggi)</span>
                 <p>
-                  Penilaian AI lebih akurat karena suara kamu diproses dan dianalisis langsung oleh AI untuk akurasi pengucapan, kejelasan artikulasi, dan kelancaran (stutter). Naskah dan rekaman suara dikirim langsung ke AI.
+                  Penilaian AI lebih akurat karena suara kamu diproses dan dianalisis langsung oleh AI untuk akurasi pengucapan, kejelasan artikulasi, dan kelancaran (stutter). Browser tidak membuat transkrip terlebih dahulu; rekaman audio dikirim langsung ke AI.
                 </p>
               </>
             )}

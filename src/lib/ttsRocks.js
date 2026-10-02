@@ -27,6 +27,62 @@ export function isTtsBusy(status) {
   return BUSY_TTS_PHASES.has(status?.phase);
 }
 
+export function selectBestVoice(voices = [], preferredName = "") {
+  if (!Array.isArray(voices) || voices.length === 0) return null;
+
+  if (preferredName) {
+    const matched = voices.find((v) => v.name === preferredName);
+    if (matched) return matched;
+  }
+
+  const scoreVoice = (v) => {
+    const name = (v.name || "").toLowerCase();
+    const lang = (v.lang || "").toLowerCase().replace("_", "-");
+    let score = 0;
+
+    const isEnGb = lang.startsWith("en-gb") || lang.startsWith("en-uk");
+    const isEn = lang.startsWith("en");
+
+    // UK Female voices top priority
+    if (name.includes("google uk english female")) score += 1000;
+    else if (name.includes("libby")) score += 950;
+    else if (name.includes("sonia")) score += 940;
+    else if (name.includes("mia") && isEnGb) score += 930;
+    else if (name.includes("hazel")) score += 920;
+    else if (name.includes("serena")) score += 910;
+    else if (name.includes("stephanie")) score += 900;
+    else if (name.includes("fiona")) score += 890;
+    else if (name.includes("martha")) score += 880;
+
+    // Any other UK female voice
+    if (isEnGb) {
+      score += 500;
+      if (name.includes("female") || name.includes("woman")) score += 200;
+      if (name.includes("natural") || name.includes("online")) score += 50;
+    }
+
+    // Other English female voices (US/AU/etc.)
+    if (name.includes("zira")) score += 400;
+    else if (name.includes("jenny")) score += 390;
+    else if (name.includes("samantha")) score += 380;
+    else if (name.includes("victoria")) score += 370;
+    else if (name.includes("karen")) score += 360;
+    else if (isEn && (name.includes("female") || name.includes("woman"))) score += 300;
+
+    // Any English voice
+    if (isEn) {
+      score += 100;
+      if (name.includes("natural") || name.includes("online")) score += 30;
+      if (v.default) score += 10;
+    }
+
+    return score;
+  };
+
+  const sorted = [...voices].sort((a, b) => scoreVoice(b) - scoreVoice(a));
+  return sorted[0] || voices[0] || null;
+}
+
 // Learners can choose from this curated set; Admin can author content with
 // every English voice shipped by the Kokoro 82M model below.
 export const KOKORO_VOICES = [

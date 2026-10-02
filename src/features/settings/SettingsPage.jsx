@@ -270,7 +270,7 @@ export default function SettingsPage({
                     value={data.settings.nativeVoice || ""}
                     onChange={(e) => update("nativeVoice", e.target.value)}
                   >
-                    <option value="">English voice (default)</option>
+                    <option value="">UK English Female (Otomatis)</option>
                     {voices.map((voice) => (
                       <option key={voice.name} value={voice.name}>
                         {voice.name} · {voice.lang}

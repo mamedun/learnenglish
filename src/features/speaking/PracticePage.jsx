@@ -43,6 +43,7 @@ import {
 } from "./lessonProgress";
 import { isTtsBusy } from "../../lib/ttsRocks";
 import { stripTranscriptSourceLabel, toPlainText } from "../../lib/plainText";
+import { formatFeedbackText } from "../../lib/formatFeedback";
 import {
   speechRecognitionErrorMessage,
   useSpeechRecognition,
@@ -188,6 +189,7 @@ export default function PracticePage(p) {
   const [promptPlaying, setPromptPlaying] = useState(false);
   const [showCongratsModal, setShowCongratsModal] = useState(false);
   const celebratedUnitRef = useRef(new Set());
+  const pendingCelebrationRef = useRef(false);
 
   useEffect(() => {
     if (!ttsBusy) {
@@ -197,7 +199,34 @@ export default function PracticePage(p) {
 
   useEffect(() => {
     if (canFinishLesson && !celebratedUnitRef.current.has(unit.id)) {
+      if (ttsBusy) {
+        // Tutor is still speaking the reply; wait until playback finishes
+        pendingCelebrationRef.current = true;
+      } else {
+        celebratedUnitRef.current.add(unit.id);
+        pendingCelebrationRef.current = false;
+        setShowCongratsModal(true);
+        try {
+          confetti({
+            particleCount: 100,
+            spread: 70,
+            origin: { y: 0.6 },
+            zIndex: 99999,
+          });
+        } catch (_) {}
+      }
+    }
+  }, [canFinishLesson, unit.id, ttsBusy]);
+
+  useEffect(() => {
+    if (
+      !ttsBusy &&
+      pendingCelebrationRef.current &&
+      canFinishLesson &&
+      !celebratedUnitRef.current.has(unit.id)
+    ) {
       celebratedUnitRef.current.add(unit.id);
+      pendingCelebrationRef.current = false;
       setShowCongratsModal(true);
       try {
         confetti({
@@ -208,13 +237,14 @@ export default function PracticePage(p) {
         });
       } catch (_) {}
     }
-  }, [canFinishLesson, unit.id]);
+  }, [ttsBusy, canFinishLesson, unit.id]);
 
   useEffect(() => {
     setShowPrompt(false);
     setResponseMode("transcript");
     setPromptPlaying(false);
     setShowCongratsModal(false);
+    pendingCelebrationRef.current = false;
     recognizer.reset();
     p.setTranscript("");
     p.resetRecording?.();
@@ -1094,7 +1124,9 @@ export default function PracticePage(p) {
                     const rating = Number(criterion.rating);
                     const isRated =
                       Number.isFinite(rating) && rating >= 1 && rating <= 5;
-                    const note = toPlainText(criterion.feedback_id || "");
+                    const note = formatFeedbackText(
+                      toPlainText(criterion.feedback_id || ""),
+                    );
                     const evidence = (
                       Array.isArray(criterion.evidence)
                         ? criterion.evidence

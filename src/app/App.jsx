@@ -62,6 +62,7 @@ import {
   isTtsBusy,
   KOKORO_VOICES,
   preloadKokoro,
+  selectBestVoice,
   speakKokoro,
 } from "../lib/ttsRocks";
 import { getSharedTtsAudio } from "../lib/ttsCache";
@@ -177,6 +178,7 @@ function App() {
   const liveSetupTimerRef = useRef(null);
   const ttsRequestIdRef = useRef(0);
   const ttsAudioRef = useRef(null);
+  const slowRenderTimerRef = useRef(null);
   const liveInputContextRef = useRef(null);
   const liveOutputContextRef = useRef(null);
   const liveStreamRef = useRef(null);
@@ -2020,6 +2022,10 @@ function App() {
     );
   }
   function stopCurrentSpeech() {
+    if (slowRenderTimerRef.current) {
+      clearTimeout(slowRenderTimerRef.current);
+      slowRenderTimerRef.current = null;
+    }
     window.speechSynthesis?.cancel();
     const active = ttsAudioRef.current;
     if (!active) return;
@@ -2045,10 +2051,15 @@ function App() {
         if (requestId === ttsRequestIdRef.current) {
           setTtsStatus(
             error
-              ? { phase: "error", message: "Audio cache gagal diputar." }
+              ? {
+                  phase: "error",
+                  engine: "cache",
+                  message: "Audio cache gagal diputar.",
+                }
               : {
                   phase: "ready",
-                  message: "Audio Kokoro cache selesai diputar.",
+                  engine: "cache",
+                  message: "Audio cache selesai diputar.",
                 },
           );
         }
@@ -2061,6 +2072,7 @@ function App() {
         finish(new Error("File audio bersama tidak dapat diputar."));
       setTtsStatus({
         phase: "speaking",
+        engine: "cache",
         message: "Tutor sedang berbicara…",
       });
       try {
@@ -2083,31 +2095,34 @@ function App() {
     const synth = window.speechSynthesis;
     if (!synth) throw new Error("Text-to-speech tidak didukung browser ini.");
     synth.cancel();
-    const voice =
-      synth
-        .getVoices()
-        .find((item) => item.name === data.settings.nativeVoice) ||
-      synth
-        .getVoices()
-        .find((item) => item.lang.toLowerCase().startsWith("en"));
+    const availableVoices = synth.getVoices();
+    const voice = selectBestVoice(availableVoices, data.settings.nativeVoice);
     const utterance = new SpeechSynthesisUtterance(cleanText);
-    utterance.lang = voice?.lang || "en-US";
+    utterance.lang = voice?.lang || "en-GB";
     utterance.rate = 0.88;
     if (voice) utterance.voice = voice;
     setTtsStatus({
       phase: "speaking",
-      message: fallbackReason || "Menyiapkan suara Browser Native…",
+      engine: "native",
+      message:
+        fallbackReason || "Tutor sedang berbicara (Browser Native)…",
     });
     utterance.onstart = () => {
       if (requestId === ttsRequestIdRef.current)
         setTtsStatus({
           phase: "speaking",
-          message: fallbackReason || "Tutor sedang berbicara…",
+          engine: "native",
+          message:
+            fallbackReason || "Tutor sedang berbicara (Browser Native)…",
         });
     };
     utterance.onend = () => {
       if (requestId !== ttsRequestIdRef.current) return;
-      setTtsStatus({ phase: "ready", message: "Browser Native siap." });
+      setTtsStatus({
+        phase: "ready",
+        engine: "native",
+        message: "Browser Native siap.",
+      });
       onPlaybackComplete?.();
     };
     utterance.onerror = (event) => {
@@ -2115,12 +2130,14 @@ function App() {
       if (event.error === "canceled" || event.error === "interrupted") {
         setTtsStatus({
           phase: "ready",
+          engine: "native",
           message: "Pemutaran suara dihentikan.",
         });
         return;
       }
       setTtsStatus({
         phase: "error",
+        engine: "native",
         message: "Browser Native gagal membacakan teks.",
       });
       toast.error("Browser Native gagal membacakan teks.");
@@ -2134,7 +2151,7 @@ function App() {
       return true;
     } catch (error) {
       if (requestId === ttsRequestIdRef.current)
-        setTtsStatus({ phase: "error", message: error.message });
+        setTtsStatus({ phase: "error", engine: "native", message: error.message });
       toast.error(error.message || "Browser TTS gagal diputar.");
       return false;
     }
@@ -2181,6 +2198,7 @@ function App() {
     if (context) {
       setTtsStatus({
         phase: "cache-lookup",
+        engine: "cache",
         message: "Memeriksa audio bersama…",
       });
       let cachedAudio = null;
@@ -2223,27 +2241,90 @@ function App() {
       try {
         speakWithBrowser(sourceText, requestId, "", notifyPlaybackComplete);
       } catch (error) {
-        setTtsStatus({ phase: "error", message: error.message });
+        setTtsStatus({ phase: "error", engine: "native", message: error.message });
         toast.error(error.message || "Browser TTS gagal diputar.");
       }
       return;
     }
 
-    setTtsStatus({ phase: "initialize", message: "Menyiapkan Kokoro…" });
+    setTtsStatus({
+      phase: "initialize",
+      engine: "kokoro",
+      message: "Audio sedang dipersiapkan dengan WASM / GPU…",
+    });
+
+    let fallbackDialogShown = false;
+    slowRenderTimerRef.current = setTimeout(async () => {
+      if (requestId !== ttsRequestIdRef.current) return;
+      fallbackDialogShown = true;
+      const res = await Swal.fire({
+        title: "Perangkat Membutuhkan Waktu Lama",
+        text: "Sepertinya perangkat Anda membutuhkan waktu yang sangat lama untuk merender suara, ganti ke suara cepat (Browser Voice) agar pengalaman belajar lebih menyenangkan?",
+        icon: "question",
+        showCancelButton: true,
+        confirmButtonText: "Ya, Ganti",
+        cancelButtonText: "Tidak",
+        confirmButtonColor: "#315c45",
+        cancelButtonColor: "#6b7280",
+      });
+      if (requestId !== ttsRequestIdRef.current) return;
+      if (res.isConfirmed) {
+        stopCurrentSpeech();
+        const synth =
+          typeof window !== "undefined" ? window.speechSynthesis : null;
+        const availableVoices = synth ? synth.getVoices() : [];
+        const bestVoice = selectBestVoice(availableVoices);
+        const voiceName = bestVoice?.name || "";
+        setData((d) => ({
+          ...d,
+          settings: {
+            ...d.settings,
+            tts: "native",
+            ...(voiceName ? { nativeVoice: voiceName } : {}),
+          },
+        }));
+        toast.info(
+          `Pengaturan suara diganti ke Browser Voice (${voiceName || "Default"}).`,
+        );
+        speakWithBrowser(
+          sourceText,
+          requestId,
+          "Beralih ke suara cepat Browser Voice…",
+          notifyPlaybackComplete,
+        );
+      }
+    }, 60000);
+
     try {
       await speakKokoro(sourceText, {
         voice: userVoice,
         compute: data.settings.ttsCompute || "auto",
         speed: 0.88,
         onStatus: (status) => {
-          if (requestId === ttsRequestIdRef.current) setTtsStatus(status);
+          if (requestId === ttsRequestIdRef.current) {
+            setTtsStatus({ ...status, engine: "kokoro" });
+            if (status.phase === "speaking" && slowRenderTimerRef.current) {
+              clearTimeout(slowRenderTimerRef.current);
+              slowRenderTimerRef.current = null;
+            }
+          }
         },
       });
+      if (slowRenderTimerRef.current) {
+        clearTimeout(slowRenderTimerRef.current);
+        slowRenderTimerRef.current = null;
+      }
       notifyPlaybackComplete();
     } catch (error) {
+      if (slowRenderTimerRef.current) {
+        clearTimeout(slowRenderTimerRef.current);
+        slowRenderTimerRef.current = null;
+      }
+      if (fallbackDialogShown) return;
       if (requestId !== ttsRequestIdRef.current) return;
       setTtsStatus({
         phase: "error",
+        engine: "kokoro",
         message: error.message || "Kokoro gagal dimuat.",
       });
       if ("speechSynthesis" in window) {
@@ -3180,17 +3261,33 @@ Because this is live audio, comment on pronunciation or word stress only when a 
     mascotToastProgress = null;
   } else if (ttsBusy) {
     mascotToastType = "tts";
-    mascotToastTitle =
-      ttsStatus.phase === "download"
-        ? "Mengunduh Model Suara Kokoro…"
-        : ttsStatus.phase === "load-model" || ttsStatus.phase === "cache-hit"
-          ? "Memuat Engine Suara Kokoro…"
-          : "Tutor sedang berbicara…";
-    mascotToastMessage =
-      ttsStatus.phase === "download"
-        ? "Unduhan awal model ~82 MB ke memori perangkat."
-        : "Tutor sedang berbicara…";
-    mascotToastProgress = ttsStatus.progress ?? null;
+    const isSpeakingPhase = ttsStatus.phase === "speaking";
+    const isNativeEngine =
+      ttsStatus.engine === "native" ||
+      data.settings?.tts === "native" ||
+      (typeof ttsStatus.message === "string" &&
+        ttsStatus.message.toLowerCase().includes("native"));
+
+    if (isSpeakingPhase) {
+      mascotToastTitle = "Tutor sedang berbicara…";
+      mascotToastMessage = isNativeEngine
+        ? "Audio menggunakan native browser dan dapat terdengar kurang natural."
+        : "Dengarkan pelafalan dan intonasi tutor secara seksama.";
+      mascotToastProgress = null;
+    } else if (ttsStatus.phase === "download") {
+      mascotToastTitle = "Mengunduh Model Suara Kokoro…";
+      mascotToastMessage = "Unduhan awal model ~82 MB ke memori perangkat.";
+      mascotToastProgress = ttsStatus.progress ?? null;
+    } else {
+      mascotToastTitle = "Audio sedang dipersiapkan dengan WASM / GPU…";
+      mascotToastMessage =
+        ttsStatus.message &&
+        ttsStatus.message !== "Tutor sedang berbicara…" &&
+        !ttsStatus.message.toLowerCase().includes("tutor sedang berbicara")
+          ? ttsStatus.message
+          : "Engine Kokoro sedang merender gelombang suara.";
+      mascotToastProgress = ttsStatus.progress ?? null;
+    }
   } else if (liveLoading) {
     mascotToastType = "ai";
     mascotToastTitle = "Menghubungkan ke Gemini Live…";
