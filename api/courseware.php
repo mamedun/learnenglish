@@ -116,10 +116,15 @@ function courseware_install(PDO $pdo): void
         enable_listening INTEGER NOT NULL DEFAULT 1 CHECK(enable_listening IN (0,1)),
         enable_ai_lesson INTEGER NOT NULL DEFAULT 1 CHECK(enable_ai_lesson IN (0,1)),
         enable_live_lesson INTEGER NOT NULL DEFAULT 1 CHECK(enable_live_lesson IN (0,1)),
+        progression_mode TEXT NOT NULL DEFAULT 'parallel' CHECK(progression_mode IN ('parallel','linear')),
         sort_order INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
     )");
+    $courseCols = $pdo->query('PRAGMA table_info(courses)')->fetchAll();
+    if (!in_array('progression_mode', array_column($courseCols, 'name'), true)) {
+        $pdo->exec("ALTER TABLE courses ADD COLUMN progression_mode TEXT NOT NULL DEFAULT 'parallel'");
+    }
     $pdo->exec("CREATE TABLE IF NOT EXISTS course_categories (
         course_id TEXT NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
         modality TEXT NOT NULL CHECK(modality IN ('listening','ai_lesson','live_lesson')),
@@ -399,6 +404,7 @@ function courseware_public_course(array $row, bool $enrolled = false, array $act
         'enableListening' => (bool) $row['enable_listening'],
         'enableAiLesson' => (bool) $row['enable_ai_lesson'],
         'enableLiveLesson' => (bool) $row['enable_live_lesson'],
+        'progressionMode' => (string) ($row['progression_mode'] ?? 'parallel'),
         'sortOrder' => (int) $row['sort_order'], 'enrolled' => $enrolled,
         'enrollmentSource' => $activity['source'] ?? null,
         'lastModality' => $activity['last_modality'] ?? null,
@@ -816,6 +822,7 @@ function courseware_save_course(PDO $pdo, array $input, ?string $id = null): str
         !empty($input['enableAiLesson']) ? 1 : 0,
         !empty($input['enableLiveLesson']) ? 1 : 0,
     ];
+    $progressionMode = in_array($input['progressionMode'] ?? '', ['linear', 'parallel'], true) ? $input['progressionMode'] : 'parallel';
     if ($id === null) {
         $requested = (string) ($input['id'] ?? '');
         $id = $requested !== '' ? courseware_safe_id($requested, 'ID course') : strtolower((string) preg_replace('/[^a-zA-Z0-9]+/', '-', $name));
@@ -823,17 +830,17 @@ function courseware_save_course(PDO $pdo, array $input, ?string $id = null): str
         if ($id === '') $id = 'course-' . bin2hex(random_bytes(4));
         if (strlen($id) > 80) $id = substr($id, 0, 80);
         $now = gmdate('c');
-        $query = $pdo->prepare('INSERT INTO courses(id,name,description,poster_url,banner_url,status,price,color,label,level,enable_listening,enable_ai_lesson,enable_live_lesson,sort_order,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+        $query = $pdo->prepare('INSERT INTO courses(id,name,description,poster_url,banner_url,status,price,color,label,level,enable_listening,enable_ai_lesson,enable_live_lesson,progression_mode,sort_order,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
         try {
-            $query->execute([$id,$name,$description,$poster,$banner,$status,(int)$price,$color,$label,$level,...$flags,$sortOrder,$now,$now]);
+            $query->execute([$id,$name,$description,$poster,$banner,$status,(int)$price,$color,$label,$level,...$flags,$progressionMode,$sortOrder,$now,$now]);
         } catch (PDOException $error) {
             if (str_contains(strtolower($error->getMessage()), 'unique')) respond(['error' => 'ID course sudah digunakan.'], 409);
             throw $error;
         }
     } else {
         if (!courseware_course_row($pdo, $id)) respond(['error' => 'Course tidak ditemukan.'], 404);
-        $query = $pdo->prepare('UPDATE courses SET name=?,description=?,poster_url=?,banner_url=?,status=?,price=?,color=?,label=?,level=?,enable_listening=?,enable_ai_lesson=?,enable_live_lesson=?,sort_order=?,updated_at=? WHERE id=?');
-        $query->execute([$name,$description,$poster,$banner,$status,(int)$price,$color,$label,$level,...$flags,$sortOrder,gmdate('c'),$id]);
+        $query = $pdo->prepare('UPDATE courses SET name=?,description=?,poster_url=?,banner_url=?,status=?,price=?,color=?,label=?,level=?,enable_listening=?,enable_ai_lesson=?,enable_live_lesson=?,progression_mode=?,sort_order=?,updated_at=? WHERE id=?');
+        $query->execute([$name,$description,$poster,$banner,$status,(int)$price,$color,$label,$level,...$flags,$progressionMode,$sortOrder,gmdate('c'),$id]);
     }
     return $id;
 }

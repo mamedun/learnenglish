@@ -145,12 +145,20 @@ export default function PracticePage(p) {
   const responseCaptured = liveTranscription
     ? Boolean(stripTranscriptSourceLabel(transcript)) && !transcribing
     : Boolean(audioBlob);
+  const targetTurns = Math.max(
+    1,
+    Number(unit.targetTurns || unit.target_turns) || 4,
+  );
+  const minScore = Math.max(
+    10,
+    Math.min(100, Number(unit.minScore || unit.min_score) || 80),
+  );
   const passedTurnCount = passedPracticeTurnCount(turns, similarityThreshold);
   const lastTurn = turns.at(-1);
   const retryPending = Boolean(
     lastTurn && !isPracticeTurnPassed(lastTurn, similarityThreshold),
   );
-  const goodPoints = practicePoints(turns, similarityThreshold);
+  const goodPoints = practicePoints(turns, similarityThreshold, targetTurns);
   const responseCost = responseMode === "audio" ? 5 : 2;
   const responseCostLabel = unlimitedDiamonds
     ? "Gratis · Admin unlimited"
@@ -159,6 +167,8 @@ export default function PracticePage(p) {
   const canFinishLesson = canCompletePracticeLesson(
     passedTurnCount,
     goodPoints,
+    targetTurns,
+    minScore,
   );
   const lessonProgress = getPracticeLessonProgress({
     scenarioComplete,
@@ -166,6 +176,8 @@ export default function PracticePage(p) {
     feedbackCount: passedTurnCount,
     goodPoints,
     completed: Boolean(completed?.has?.(unit.id)),
+    targetTurns,
+    minScore,
   });
   const ttsBusy = isTtsBusy(ttsStatus);
   useEffect(() => {
@@ -830,16 +842,19 @@ export default function PracticePage(p) {
             </div>
             <div className="lesson-points-banner">
               <div>
-                <b>{goodPoints} / 100 poin</b>
+                <b>{goodPoints} / {minScore} poin minimum</b>
                 <small>
-                  Setiap percakapan lulus memberi 25 poin. Skor AI minimal 4/5
-                  dihitung lulus.
+                  Target {targetTurns} percakapan. Skor AI minimal 4/5 dihitung lulus.
                 </small>
               </div>
               <div className="lesson-points-meter">
-                <i style={{ width: `${Math.min(100, goodPoints)}%` }} />
+                <i
+                  style={{
+                    width: `${Math.min(100, Math.round((goodPoints / minScore) * 100))}%`,
+                  }}
+                />
               </div>
-              <span>{passedTurnCount} / 4 percakapan lulus</span>
+              <span>{passedTurnCount} / {targetTurns} percakapan lulus</span>
             </div>
             <div className="finish-row finish-row-top">
               <div>
@@ -851,8 +866,7 @@ export default function PracticePage(p) {
                     : "Lanjutkan percakapan untuk menyelesaikan"}
                 </b>
                 <small>
-                  Perlu minimal 4 percakapan lulus dan 100 poin. Kamu tetap bisa
-                  terus berlatih setelah mencapai target.
+                  Perlu minimal {targetTurns} percakapan lulus dan {minScore} poin. Kamu tetap bisa terus berbicara setelah mencapai target.
                 </small>
               </div>
               <button

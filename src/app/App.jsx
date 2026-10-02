@@ -30,6 +30,7 @@ import {
   isPracticeTurnPassed,
   passedPracticeTurnCount,
   practicePoints,
+  practiceTurnPoints,
 } from "../features/speaking/lessonProgress";
 import { useAuthStore } from "../store/authStore";
 import { useLearningStore } from "../store/learningStore";
@@ -1642,18 +1643,20 @@ function App() {
 
       const assessment = replyObj.assessment || {};
       const criteria = assessment.criteria || {};
-      const assistantReply =
-        toPlainText(replyObj.tutor_reply?.text || "") ||
-        "Good job! Tell me more.";
-      const assistantSpeech =
-        toPlainText(replyObj.tutor_reply?.speech_text || assistantReply, {
-          forSpeech: true,
-        }) || toPlainText(assistantReply, { forSpeech: true });
+      const targetTurns = Math.max(
+        1,
+        Number(activeUnit.targetTurns || activeUnit.target_turns) || 4,
+      );
+      const minScore = Math.max(
+        10,
+        Math.min(100, Number(activeUnit.minScore || activeUnit.min_score) || 80),
+      );
       const practiceStars = Math.max(
         1,
         Math.min(5, Number(assessment.practice_stars ?? 3)),
       );
-      const pointsEarned = practiceStars >= 4 ? 25 : 0;
+      const pointsEarned =
+        practiceStars >= 4 ? practiceTurnPoints(practiceStars, targetTurns) : 0;
       const failedTurnToRetry = turns.at(-1);
       const replacingFailedTurn = Boolean(
         failedTurnToRetry &&
@@ -1662,6 +1665,41 @@ function App() {
           currentConfig.speech_similarity_threshold,
         ),
       );
+
+      const completionNotice =
+        "You can continue to the next lesson, but we can continue to talk if you wish.";
+      const alreadyNotified = turns.some((t) =>
+        (t.reply || "").includes("You can continue to the next lesson"),
+      );
+
+      const prevPoints = practicePoints(
+        replacingFailedTurn ? turns.slice(0, -1) : turns,
+        currentConfig.speech_similarity_threshold,
+        targetTurns,
+      );
+      const newPoints = Math.min(100, prevPoints + pointsEarned);
+      const prevPassedCount = passedPracticeTurnCount(
+        replacingFailedTurn ? turns.slice(0, -1) : turns,
+        currentConfig.speech_similarity_threshold,
+      );
+      const newPassedCount = prevPassedCount + (practiceStars >= 4 ? 1 : 0);
+      const isEligibleNow = canCompletePracticeLesson(
+        newPassedCount,
+        newPoints,
+        targetTurns,
+        minScore,
+      );
+
+      let assistantReply =
+        toPlainText(replyObj.tutor_reply?.text || "") ||
+        "Good job! Tell me more.";
+      if (isEligibleNow && !alreadyNotified) {
+        assistantReply = `${assistantReply.trim()} ${completionNotice}`;
+      }
+      const assistantSpeech =
+        toPlainText(replyObj.tutor_reply?.speech_text || assistantReply, {
+          forSpeech: true,
+        }) || toPlainText(assistantReply, { forSpeech: true });
       const retrySlot = replacingFailedTurn ? failedTurnToRetry : null;
       const slot = retrySlot
         ? Number(retrySlot.slot) ||
@@ -1813,16 +1851,28 @@ function App() {
       toast.success("Riwayat lesson dan arsip audio tersimpan telah dihapus.");
   }
   function finishUnit() {
+    const targetTurns = Math.max(
+      1,
+      Number(activeUnit?.targetTurns || activeUnit?.target_turns) || 4,
+    );
+    const minScore = Math.max(
+      10,
+      Math.min(100, Number(activeUnit?.minScore || activeUnit?.min_score) || 80),
+    );
     const passedCount = passedPracticeTurnCount(
       turns,
       appConfig.speech_similarity_threshold,
     );
-    const points = practicePoints(turns, appConfig.speech_similarity_threshold);
-    if (!canCompletePracticeLesson(passedCount, points)) {
-      const remainingTurns = Math.max(0, 4 - passedCount);
-      const remainingPoints = Math.max(0, 100 - points);
+    const points = practicePoints(
+      turns,
+      appConfig.speech_similarity_threshold,
+      targetTurns,
+    );
+    if (!canCompletePracticeLesson(passedCount, points, targetTurns, minScore)) {
+      const remainingTurns = Math.max(0, targetTurns - passedCount);
+      const remainingPoints = Math.max(0, minScore - points);
       toast.info(
-        `Butuh minimal 4 percakapan lulus dan 100 poin untuk selesai. Saat ini ${passedCount} percakapan lulus · ${points}/100 poin${remainingTurns ? ` · ${remainingTurns} percakapan lulus lagi` : ""}${remainingPoints ? ` · ${remainingPoints} poin lagi` : ""}.`,
+        `Butuh minimal ${targetTurns} percakapan lulus dan ${minScore} poin untuk selesai. Saat ini ${passedCount} percakapan lulus · ${points}/${minScore} poin${remainingTurns ? ` · ${remainingTurns} percakapan lulus lagi` : ""}${remainingPoints ? ` · ${remainingPoints} poin lagi` : ""}.`,
       );
       return;
     }
@@ -3278,6 +3328,7 @@ Because this is live audio, comment on pronunciation or word stress only when a 
                     aiProvider={appConfig.ai_provider}
                     unlimitedDiamonds={user?.unlimited_diamonds}
                     learningProgressionMode={
+currentCoursePayload?.course?.progressionMode ||
                       appConfig.courseware_policy?.learning_progression_mode ||
                       "parallel"
                     }
@@ -3365,6 +3416,7 @@ Because this is live audio, comment on pronunciation or word stress only when a 
                     sessionSaveAudio={sessionSaveAudio}
                     resetRecording={resetRecording}
                     learningProgressionMode={
+currentCoursePayload?.course?.progressionMode ||
                       appConfig.courseware_policy?.learning_progression_mode ||
                       "parallel"
                     }

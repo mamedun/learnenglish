@@ -44,6 +44,7 @@ const NEW_COURSE = {
   enableListening: true,
   enableAiLesson: true,
   enableLiveLesson: true,
+  progressionMode: "parallel",
 };
 const MODE_LABEL = {
   listening: "Listening",
@@ -1287,6 +1288,31 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
                       />{" "}
                       Live Lesson
                     </label>
+                  </div>
+                  <div className="course-progression-setting" style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid #ebe7f6" }}>
+                    <span style={{ display: "block", fontSize: 13, fontWeight: 700, color: "#302b58", marginBottom: 8 }}>
+                      Alur Progres Materi (Listening & AI Lesson)
+                    </span>
+                    <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+                      <label style={{ display: "inline-flex", alignItems: "center", gap: 7, cursor: "pointer", fontSize: 13, fontWeight: 600, color: "#443e62" }}>
+                        <input
+                          type="radio"
+                          name="course_progression_mode"
+                          checked={courseDraft.progressionMode !== "linear"}
+                          onChange={() => editCourse("progressionMode", "parallel")}
+                        />
+                        Belajar Paralel (bebas memilih materi tanpa harus menyelesaikan sebelumnya)
+                      </label>
+                      <label style={{ display: "inline-flex", alignItems: "center", gap: 7, cursor: "pointer", fontSize: 13, fontWeight: 600, color: "#443e62" }}>
+                        <input
+                          type="radio"
+                          name="course_progression_mode"
+                          checked={courseDraft.progressionMode === "linear"}
+                          onChange={() => editCourse("progressionMode", "linear")}
+                        />
+                        Belajar Linear (wajib menyelesaikan materi bertahap / berurutan)
+                      </label>
+                    </div>
                   </div>
                   <div className="course-studio-tip">
                     Mode dapat disembunyikan per course. Status <b>closed</b>{" "}

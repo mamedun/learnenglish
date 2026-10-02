@@ -1,6 +1,13 @@
 export const PRACTICE_COMPLETION_MIN_TURNS = 4;
-export const PRACTICE_COMPLETION_MIN_POINTS = 100;
-export const GOOD_CONVERSATION_POINTS = 25;
+export const PRACTICE_COMPLETION_MIN_POINTS = 80;
+export const GOOD_CONVERSATION_POINTS = 20;
+
+export function practiceTurnPoints(stars, targetTurns = 4) {
+  const s = Math.max(0, Math.min(5, Number(stars) || 0));
+  if (s < 4) return 0;
+  const t = Math.max(1, Number(targetTurns) || 4);
+  return Math.round((s / (t * 5)) * 100);
+}
 
 export function isPracticeTurnPassed(turn, similarityThreshold = 90) {
   if (typeof turn?.passed === "boolean") return turn.passed;
@@ -19,28 +26,39 @@ export function passedPracticeTurnCount(turns = [], similarityThreshold = 90) {
     .length;
 }
 
-export function practicePoints(turns = [], similarityThreshold = 90) {
+export function practicePoints(
+  turns = [],
+  similarityThreshold = 90,
+  targetTurns = 4,
+) {
   if (!Array.isArray(turns)) return 0;
-  return turns.reduce((total, turn) => {
-    if (!isPracticeTurnPassed(turn, similarityThreshold)) return total;
+  let total = 0;
+  for (const turn of turns) {
+    if (!isPracticeTurnPassed(turn, similarityThreshold)) continue;
     const recorded = Number(turn?.pointsEarned);
-    const earned =
-      Number.isFinite(recorded) && recorded > 0
-        ? recorded
-        : GOOD_CONVERSATION_POINTS;
-    return total + Math.max(0, Math.min(GOOD_CONVERSATION_POINTS, earned));
-  }, 0);
+    if (Number.isFinite(recorded) && recorded > 0) {
+      total += recorded;
+    } else {
+      const stars = Number(turn?.stars) || 4;
+      total += practiceTurnPoints(stars, targetTurns);
+    }
+  }
+  return Math.min(100, total);
 }
 
 export function canCompletePracticeLesson(
   conversationCount = 0,
   goodPoints = 0,
+  targetTurns = 4,
+  minScore = 80,
 ) {
+  const turnsReq = Math.max(1, Number(targetTurns) || 4);
+  const pointsReq = Math.max(10, Math.min(100, Number(minScore) || 80));
   return (
     Number.isFinite(Number(conversationCount)) &&
-    Number(conversationCount) >= PRACTICE_COMPLETION_MIN_TURNS &&
+    Number(conversationCount) >= turnsReq &&
     Number.isFinite(Number(goodPoints)) &&
-    Number(goodPoints) >= PRACTICE_COMPLETION_MIN_POINTS
+    Number(goodPoints) >= pointsReq
   );
 }
 
@@ -55,7 +73,7 @@ export const PRACTICE_PROGRESS_STEPS = [
   "Dengarkan skenario",
   "Pilih metode jawaban",
   "Kirim minimal empat percakapan yang lulus",
-  "Kumpulkan 100 poin",
+  "Kumpulkan 80 poin",
 ];
 
 export function getPracticeLessonProgress({
@@ -64,10 +82,14 @@ export function getPracticeLessonProgress({
   feedbackCount = 0,
   goodPoints = 0,
   completed = false,
+  targetTurns = 4,
+  minScore = 80,
 } = {}) {
+  const turnsReq = Math.max(1, Number(targetTurns) || 4);
+  const pointsReq = Math.max(10, Math.min(100, Number(minScore) || 80));
   const hasFeedback = Number(feedbackCount) > 0;
-  const enoughTurns = Number(feedbackCount) >= PRACTICE_COMPLETION_MIN_TURNS;
-  const enoughPoints = Number(goodPoints) >= PRACTICE_COMPLETION_MIN_POINTS;
+  const enoughTurns = Number(feedbackCount) >= turnsReq;
+  const enoughPoints = Number(goodPoints) >= pointsReq;
   const done = [
     completed || scenarioComplete,
     completed || responseCaptured || hasFeedback,
@@ -77,15 +99,22 @@ export function getPracticeLessonProgress({
   const currentIndex = done.findIndex((stepDone) => !stepDone);
   const completedCount = done.filter(Boolean).length;
 
+  const steps = [
+    "Dengarkan skenario",
+    "Pilih metode jawaban",
+    `Kirim minimal ${turnsReq} percakapan yang lulus`,
+    `Kumpulkan minimal ${pointsReq} poin`,
+  ];
+
   return {
-    steps: PRACTICE_PROGRESS_STEPS.map((label, index) => ({
+    steps: steps.map((label, index) => ({
       label,
       done: done[index],
       current: index === currentIndex,
     })),
     completedCount,
     percentage: Math.round(
-      (completedCount / PRACTICE_PROGRESS_STEPS.length) * 100,
+      (completedCount / steps.length) * 100,
     ),
   };
 }
