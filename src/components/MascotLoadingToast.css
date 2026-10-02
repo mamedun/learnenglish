@@ -1,0 +1,258 @@
+/* ==========================================================================
+   Mascot Bottom Loading Toast Component
+   ========================================================================== */
+
+.mascot-toast-wrapper {
+  position: fixed;
+  bottom: 26px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10000;
+  width: calc(100% - 32px);
+  max-width: 480px;
+  pointer-events: none;
+}
+
+.mascot-toast-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 18px;
+  border-radius: 22px;
+  background: linear-gradient(145deg, #ffffff 0%, #f7faf8 100%);
+  border: 2px solid #e1ebe4;
+  box-shadow: 0 16px 42px rgba(23, 44, 32, 0.18), 0 4px 12px rgba(0, 0, 0, 0.05);
+  pointer-events: auto;
+  position: relative;
+  overflow: hidden;
+  backdrop-filter: blur(8px);
+}
+
+/* Animations */
+.toast-enter {
+  animation: slideUpMascot 0.38s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+
+.toast-exit {
+  animation: slideDownMascot 0.32s cubic-bezier(0.6, -0.28, 0.735, 0.045) forwards;
+}
+
+@keyframes slideUpMascot {
+  0% {
+    transform: translate(-50%, 48px) scale(0.9);
+    opacity: 0;
+  }
+  100% {
+    transform: translate(-50%, 0) scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes slideDownMascot {
+  0% {
+    transform: translate(-50%, 0) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, 36px) scale(0.92);
+    opacity: 0;
+  }
+}
+
+/* Mascot Avatar */
+.mascot-avatar-container {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  flex: 0 0 64px;
+  display: grid;
+  place-items: center;
+  animation: mascotFloating 2.8s ease-in-out infinite;
+}
+
+.mascot-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.12));
+}
+
+@keyframes mascotFloating {
+  0%, 100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-5px) rotate(2deg);
+  }
+}
+
+/* Content Column */
+.mascot-content-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.mascot-badge-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mascot-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 999px;
+}
+
+.mascot-percent-badge {
+  font-size: 11px;
+  font-weight: 800;
+  color: #27623c;
+}
+
+.mascot-title {
+  margin: 2px 0 0;
+  font-size: 14.5px;
+  font-weight: 800;
+  color: #1e3626;
+  line-height: 1.3;
+}
+
+.mascot-description {
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: #5d7063;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Gamified Loading Progress Bar */
+.mascot-progress-track {
+  width: 100%;
+  height: 6.5px;
+  background: #e8eee9;
+  border-radius: 999px;
+  overflow: hidden;
+  position: relative;
+}
+
+.mascot-progress-fill.determinate {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  background: linear-gradient(90deg, #388457 0%, #4fbd79 100%);
+  box-shadow: 0 0 8px rgba(79, 189, 121, 0.5);
+}
+
+.mascot-progress-fill.indeterminate {
+  width: 50%;
+  height: 100%;
+  border-radius: 999px;
+  position: absolute;
+  top: 0;
+  background: linear-gradient(90deg, transparent 0%, #449e6b 50%, transparent 100%);
+  animation: indeterminateShimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes indeterminateShimmer {
+  0% {
+    left: -50%;
+  }
+  100% {
+    left: 100%;
+  }
+}
+
+/* ==========================================================================
+   Themes: AI, Audio/TTS, Success
+   ========================================================================== */
+
+/* Theme AI */
+.theme-ai .mascot-toast-card {
+  border-color: #dcd4fa;
+}
+.theme-ai .mascot-tag {
+  background: #ede8fe;
+  color: #5544be;
+}
+.theme-ai .mascot-title {
+  color: #291e56;
+}
+.theme-ai .mascot-progress-fill.determinate {
+  background: linear-gradient(90deg, #5b4db0 0%, #8372f5 100%);
+  box-shadow: 0 0 8px rgba(131, 114, 245, 0.5);
+}
+.theme-ai .mascot-progress-fill.indeterminate {
+  background: linear-gradient(90deg, transparent 0%, #6857df 50%, transparent 100%);
+}
+
+/* Theme Audio / TTS */
+.theme-audio .mascot-toast-card {
+  border-color: #cce9d6;
+}
+.theme-audio .mascot-tag {
+  background: #dff4e6;
+  color: #266b3e;
+}
+.theme-audio .mascot-title {
+  color: #194628;
+}
+.theme-audio .mascot-progress-fill.determinate {
+  background: linear-gradient(90deg, #2b6d44 0%, #48b874 100%);
+  box-shadow: 0 0 8px rgba(72, 184, 116, 0.5);
+}
+.theme-audio .mascot-progress-fill.indeterminate {
+  background: linear-gradient(90deg, transparent 0%, #3ca465 50%, transparent 100%);
+}
+
+/* Theme Success */
+.theme-success .mascot-toast-card {
+  border-color: #bde9c9;
+  background: linear-gradient(145deg, #ffffff 0%, #f2fcf5 100%);
+}
+.theme-success .mascot-tag {
+  background: #d4f7de;
+  color: #1b7336;
+}
+.theme-success .mascot-title {
+  color: #145528;
+}
+.theme-success .mascot-progress-fill.determinate {
+  background: linear-gradient(90deg, #32a852 0%, #ffd87c 100%);
+}
+
+/* Mobile Nav Placement */
+@media (max-width: 600px) {
+  .mascot-toast-wrapper {
+    bottom: 74px; /* clearance above bottom navigation bar */
+    width: calc(100% - 24px);
+    max-width: 440px;
+  }
+  .mascot-toast-card {
+    padding: 12px 14px;
+    gap: 12px;
+  }
+  .mascot-avatar-container {
+    width: 52px;
+    height: 52px;
+    flex: 0 0 52px;
+  }
+  .mascot-title {
+    font-size: 13.5px;
+  }
+  .mascot-description {
+    font-size: 11.5px;
+  }
+}

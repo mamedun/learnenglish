@@ -56,6 +56,7 @@ import CoursePurchaseDialog from "../features/courses/CoursePurchaseDialog";
 import ModuleLoading from "../components/ModuleLoading";
 import ModuleErrorBoundary from "../components/ModuleErrorBoundary";
 import ProcessingStatus from "../components/ProcessingStatus";
+import MascotLoadingToast from "../components/MascotLoadingToast";
 import { convertRecordingToWav } from "../lib/audio";
 import {
   isTtsBusy,
@@ -3120,6 +3121,64 @@ Because this is live audio, comment on pronunciation or word stress only when a 
             : page === "shop"
               ? "Toko Diamond"
               : menu.find((item) => item.id === page)?.label || "SpeakUp";
+
+  const isGlobalLoading = Boolean(
+    processing ||
+    ttsBusy ||
+    liveLoading ||
+    loadingRecordingId ||
+    permission === "requesting" ||
+    operationStatus
+  );
+
+  let mascotToastType = "ai";
+  let mascotToastTitle = "Memproses…";
+  let mascotToastMessage = "Mohon tunggu sebentar…";
+  let mascotToastProgress = null;
+
+  if (processing) {
+    mascotToastType = "ai";
+    mascotToastTitle = processingMessage || "AI Sedang Menganalisis Jawaban…";
+    mascotToastMessage = "Jawabanmu sedang diproses oleh tutor digital.";
+    mascotToastProgress = null;
+  } else if (ttsBusy) {
+    mascotToastType = "tts";
+    mascotToastTitle =
+      ttsStatus.phase === "download"
+        ? "Mengunduh Model Suara Kokoro…"
+        : ttsStatus.phase === "load-model" || ttsStatus.phase === "cache-hit"
+          ? "Memuat Engine Suara Kokoro…"
+          : ttsStatus.phase === "speaking"
+            ? "Memutar Suara Audio Tutor…"
+            : "Audio Tutor Sedang Diproses…";
+    mascotToastMessage =
+      ttsStatus.message ||
+      (ttsStatus.phase === "download"
+        ? "Unduhan awal model ~82 MB ke memori perangkat."
+        : "GPU/WASM sedang merender gelombang suara audio.");
+    mascotToastProgress = ttsStatus.progress ?? null;
+  } else if (liveLoading) {
+    mascotToastType = "ai";
+    mascotToastTitle = "Menghubungkan ke Gemini Live…";
+    mascotToastMessage = liveStatus || "Menyiapkan sesi percakapan audio dua arah.";
+    mascotToastProgress = null;
+  } else if (loadingRecordingId) {
+    mascotToastType = "audio";
+    mascotToastTitle = "Memuat Rekaman Audio…";
+    mascotToastMessage = "Audio sedang diambil dari akunmu.";
+    mascotToastProgress = null;
+  } else if (permission === "requesting") {
+    mascotToastType = "audio";
+    mascotToastTitle = "Meminta Izin Mikrofon…";
+    mascotToastMessage = "Ketuk 'Izinkan' pada dialog browser jika diminta.";
+    mascotToastProgress = null;
+  } else if (operationStatus) {
+    mascotToastType = "ai";
+    mascotToastTitle = operationStatus;
+    mascotToastMessage = "Menunggu proses selesai; jangan tutup halaman.";
+    mascotToastProgress = null;
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -3630,6 +3689,14 @@ Because this is live audio, comment on pronunciation or word stress only when a 
           refreshing={coursePurchaseRefreshing}
         />
       )}
+      {/* Gamified Mascot Bottom Loading Toast */}
+      <MascotLoadingToast
+        active={isGlobalLoading}
+        type={mascotToastType}
+        title={mascotToastTitle}
+        message={mascotToastMessage}
+        progress={mascotToastProgress}
+      />
       <nav className="mobile-nav" aria-label="Menu seluler">
         {menu
           .filter((item) =>

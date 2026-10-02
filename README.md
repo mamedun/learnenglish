@@ -186,6 +186,16 @@ Platform ini mengimplementasikan visualizer suara berbasis **Web Audio API (`Aud
 3. **Fisika Pegas Halus (*Fluid Spring Physics*)**:
    - Lonjakan bar naik cepat (*fast attack*) dan turun secara bertahap (*smooth decay*), mencegah visualizer terlihat patah-patah atau bergetar liar.
 
+### Sistem Loading Toast Berkarakter Gamifikasi (Mascot Loading Toast)
+Setiap proses asinkron yang membutuhkan waktu (seperti pengiriman rekaman audio ke server AI, sintesis suara Kokoro TTS melalui GPU/WASM CPU pada smartphone, atau pemeriksaan fonetik) kini menampilkan **Mascot Bottom Loading Toast** yang melayang dari bagian bawah layar:
+- **Karakter Maskot Pip**: Karakter burung hantu robot 3D bergaya claymation yang ramah dan ekspresif:
+  - `pip-thinking.png`: Saat AI sedang menganalisis jawaban suara, mengevaluasi tata bahasa, atau mencocokkan naskah.
+  - `pip-audio.png`: Saat Kokoro TTS sedang memuat model atau merender gelombang suara audio dengan headphone dan nada musik.
+  - `pip-success.png`: Saat respons berhasil diterima dan audio siap diputar (merayakan dengan bintang emas sebelum toast menghilang).
+- **Dual Progress Bar**:
+  - *Determinate Progress*: Menampilkan persentase unduhan/generasi audio real-time (0–100%) jika didukung.
+  - *Indeterminate Progress*: Animasi *infinite candy-stripe shimmer* saat menunggu respons dari server AI eksternal.
+
 ---
 
 ## 6. Referensi Endpoint REST API

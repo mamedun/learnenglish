@@ -25,6 +25,7 @@ import {
 } from "../../hooks/useSpeechRecognition";
 import ProcessingStatus from "../../components/ProcessingStatus";
 import AudioRadarWaveform from "../../components/AudioRadarWaveform";
+import MascotLoadingToast from "../../components/MascotLoadingToast";
 import useSmallViewport from "../../hooks/useSmallViewport";
 import "./ListeningSpeakingTask.css";
 
@@ -689,6 +690,14 @@ export default function ListeningSpeakingTask({
               className="shadowing-processing-status"
             />
           )}
+
+          {/* Gamified Mascot Bottom Loading Toast */}
+          <MascotLoadingToast
+            active={processing}
+            type="ai"
+            title={mode === "ai" ? "Menilai Rekaman dengan AI…" : "Memeriksa Jawaban…"}
+            message={processingMessage || (mode === "ai" ? "AI sedang menilai akurasi fonetik & artikulasimu…" : "Membandingkan fonetik kata...")}
+          />
 
           {/* Score & Articulation Display (Shown only AFTER clicking check) */}
           {displayedScore && (
