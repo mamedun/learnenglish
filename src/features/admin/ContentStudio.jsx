@@ -13,7 +13,10 @@ import {
   Trash2,
 } from "lucide-react";
 import { apiJson } from "../../api";
+import { KOKORO_ADMIN_VOICES } from "../../lib/ttsRocks";
 import ModuleLoading from "../../components/ModuleLoading";
+import DialogueEditor from "./DialogueEditor";
+import SharedTtsCacheGenerator from "./SharedTtsCacheGenerator";
 
 const emptyQuestion = () => ({
   prompt: "",
@@ -28,6 +31,8 @@ const unitDraft = (level) => ({
   emoji: "💬",
   duration: "3–4 menit",
   prompt: "",
+  defaultVoice: "af_heart",
+  ttsSegments: [],
   objective: "",
   part: "IELTS-style Part 1 · familiar topics",
   questionType: "Short personal questions",
@@ -44,6 +49,8 @@ const listeningDraft = (level) => ({
   title: "",
   objective: "",
   script: "",
+  defaultVoice: "af_heart",
+  ttsSegments: [],
   image: "",
   sortOrder: 100,
   published: true,
@@ -97,6 +104,7 @@ export default function ContentStudio({ onCatalogChange }) {
   const [search, setSearch] = useState("");
   const [draft, setDraft] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [generatingCache, setGeneratingCache] = useState(false);
   const [error, setError] = useState("");
 
   async function refresh(selectedType, selectedId) {
@@ -144,7 +152,26 @@ export default function ContentStudio({ onCatalogChange }) {
   const editing = draft?.value;
   const change = (key, value) =>
     setDraft((d) => ({ ...d, value: { ...d.value, [key]: value } }));
-  const pick = (type, item) => setDraft({ type, value: structuredClone(item) });
+  const pick = (type, item) => {
+    setDraft({ type, value: structuredClone(item) });
+  };
+  const persistedItem =
+    editing?.id && draft?.type === "unit"
+      ? catalog?.levels
+          .flatMap((level) => level.units)
+          .find((item) => item.id === editing.id)
+      : editing?.id && draft?.type === "lesson"
+        ? catalog?.listening.find((item) => item.id === editing.id)
+        : null;
+  const audioSourceField = draft?.type === "unit" ? "prompt" : "script";
+  const audioSourceChanged =
+    draft?.type !== "level" &&
+    (!persistedItem ||
+      editing?.[audioSourceField] !== persistedItem?.[audioSourceField] ||
+      (editing?.defaultVoice || "af_heart") !==
+        (persistedItem?.defaultVoice || "af_heart") ||
+      JSON.stringify(editing?.ttsSegments || []) !==
+        JSON.stringify(persistedItem?.ttsSegments || []));
   const create = () =>
     pick(
       tab === "speaking" ? "unit" : "lesson",
@@ -475,6 +502,26 @@ export default function ContentStudio({ onCatalogChange }) {
                     }
                     required
                   />
+                  <label className="studio-field">
+                    <span>Default voice · prioritas cache satu-suara</span>
+                    <select
+                      value={editing.defaultVoice || "af_heart"}
+                      onChange={(event) =>
+                        change("defaultVoice", event.target.value)
+                      }
+                    >
+                      {KOKORO_ADMIN_VOICES.map((voice) => (
+                        <option key={voice.id} value={voice.id}>
+                          {voice.name} · {voice.accent} ({voice.id})
+                        </option>
+                      ))}
+                    </select>
+                    <small>
+                      Dipakai untuk materi tanpa dialog multi-speaker. Jika ada
+                      sedikitnya dua giliran, dibuat satu audio gabungan memakai
+                      voice tiap speaker dan prioritas ini diabaikan.
+                    </small>
+                  </label>
                   {draft.type === "unit" ? (
                     <>
                       <Input
@@ -490,6 +537,11 @@ export default function ContentStudio({ onCatalogChange }) {
                         multiline
                         rows={5}
                         required
+                      />
+                      <DialogueEditor
+                        segments={editing.ttsSegments || []}
+                        defaultVoice={editing.defaultVoice || "af_heart"}
+                        onChange={(segments) => change("ttsSegments", segments)}
                       />
                       <div className="studio-two">
                         <Input
@@ -561,6 +613,11 @@ export default function ContentStudio({ onCatalogChange }) {
                         rows={7}
                         required
                         hint="Dibacakan oleh TTS perangkat; soal harus dapat dijawab dari naskah ini."
+                      />
+                      <DialogueEditor
+                        segments={editing.ttsSegments || []}
+                        defaultVoice={editing.defaultVoice || "af_heart"}
+                        onChange={(segments) => change("ttsSegments", segments)}
                       />
                       <div className="question-editor">
                         <div className="question-title">
@@ -694,7 +751,7 @@ export default function ContentStudio({ onCatalogChange }) {
                     label="Path ilustrasi (opsional)"
                     value={editing.image || ""}
                     onChange={(v) => change("image", v)}
-                    placeholder="/learnenglish/images/.../scene.jpg"
+                    placeholder="/images/.../scene.jpg"
                     hint="Pakai aset lokal yang sudah diunggah ke public/images; tidak menerima URL eksternal."
                   />
                   <label className="studio-publish">
@@ -713,10 +770,31 @@ export default function ContentStudio({ onCatalogChange }) {
                   </label>
                 </>
               )}
+              {draft.type !== "level" && (
+                <SharedTtsCacheGenerator
+                  key={`${draft.type}:${editing.id || "new"}`}
+                  contentType={draft.type === "unit" ? "speaking" : "listening"}
+                  item={editing}
+                  sourceText={
+                    editing.ttsSegments?.length >= 2
+                      ? editing.ttsSegments.map((turn) => turn.text).join(" ")
+                      : editing[draft.type === "unit" ? "prompt" : "script"]
+                  }
+                  segments={editing.ttsSegments || []}
+                  sourceChanged={audioSourceChanged}
+                  disabled={busy || generatingCache}
+                  onGeneratingChange={setGeneratingCache}
+                />
+              )}
               <div className="studio-actions">
-                <button className="btn-primary" disabled={busy}>
+                <button
+                  className="btn-primary"
+                  disabled={busy || generatingCache}
+                >
                   {busy ? (
-                    "Menyimpan..."
+                    <>
+                      <span className="spinner" /> Menyimpan...
+                    </>
                   ) : (
                     <>
                       <Check size={17} /> Simpan ke database
@@ -727,7 +805,7 @@ export default function ContentStudio({ onCatalogChange }) {
                   <button
                     type="button"
                     className="danger-button"
-                    disabled={busy}
+                    disabled={busy || generatingCache}
                     onClick={archive}
                   >
                     <Trash2 size={15} /> Arsipkan

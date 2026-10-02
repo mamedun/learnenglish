@@ -37,7 +37,7 @@ function auth_cookie_options(int $expires): array
     if ($sameSite === 'None' && !$secure) {
         respond(['error' => 'Cookie SameSite=None memerlukan HTTPS dan konfigurasi reverse proxy tepercaya.', 'code' => 'https_required'], 503);
     }
-    return ['expires' => $expires, 'path' => '/learnenglish/api/', 'secure' => $secure, 'httponly' => true, 'samesite' => $sameSite];
+    return ['expires' => $expires, 'path' => app_public_path('api') . '/', 'secure' => $secure, 'httponly' => true, 'samesite' => $sameSite];
 }
 
 function auth_set_refresh_cookie(string $value): void

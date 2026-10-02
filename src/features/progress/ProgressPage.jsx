@@ -1,23 +1,67 @@
-import { ArrowRight, Mic, Sparkles, Star } from "lucide-react";
+import { useMemo, useState } from "react";
+import { ArrowRight, Filter, Mic, Sparkles, Star } from "lucide-react";
 import { achievements } from "../../gamification";
 import { LEVEL_ICONS, BADGE_ICONS } from "../learning/learningIcons";
+import {
+  buildCourseProgressSummary,
+  filterJourneyLevels,
+} from "./progressSummary";
+import { hasCourseAccess } from "../courses/courseAccess";
 
 export default function ProgressPage({
   data,
-  pct,
-  totalDone,
-  allUnits,
-  curriculum,
+  courses = [],
+  courseCatalogs = {},
+  fallbackCatalog = null,
+  progressCatalogLoading = false,
   nav,
-  hasPremiumAccess,
-  listeningLessons,
+  hasLearningAccess,
   startUnit,
+  startListening,
 }) {
-  const listenDone = listeningLessons.filter((l) =>
-    data.listeningCompleted?.includes(l.id),
-  ).length;
+  const summary = useMemo(
+    () =>
+      buildCourseProgressSummary({
+        courses,
+        courseCatalogs,
+        data,
+        fallbackCatalog,
+      }),
+    [courses, courseCatalogs, data, fallbackCatalog],
+  );
+  const [courseFilter, setCourseFilter] = useState("all");
+  const courseOptions = useMemo(() => {
+    const options = new Map();
+    for (const course of courses) {
+      if (!hasCourseAccess(course) || course.id == null) continue;
+      const id = String(course.id);
+      if (!options.has(id)) {
+        options.set(id, {
+          id,
+          name: String(course.name || course.label || course.level || id),
+        });
+      }
+    }
+    return [...options.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }, [courses]);
+  const journeyLevels = useMemo(
+    () => filterJourneyLevels(summary.levels, courseFilter),
+    [courseFilter, summary.levels],
+  );
   const recent = (data.sessions || []).slice(-5).reverse();
-  const badges = achievements(data);
+  const badges = achievements(summary.achievementProgress);
+  const modalityLabel = (modality) =>
+    modality === "ai_lesson" ? "AI Lesson" : "Listening";
+
+  function openLevel(level) {
+    const unit = level.units.find((item) => !item.completed) || level.units[0];
+    if (!unit) return;
+    if (level.modality === "listening")
+      startListening?.(unit.id, unit.courseId);
+    else startUnit?.(unit, unit.courseId);
+  }
+
+  const firstLevel = summary.levels[0];
   return (
     <div className="progress-page">
       <div className="eyebrow">
@@ -39,17 +83,12 @@ export default function ProgressPage({
             {data.xp || 0} <em>XP</em>
           </strong>
           <p>
-            {hasPremiumAccess
-              ? `${totalDone}/${allUnits.length} speaking · `
-              : ""}
-            {listenDone}/${listeningLessons.length} listening lesson selesai
+            {summary.completed}/{summary.total} aktivitas selesai ·{" "}
+            {summary.courseCount} course
+            {progressCatalogLoading ? " · menghitung course lain…" : ""}
           </p>
           <div className="large-progress">
-            <i
-              style={{
-                width: `${hasPremiumAccess ? pct : listeningLessons.length ? (listenDone / listeningLessons.length) * 100 : 0}%`,
-              }}
-            />
+            <i style={{ width: `${summary.percent}%` }} />
           </div>
         </div>
         <div className="progress-hero-side">
@@ -66,64 +105,105 @@ export default function ProgressPage({
           <h2>Jelajahi tiap level</h2>
         </div>
       </div>
-      <div className="progress-levels">
-        {curriculum.map((l, i) => {
-          const units = hasPremiumAccess
-            ? l.units
-            : listeningLessons.filter((item) => item.level === l.id);
-          const done = units.filter((u) =>
-            hasPremiumAccess
-              ? data.completed?.includes(u.id)
-              : data.listeningCompleted?.includes(u.id),
-          ).length;
-          return (
-            <div className="progress-level" key={l.id}>
-              <div
-                className="progress-level-icon"
-                style={{ background: l.color }}
-              >
-                {(() => {
-                  const Icon = LEVEL_ICONS[i] || Sparkles;
-                  return <Icon size={21} />;
-                })()}
-              </div>
-              <div className="progress-level-copy">
-                <b>
-                  {l.id} · {l.label}
-                </b>
-                <small>
-                  {l.name} · {hasPremiumAccess ? "Speaking" : "Listening"}
-                </small>
-                <div className="tiny-progress">
-                  <i
-                    style={{
-                      width: units.length
-                        ? `${(done / units.length) * 100}%`
-                        : "0%",
-                    }}
-                  />
+      {courseOptions.length > 1 && (
+        <div className="journey-map-toolbar">
+          <label htmlFor="journey-course-filter">
+            <Filter size={16} />
+            <span>Filter course</span>
+            <select
+              id="journey-course-filter"
+              value={courseFilter}
+              onChange={(event) => setCourseFilter(event.target.value)}
+            >
+              <option value="all">Semua course</option>
+              {courseOptions.map((course) => (
+                <option value={course.id} key={course.id}>
+                  {course.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <span>{journeyLevels.length} level</span>
+        </div>
+      )}
+      {summary.levels.length ? (
+        <div
+          className="progress-levels journey-map-scroll"
+          tabIndex={0}
+          role="region"
+          aria-label="Journey Map levels; scroll to see more"
+        >
+          {journeyLevels.map((level, index) => {
+            const Icon = LEVEL_ICONS[index % LEVEL_ICONS.length] || Sparkles;
+            return (
+              <div className="progress-level" key={level.key}>
+                <div
+                  className="progress-level-icon"
+                  style={{ background: level.color }}
+                >
+                  <Icon size={21} />
                 </div>
+                <div className="progress-level-copy">
+                  <b>{level.name}</b>
+                  <small>
+                    {level.label && level.label !== level.name
+                      ? `${level.label} · `
+                      : ""}
+                    {modalityLabel(level.modality)} · {level.courseCount} course
+                    {level.courseCount === 1 ? "" : "s"}
+                  </small>
+                  <div className="tiny-progress">
+                    <i
+                      style={{
+                        width: level.total
+                          ? `${(level.completed / level.total) * 100}%`
+                          : "0%",
+                      }}
+                    />
+                  </div>
+                </div>
+                <span className="progress-fraction">
+                  {level.completed}/{level.total}
+                </span>
+                <button
+                  aria-label={`Buka level ${level.name} · ${modalityLabel(level.modality)}`}
+                  onClick={() => openLevel(level)}
+                >
+                  <ArrowRight size={17} />
+                </button>
               </div>
-              <span className="progress-fraction">
-                {done}/{units.length}
-              </span>
-              <button
-                aria-label={`Buka level ${l.id}`}
-                onClick={() =>
-                  hasPremiumAccess
-                    ? startUnit(
-                        l.units.find((u) => !data.completed?.includes(u.id)) ||
-                          l.units[0],
-                      )
-                    : nav("listening")
-                }
-              >
-                <ArrowRight size={17} />
-              </button>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="empty-activity">
+          <span>📚</span>
+          <b>
+            {progressCatalogLoading
+              ? "Memuat progres course…"
+              : "Belum ada level tersedia"}
+          </b>
+          <p>Progres setiap course yang kamu ikuti akan muncul di sini.</p>
+          {!progressCatalogLoading && (
+            <button className="btn-primary" onClick={() => nav("courses")}>
+              Jelajahi course <ArrowRight size={16} />
+            </button>
+          )}
+        </div>
+      )}
+      {summary.levels.length > 0 && journeyLevels.length === 0 && (
+        <div className="empty-activity">
+          <span>🔎</span>
+          <b>Tidak ada level untuk course ini</b>
+          <p>Coba pilih course lain untuk melihat progresnya.</p>
+          <button
+            className="btn-primary"
+            onClick={() => setCourseFilter("all")}
+          >
+            Tampilkan semua course <ArrowRight size={16} />
+          </button>
+        </div>
+      )}
       <div className="section-head">
         <div>
           <div className="eyebrow">TROPHY CASE</div>
@@ -131,25 +211,25 @@ export default function ProgressPage({
         </div>
       </div>
       <div className="badge-row progress-badges">
-        {badges.map((b) => (
+        {badges.map((badge) => (
           <div
-            className={`achievement-badge ${b.unlocked ? "unlocked" : ""}`}
-            key={b.title}
+            className={`achievement-badge ${badge.unlocked ? "unlocked" : ""}`}
+            key={badge.title}
           >
             <span>
               {(() => {
-                const Icon = BADGE_ICONS[b.icon] || Star;
+                const Icon = BADGE_ICONS[badge.icon] || Star;
                 return <Icon size={23} />;
               })()}
             </span>
             <div>
-              <b>{b.title}</b>
-              <small>{b.unlocked ? "Terbuka!" : b.detail}</small>
+              <b>{badge.title}</b>
+              <small>{badge.unlocked ? "Terbuka!" : badge.detail}</small>
             </div>
           </div>
         ))}
       </div>
-      {hasPremiumAccess && (
+      {hasLearningAccess && (
         <>
           <div className="section-head recent-head">
             <div>
@@ -158,42 +238,47 @@ export default function ProgressPage({
             </div>
           </div>
           {recent.length ? (
-            recent.map((s) => (
-              <div className="recent-session" key={s.id}>
-                <span className="recent-icon">
-                  <Mic size={18} />
-                </span>
-                <div>
-                  <b>
-                    {allUnits.find((u) => u.id === s.unitId)?.title ||
-                      "Latihan percakapan (diarsipkan)"}
-                  </b>
-                  <small>
-                    {new Date(
-                      s.turns?.at(-1)?.createdAt || Date.now(),
-                    ).toLocaleDateString("id-ID", {
-                      day: "numeric",
-                      month: "long",
-                      year: "numeric",
-                    })}
-                  </small>
+            recent.map((session) => {
+              const courseId = session.courseId || "ielts";
+              return (
+                <div className="recent-session" key={session.id}>
+                  <span className="recent-icon">
+                    <Mic size={18} />
+                  </span>
+                  <div>
+                    <b>
+                      {summary.unitTitles[`${courseId}:${session.unitId}`] ||
+                        "Latihan percakapan (diarsipkan)"}
+                    </b>
+                    <small>
+                      {new Date(
+                        session.turns?.at(-1)?.createdAt || Date.now(),
+                      ).toLocaleDateString("id-ID", {
+                        day: "numeric",
+                        month: "long",
+                        year: "numeric",
+                      })}
+                    </small>
+                  </div>
+                  <span className="recent-stars">
+                    {session.turns?.at(-1)?.stars || 0} ★
+                  </span>
                 </div>
-                <span className="recent-stars">
-                  {s.turns?.at(-1)?.stars || 0} ★
-                </span>
-              </div>
-            ))
+              );
+            })
           ) : (
             <div className="empty-activity">
               <span>🗣️</span>
               <b>Belum ada aktivitas speaking</b>
               <p>Mulai latihan pertamamu dan riwayat akan tampil di sini.</p>
-              <button
-                className="btn-primary"
-                onClick={() => startUnit(allUnits[0])}
-              >
-                Mulai latihan <ArrowRight size={16} />
-              </button>
+              {firstLevel && (
+                <button
+                  className="btn-primary"
+                  onClick={() => openLevel(firstLevel)}
+                >
+                  Mulai latihan <ArrowRight size={16} />
+                </button>
+              )}
             </div>
           )}
         </>

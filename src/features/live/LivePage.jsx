@@ -6,18 +6,49 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { formatTime } from "../../lib/formatTime";
+import { LIVE_TOPICS } from "../../data/liveTopics";
 
 export default function LivePage({
   liveOn,
   liveSeconds,
   liveLines,
   liveStatus,
+  liveLoading = false,
   liveAssessment,
+  liveAssessmentFailed = false,
+  diamonds = 0,
+  unlimitedAccess = false,
+  liveTopicId,
+  liveTopic,
+  topics = [],
+  courseId = "ielts",
+  liveMaxSeconds = 600,
+  liveBlockMinutes = 5,
+  liveRate = 2,
+  onLiveTopicChange = () => {},
   beginLive,
   endLive,
+  retryLiveAssessment = () => {},
 }) {
+  const loadingLabel = liveStatus.toLowerCase().includes("feedback")
+    ? "Menyiapkan feedback…"
+    : liveStatus.toLowerCase().includes("mengakhiri")
+      ? "Mengakhiri sesi…"
+      : liveStatus.toLowerCase().includes("token")
+        ? "Mengamankan sesi…"
+        : liveStatus.toLowerCase().includes("mikrofon")
+          ? "Meminta mikrofon…"
+          : "Menghubungkan…";
+  const canRetryAssessment =
+    liveAssessmentFailed &&
+    !liveOn &&
+    !liveLoading &&
+    liveLines.some((line) => line.who === "learner");
+  const topicOptions = topics?.length ? topics : LIVE_TOPICS;
+  const selectedTopicId = liveTopicId || liveTopic?.id || topicOptions[0]?.id;
+  const sessionLimit = Math.ceil(Number(liveMaxSeconds || 600) / 60);
   return (
-    <div className="live-page">
+    <div className="live-page" data-course-id={courseId}>
       <div className="live-heading">
         <div className="eyebrow">
           <span className="live-pulse" /> REAL-TIME CONVERSATION
@@ -34,7 +65,8 @@ export default function LivePage({
           </span>
           <span className="timer-pill">
             <Clock3 size={14} />
-            {formatTime(liveSeconds)} <small>/ 20:00</small>
+            {formatTime(liveSeconds)}{" "}
+            <small>/ {formatTime(liveMaxSeconds)}</small>
           </span>
         </div>
         <div className="live-orb-wrap">
@@ -49,26 +81,50 @@ export default function LivePage({
             <i />
           </div>
         </div>
-        <h2>
+        <h2 className="live-conversation-title">
           {liveOn
             ? "You\u2019re in the conversation"
             : "Your conversation starts here"}
         </h2>
-        <p>
+        <p className="live-conversation-description">
           {liveOn
-            ? "Speak naturally; audio streams directly from your browser to Gemini."
-            : `Session status: ${liveStatus}. Sessions are limited to 20 minutes.`}
+            ? "Speak naturally; Maya will guide the role-play and give a quick, helpful correction after each turn."
+            : "Pilih topik. Maya akan membuka percakapan dengan pertanyaan sesuai peran dan topik pilihanmu."}
         </p>
         <div className="live-topic">
-          <span>TOPIK HARI INI</span>
-          <b>Meeting someone new</b>
-          <span className="live-status-mini">{liveStatus}</span>
+          <label htmlFor="live-topic-select">TOPIK HARI INI</label>
+          <div className="live-topic-content">
+            <select
+              id="live-topic-select"
+              className="live-topic-select"
+              value={selectedTopicId}
+              onChange={(event) => onLiveTopicChange(event.target.value)}
+              disabled={liveOn || liveLoading}
+            >
+              {topicOptions.map((topic) => (
+                <option key={topic.id} value={topic.id}>
+                  {topic.label}
+                </option>
+              ))}
+            </select>
+            <small>
+              {liveTopic?.description || LIVE_TOPICS[0].description}
+            </small>
+          </div>
+          <span className="live-status-mini">
+            {liveOn ? "SEDANG BERLANGSUNG" : liveStatus}
+          </span>
         </div>
         <button
           className={liveOn ? "btn-end" : "btn-live-start"}
           onClick={liveOn ? endLive : beginLive}
+          disabled={liveLoading}
         >
-          {liveOn ? (
+          {liveLoading ? (
+            <>
+              <span className="spinner" /> {loadingLabel}
+            </>
+          ) : liveOn ? (
             <>
               <Pause size={17} /> Akhiri sesi
             </>
@@ -82,7 +138,11 @@ export default function LivePage({
           <span>
             <span className="status-dot" /> Browser → Gemini direct
           </span>
-          <span>20 minute session limit</span>
+          <span>
+            {unlimitedAccess
+              ? `Admin unlimited access · no diamonds used · max ${sessionLimit} min`
+              : `${Number(liveRate)} diamonds / minute · ${Number(liveBlockMinutes)}-minute reserve blocks · max ${sessionLimit} min · balance ${Number(diamonds).toLocaleString("id-ID")}`}
+          </span>
         </div>
       </div>
       <div className="live-disclaimer">
@@ -102,6 +162,18 @@ export default function LivePage({
             </p>
           ))}
         </div>
+      )}
+      {canRetryAssessment && (
+        <section className="settings-card live-assessment-card">
+          <h2>Feedback temporarily unavailable</h2>
+          <p>
+            The transcript is still available above. Retry post-session feedback
+            without repeating the conversation.
+          </p>
+          <button className="btn-primary" onClick={retryLiveAssessment}>
+            Retry feedback
+          </button>
+        </section>
       )}
       {liveAssessment && (
         <section className="settings-card live-assessment-card">

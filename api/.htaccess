@@ -1,5 +1,5 @@
 Options -Indexes
-<FilesMatch "^(config(\.example)?|bootstrap|catalog|auth|router)\.php$">
+<FilesMatch "^(config(\.example)?|bootstrap|catalog|auth|router|tts_cache)\.php$">
   Require all denied
 </FilesMatch>
 RewriteEngine On

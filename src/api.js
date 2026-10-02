@@ -13,6 +13,8 @@ function errorFromResponse(response, body) {
   const error = new Error(body.error || `Request gagal (${response.status})`);
   error.status = response.status;
   error.code = body.code;
+  error.diamonds = body.diamonds;
+  error.required = body.required;
   error.diagnostics = body.diagnostics;
   return error;
 }

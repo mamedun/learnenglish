@@ -1,0 +1,1124 @@
+<!DOCTYPE html>
+<html lang="id" class="h-full bg-slate-900 text-slate-100">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>English Conversation Coach - Gemini Live API</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- Google Font: Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+          },
+          colors: {
+            brand: {
+              50: '#f0fdf4',
+              100: '#dcfce7',
+              500: '#22c55e',
+              600: '#16a34a',
+              700: '#15803d',
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #1e293b;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #475569;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #64748b;
+    }
+    .pulse-ring {
+      box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.5);
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0% {
+        box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.6);
+      }
+      70% {
+        box-shadow: 0 0 0 15px rgba(34, 197, 94, 0);
+      }
+      100% {
+        box-shadow: 0 0 0 0 rgba(34, 197, 94, 0);
+      }
+    }
+  </style>
+</head>
+<body class="h-full flex flex-col font-sans bg-slate-950 text-slate-100 overflow-x-hidden">
+
+  <!-- Top Navigation Header -->
+  <header class="bg-slate-900/80 backdrop-blur border-b border-slate-800 sticky top-0 z-30 px-4 py-3">
+    <div class="max-w-7xl mx-auto flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center text-slate-950 font-bold shadow-lg shadow-emerald-500/20">
+          <i class="fa-solid font-bold fa-headset text-lg"></i>
+        </div>
+        <div>
+          <h1 class="text-lg font-bold bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 bg-clip-text text-transparent">
+            English Audio Coach
+          </h1>
+          <p class="text-xs text-slate-400 flex items-center space-x-1">
+            <span>Powered by Gemini Live API</span>
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block"></span>
+          </p>
+        </div>
+      </div>
+
+      <!-- Action & Config Controls -->
+      <div class="flex items-center space-x-2">
+        <div id="statusBadge" class="hidden sm:flex items-center space-x-2 px-3 py-1.5 rounded-full bg-slate-800 text-xs font-medium text-slate-400 border border-slate-700">
+          <span id="statusDot" class="w-2 h-2 rounded-full bg-slate-500"></span>
+          <span id="statusText">Disconnected</span>
+        </div>
+
+        <button id="openConfigBtn" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center space-x-2 border border-slate-700 transition">
+          <i class="fa-solid fa-gear text-emerald-400"></i>
+          <span class="hidden md:inline">Pengaturan API & Prompt</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Notification Toast Container -->
+  <div id="toastContainer" class="fixed top-16 right-4 z-50 flex flex-col space-y-2"></div>
+
+  <!-- Main Container -->
+  <main class="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+    <!-- Left Column: Audio Controls & Visualizer -->
+    <section class="lg:col-span-5 flex flex-col space-y-5">
+      
+      <!-- Audio Visualizer & Call Card -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 flex flex-col items-center justify-between relative overflow-hidden shadow-xl min-h-[360px]">
+        
+        <div class="w-full flex justify-between items-center text-xs text-slate-400 z-10">
+          <span class="font-medium text-slate-300 flex items-center gap-1.5">
+            <i class="fa-solid fa-microphone-lines text-emerald-400"></i> Active Session
+          </span>
+          <span id="sessionTimer" class="font-mono bg-slate-800 px-2.5 py-1 rounded-md border border-slate-700">00:00</span>
+        </div>
+
+        <!-- Disconnect Reason Banner -->
+        <div id="disconnectAlert" class="hidden w-full my-3 p-3.5 bg-rose-950/90 border border-rose-800 rounded-xl text-xs text-rose-200 space-y-2.5 z-20 shadow-lg">
+          <div class="flex items-start justify-between">
+            <div class="flex items-start space-x-2.5">
+              <i class="fa-solid fa-circle-exclamation text-rose-400 text-base mt-0.5 flex-shrink-0"></i>
+              <div>
+                <p class="font-bold text-rose-300">Sesi Terputus (Disconnected)</p>
+                <p id="disconnectReasonText" class="text-xs text-rose-200/90 mt-1 leading-relaxed font-sans"></p>
+              </div>
+            </div>
+            <button id="closeAlertBtn" class="text-rose-400 hover:text-rose-200 text-xs p-1" title="Tutup Notifikasi">
+              <i class="fa-solid fa-xmark"></i>
+            </button>
+          </div>
+          <div class="flex justify-end pt-1">
+            <button id="reconnectBtn" class="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-semibold transition flex items-center gap-1.5 shadow-sm">
+              <i class="fa-solid fa-rotate-right"></i> Hubungkan Ulang
+            </button>
+          </div>
+        </div>
+
+        <!-- Center Interactive Sphere / Visualizer Canvas -->
+        <div class="relative my-6 flex items-center justify-center w-full">
+          <canvas id="visualizerCanvas" width="280" height="280" class="rounded-full bg-slate-950/50 border border-slate-800/80 shadow-inner max-w-full"></canvas>
+          
+          <!-- Call Overlay Status Icon -->
+          <div id="centerOrb" class="absolute w-24 h-24 rounded-full bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center shadow-xl transition-all duration-500 pointer-events-none opacity-90 scale-90">
+            <i id="centerOrbIcon" class="fa-solid fa-microphone text-3xl text-slate-950"></i>
+          </div>
+        </div>
+
+        <!-- Call Action Buttons -->
+        <div class="w-full space-y-3 z-10">
+          <div class="flex items-center justify-center space-x-3">
+            <button id="toggleMuteBtn" disabled class="p-3.5 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition disabled:opacity-40 disabled:cursor-not-allowed" title="Mute Microphone">
+              <i class="fa-solid fa-microphone-slash text-base"></i>
+            </button>
+
+            <button id="startCallBtn" class="flex-1 py-3.5 px-6 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm tracking-wide shadow-lg shadow-emerald-500/25 transition transform active:scale-95 flex items-center justify-center space-x-2">
+              <i class="fa-solid fa-phone text-base"></i>
+              <span>Mulai Percakapan Audio</span>
+            </button>
+
+            <button id="stopCallBtn" disabled class="hidden py-3.5 px-6 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-sm tracking-wide shadow-lg shadow-rose-600/25 transition transform active:scale-95 items-center justify-center space-x-2">
+              <i class="fa-solid fa-phone-slash text-base"></i>
+              <span>Akhiri Sesi</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Microphone & Voice Selection Card -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-lg">
+        <h2 class="text-sm font-semibold text-slate-200 flex items-center space-x-2">
+          <i class="fa-solid fa-sliders text-emerald-400"></i>
+          <span>Pengaturan Perangkat Audio</span>
+        </h2>
+
+        <!-- Microphone Selection Input -->
+        <div class="space-y-1.5">
+          <label for="micSelect" class="block text-xs font-medium text-slate-400 flex justify-between items-center">
+            <span><i class="fa-solid fa-microphone text-emerald-400/80 mr-1"></i> Pilih Microphone</span>
+            <button id="refreshMicsBtn" class="text-emerald-400 hover:underline text-xs font-normal">
+              <i class="fa-solid fa-rotate-right mr-1"></i>Refresh
+            </button>
+          </label>
+          <select id="micSelect" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-slate-200 focus:ring-2 focus:ring-emerald-500 focus:outline-none transition">
+            <option value="">Mengambil daftar mikrofon...</option>
+          </select>
+        </div>
+
+        <!-- Voice Accent Selection -->
+        <div class="space-y-1.5">
+          <label for="voiceSelect" class="block text-xs font-medium text-slate-400">
+            <i class="fa-solid fa-circle-user text-emerald-400/80 mr-1"></i> Karakter Suara Coach AI
+          </label>
+          <select id="voiceSelect" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-slate-200 focus:ring-2 focus:ring-emerald-500 focus:outline-none transition">
+            <option value="Zephyr">Zephyr (Ceria & Jelas - Female)</option>
+            <option value="Puck">Puck (Antusias & Energik - Male)</option>
+            <option value="Kore" selected>Kore (Hangat & Ramah - Female)</option>
+            <option value="Fenrir">Fenrir (Tegas & Percaya Diri - Male)</option>
+            <option value="Aoede">Aoede (Lembut & Santai - Female)</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Topic Starter Cards -->
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3 shadow-lg">
+        <h2 class="text-sm font-semibold text-slate-200 flex items-center space-x-2">
+          <i class="fa-solid fa-comments text-emerald-400"></i>
+          <span>Pilih Topik Percakapan Langsung</span>
+        </h2>
+        <p class="text-xs text-slate-400">Klik topik di bawah ini untuk mengarahkan percakapan kapan saja saat sesi berlangsung:</p>
+        
+        <div class="grid grid-cols-2 gap-2 pt-1">
+          <button class="topic-btn p-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-800 border border-slate-700/80 hover:border-emerald-500/50 text-left text-xs font-medium text-slate-300 transition flex items-center space-x-2" data-topic="Daily Life & Routines">
+            <i class="fa-solid fa-mug-hot text-amber-400"></i>
+            <span class="truncate">Daily Routines</span>
+          </button>
+          <button class="topic-btn p-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-800 border border-slate-700/80 hover:border-emerald-500/50 text-left text-xs font-medium text-slate-300 transition flex items-center space-x-2" data-topic="Mock Job Interview Practice">
+            <i class="fa-solid fa-briefcase text-blue-400"></i>
+            <span class="truncate">Job Interview</span>
+          </button>
+          <button class="topic-btn p-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-800 border border-slate-700/80 hover:border-emerald-500/50 text-left text-xs font-medium text-slate-300 transition flex items-center space-x-2" data-topic="Hobbies, Movies and Music">
+            <i class="fa-solid fa-film text-purple-400"></i>
+            <span class="truncate">Hobbies & Movies</span>
+          </button>
+          <button class="topic-btn p-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-800 border border-slate-700/80 hover:border-emerald-500/50 text-left text-xs font-medium text-slate-300 transition flex items-center space-x-2" data-topic="Travel and Vacation Experiences">
+            <i class="fa-solid fa-plane text-teal-400"></i>
+            <span class="truncate">Travel & Vacation</span>
+          </button>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- Right Column: Real-time Transcript & Feedback Log -->
+    <section class="lg:col-span-7 flex flex-col h-[650px] lg:h-auto bg-slate-900 border border-slate-800 rounded-2xl shadow-xl overflow-hidden">
+      
+      <!-- Transcript Header -->
+      <div class="px-5 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/90">
+        <div class="flex items-center space-x-2">
+          <div class="w-3 h-3 rounded-full bg-emerald-500 animate-pulse"></div>
+          <h2 class="text-sm font-bold text-slate-100">Live Transcript & Feedback Log</h2>
+        </div>
+        <div class="flex items-center space-x-2">
+          <button id="clearChatBtn" class="text-slate-400 hover:text-rose-400 text-xs px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 transition" title="Bersihkan Transkrip">
+            <i class="fa-solid fa-trash-can mr-1"></i> Clear
+          </button>
+          <button id="copyChatBtn" class="text-slate-400 hover:text-emerald-400 text-xs px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 transition" title="Salin Transkrip">
+            <i class="fa-solid fa-copy mr-1"></i> Copy
+          </button>
+        </div>
+      </div>
+
+      <!-- Conversation Chat Feed -->
+      <div id="transcriptBox" class="flex-1 p-5 overflow-y-auto space-y-4 bg-slate-950/40">
+        <!-- Initial Welcome Placeholder -->
+        <div class="flex items-start space-x-3 text-xs">
+          <div class="w-8 h-8 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold flex-shrink-0 border border-emerald-500/30">
+            <i class="fa-solid fa-robot"></i>
+          </div>
+          <div class="bg-slate-900 border border-slate-800 rounded-2xl rounded-tl-none p-4 text-slate-300 max-w-xl leading-relaxed space-y-2">
+            <p class="font-semibold text-emerald-400">Selamat Datang di English Audio Coach!</p>
+            <p>Sesi percakapan ini dirancang untuk melatih kemampuan berbicara (*speaking skills*), memperhalus *grammar*, meningkatkan kosa kata, dan melatih pengucapan (*pronunciation*).</p>
+            <ul class="list-disc list-inside space-y-1 text-slate-400 pt-1">
+              <li>Pastikan API Key Gemini sudah dikonfigurasi.</li>
+              <li>Klik <strong class="text-emerald-400">"Mulai Percakapan Audio"</strong> dan izinkan akses mikrofon.</li>
+              <li>Bicaralah secara alami dalam bahasa Inggris. Coach Anda siap membimbing dengan sabar!</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <!-- Live Typing / Speaking Indicator Footer -->
+      <div class="p-3 bg-slate-900 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
+        <div id="typingIndicator" class="flex items-center space-x-2 text-emerald-400 opacity-0 transition-opacity">
+          <i class="fa-solid fa-circle-notch fa-spin text-xs"></i>
+          <span class="text-xs font-medium">Coach sedang mendengarkan/berbicara...</span>
+        </div>
+        <span class="text-xs text-slate-500">Transkrip diperbarui secara terdekat (*real-time*)</span>
+      </div>
+
+    </section>
+
+  </main>
+
+  <!-- API Key & Prompt Configuration Modal -->
+  <div id="configModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto">
+      
+      <div class="flex justify-between items-center border-b border-slate-800 pb-4">
+        <div class="flex items-center space-x-2">
+          <i class="fa-solid fa-key text-emerald-400 text-lg"></i>
+          <h2 class="text-base font-bold text-slate-100">Konfigurasi API Key & Coach Prompt</h2>
+        </div>
+        <button id="closeConfigBtn" class="text-slate-400 hover:text-slate-200 text-lg">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <!-- API Key Field -->
+      <div class="space-y-2">
+        <label for="apiKeyInput" class="block text-xs font-semibold text-slate-300">
+          Gemini API Key <span class="text-rose-400">*</span>
+        </label>
+        <div class="relative">
+          <input type="password" id="apiKeyInput" placeholder="Masukkan Gemini API Key Anda (AIzaSy...)" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-slate-100 placeholder-slate-500 focus:ring-2 focus:ring-emerald-500 focus:outline-none pr-10">
+          <button type="button" id="toggleApiKeyVisibility" class="absolute right-3 top-2.5 text-slate-400 hover:text-slate-200 text-xs">
+            <i class="fa-solid fa-eye"></i>
+          </button>
+        </div>
+        <p class="text-xs text-slate-400">
+          Belum punya API key? Dapatkan secara gratis di 
+          <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" class="text-emerald-400 underline hover:text-emerald-300">Google AI Studio</a>.
+          Key disimpan dengan aman di penyimpanan lokal peramban Anda (*localStorage*).
+        </p>
+      </div>
+
+      <!-- System Instruction Text Area -->
+      <div class="space-y-2">
+        <label for="systemPromptInput" class="block text-xs font-semibold text-slate-300">
+          System Instructions (Instruksi Peran & Aturan Guru)
+        </label>
+        <textarea id="systemPromptInput" rows="10" class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-xs text-slate-200 font-mono leading-relaxed focus:ring-2 focus:ring-emerald-500 focus:outline-none"></textarea>
+      </div>
+
+      <!-- Action Footer -->
+      <div class="flex justify-end space-x-3 pt-3 border-t border-slate-800">
+        <button id="resetPromptBtn" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-300 border border-slate-700 transition">
+          Reset Prompt bawaan
+        </button>
+        <button id="saveConfigBtn" class="px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs shadow-md transition">
+          Simpan Konfigurasi
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- JavaScript Application Logic -->
+  <script type="module">
+    import { GoogleGenAI, Modality } from 'https://esm.run/@google/genai';
+
+    // Default System Instruction from User Prompt Requirement
+    const DEFAULT_SYSTEM_INSTRUCTION = `You are an elite, highly encouraging, and patient English Language Teacher and Conversation Coach. Your primary goal is to help me improve my English speaking skills, specifically focusing on grammatical accuracy, natural phrasing, vocabulary enhancement, and pronunciation. My native language is Indonesian.
+
+Adopt the following rules for our live audio interaction:
+
+1. ROLE & TONE:
+- Maintain a warm, friendly, and conversational tone. Act like a supportive peer, not a rigid lecturer.
+- Speak at a natural but slightly clear and well-paced speed so I can catch every word easily.
+
+2. GRAMMAR & PHRASING CORRECTIONS:
+- Actively listen to my grammar, sentence structure, and word choices.
+- If I make a significant grammatical error (e.g., wrong tenses, subject-verb agreement issues) or use an unnatural Indonesian-English literal translation (Indolish), wait until I finish my sentence, then gently correct me.
+- Provide the correct version and a very brief, simple explanation of why it is corrected. 
+- Example: "You said 'I go to mall yesterday', it should be 'I went to the mall yesterday' because you are talking about the past. Let's try that again!"
+
+3. PRONUNCIATION COACHING:
+- Since this is a native audio dialog, closely monitor my pronunciation and accent clarity.
+- If I mispronounce a word significantly or place the stress on the wrong syllable, point it out immediately or after I finish speaking.
+- Guide me on how to pronounce it correctly by breaking it down simply or giving phonetic hints. Ask me to repeat the word after you.
+
+4. BILINGUAL COMFORT & VOCABULARY BOOST:
+- If I get stuck, hesitate, or use an Indonesian word because I do not know the English translation, step in to help. 
+- Provide the correct English vocabulary for the word I am struggling with and encourage me to use it in a sentence.
+
+5. ENGAGEMENT & CONVERSATION FLOW:
+- Keep the conversation moving naturally. After giving a correction, ask an engaging, open-ended question related to our topic to keep me talking.
+- Do not overload me with too many corrections at once. Focus on the most important errors so I don't lose confidence.
+- Start our session now by warmly greeting me in English and asking me what topic I would like to chat about today (e.g., daily life, hobbies, work, or a mock interview).`;
+
+    // Global Application State Variables
+    let apiKey = localStorage.getItem('gemini_live_api_key') || '';
+    let systemInstructionText = localStorage.getItem('gemini_live_system_instruction') || DEFAULT_SYSTEM_INSTRUCTION;
+    let isSessionActive = false;
+    let isMuted = false;
+    let sessionPromise = null;
+    let inputAudioContext = null;
+    let outputAudioContext = null;
+    let mediaStream = null;
+    let nextStartTime = 0;
+    let sources = new Set();
+    let currentInputText = '';
+    let currentOutputText = '';
+    let sessionTimerInterval = null;
+    let sessionSeconds = 0;
+
+    // Visualizer variables
+    let inputAnalyser = null;
+    let outputAnalyser = null;
+    let animationFrameId = null;
+
+    // DOM Element References
+    const startCallBtn = document.getElementById('startCallBtn');
+    const stopCallBtn = document.getElementById('stopCallBtn');
+    const toggleMuteBtn = document.getElementById('toggleMuteBtn');
+    const statusBadge = document.getElementById('statusBadge');
+    const statusDot = document.getElementById('statusDot');
+    const statusText = document.getElementById('statusText');
+    const sessionTimer = document.getElementById('sessionTimer');
+    const micSelect = document.getElementById('micSelect');
+    const refreshMicsBtn = document.getElementById('refreshMicsBtn');
+    const voiceSelect = document.getElementById('voiceSelect');
+    const transcriptBox = document.getElementById('transcriptBox');
+    const typingIndicator = document.getElementById('typingIndicator');
+    const visualizerCanvas = document.getElementById('visualizerCanvas');
+    const canvasCtx = visualizerCanvas.getContext('2d');
+    const centerOrb = document.getElementById('centerOrb');
+    const centerOrbIcon = document.getElementById('centerOrbIcon');
+    const toastContainer = document.getElementById('toastContainer');
+    const disconnectAlert = document.getElementById('disconnectAlert');
+    const disconnectReasonText = document.getElementById('disconnectReasonText');
+    const closeAlertBtn = document.getElementById('closeAlertBtn');
+    const reconnectBtn = document.getElementById('reconnectBtn');
+
+    // Config Modal Elements
+    const configModal = document.getElementById('configModal');
+    const openConfigBtn = document.getElementById('openConfigBtn');
+    const closeConfigBtn = document.getElementById('closeConfigBtn');
+    const apiKeyInput = document.getElementById('apiKeyInput');
+    const toggleApiKeyVisibility = document.getElementById('toggleApiKeyVisibility');
+    const systemPromptInput = document.getElementById('systemPromptInput');
+    const resetPromptBtn = document.getElementById('resetPromptBtn');
+    const saveConfigBtn = document.getElementById('saveConfigBtn');
+    const clearChatBtn = document.getElementById('clearChatBtn');
+    const copyChatBtn = document.getElementById('copyChatBtn');
+
+    // Parse WebSocket Close Event Reasons
+    function parseCloseReason(e) {
+      const code = e?.code;
+      const detail = e?.reason ? ` Detail: "${e.reason}"` : '';
+
+      // Check specifically for GoAway / Session Duration Limit signals from Gemini Live
+      if (detail.includes('GoAway') || detail.includes('session duration') || detail.includes('duration limit')) {
+        return `Batas Durasi Maksimum Sesi Tercapai (GoAway Signal).${detail} Server Gemini membatasi durasi 1 panggilan audio langsung (sekitar 10-15 menit). Kuota API Anda masih sangat aman! Silakan klik 'Hubungkan Ulang' di bawah untuk melanjutkan percakapan.`;
+      }
+
+      if (code === 1000) {
+        return `Sesi selesai secara normal.${detail || ' Batas waktu durasi maksimum per sesi telah tercapai.'}`;
+      } else if (code === 1006) {
+        return `Koneksi terputus secara tidak terduga (Abnormal Closure, Kode 1006).${detail} Biasanya disebabkan oleh koneksi internet terputus, browser memblokir WebSocket, atau server Gemini memutus koneksi karena idle.`;
+      } else if (code === 1008 || code === 4029 || code === 429) {
+        return `Koneksi Dihentikan Server / Rate Limit (Kode ${code}).${detail} Jika kuota AI Studio Anda masih cukup, ini terjadi karena batas durasi sesi gRPC/WebSocket tercapai. Silakan klik Hubungkan Ulang.`;
+      } else if (code === 1011) {
+        return `Server Gemini mengalami kesalahan internal (Kode 1011).${detail} Silakan coba hubungkan ulang dalam beberapa saat.`;
+      } else if (code) {
+        return `Sesi terputus (Kode ${code}).${detail}`;
+      }
+      return detail ? detail : 'Koneksi terputus dari server Gemini. Pastikan koneksi internet Anda stabil.';
+    }
+
+    // Parse General Error Objects
+    function parseErrorReason(err) {
+      const msg = err?.message || String(err || '');
+      if (msg.includes('GoAway') || msg.includes('session duration')) {
+        return 'Batas Durasi Maksimum 1 Sesi Tercapai (GoAway Signal). Kuota API Anda masih aman, silakan tekan Hubungkan Ulang untuk melanjutkan.';
+      } else if (msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED')) {
+        return 'Batas Kuota Terlampaui (429 Rate Limit / Quota Exceeded). Kuota permintaan API Key Gemini Anda telah habis atau mencapai limit per menit.';
+      } else if (msg.includes('403') || msg.includes('API key') || msg.includes('UNAUTHENTICATED') || msg.includes('PERMISSION_DENIED')) {
+        return 'API Key tidak valid atau tidak memiliki izin akses (403 Unauthorized). Silakan periksa kembali API Key Anda di menu Pengaturan.';
+      } else if (msg.includes('404') || msg.includes('NOT_FOUND')) {
+        return 'Model Gemini Live tidak ditemukan atau belum didukung untuk akun/API Key Anda.';
+      } else if (msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('WebSocket')) {
+        return 'Gagal terhubung ke jaringan WebSocket Gemini. Periksa koneksi internet Anda.';
+      }
+      return msg || 'Terjadi kesalahan sistem saat komunikasi audio berlangsung.';
+    }
+
+    function showDisconnectReason(reason) {
+      if (disconnectReasonText && disconnectAlert) {
+        disconnectReasonText.textContent = reason;
+        disconnectAlert.classList.remove('hidden');
+      }
+      showToast('Sesi terputus: ' + reason, 'error');
+    }
+
+    function hideDisconnectReason() {
+      if (disconnectAlert) {
+        disconnectAlert.classList.add('hidden');
+      }
+    }
+
+    function showToast(message, type = 'info') {
+      const toast = document.createElement('div');
+      const bgColor = type === 'error' ? 'bg-rose-900 border-rose-700 text-rose-100' :
+                      type === 'success' ? 'bg-emerald-900 border-emerald-700 text-emerald-100' :
+                      'bg-slate-800 border-slate-700 text-slate-200';
+      const icon = type === 'error' ? 'fa-circle-xmark' :
+                   type === 'success' ? 'fa-circle-check' :
+                   'fa-circle-info';
+
+      toast.className = `flex items-center space-x-2.5 px-4 py-3 rounded-xl border shadow-xl text-xs transition-all transform duration-300 ${bgColor}`;
+      toast.innerHTML = `<i class="fa-solid ${icon} text-sm"></i> <span>${message}</span>`;
+      
+      toastContainer.appendChild(toast);
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        setTimeout(() => toast.remove(), 300);
+      }, 4000);
+    }
+
+    // Enumerate Available Microphones
+    async function populateMicrophones() {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const audioInputs = devices.filter(d => d.kind === 'audioinput');
+        micSelect.innerHTML = '';
+        
+        if (audioInputs.length === 0) {
+          micSelect.innerHTML = '<option value="">Mikrofon tidak ditemukan</option>';
+          return;
+        }
+        
+        audioInputs.forEach((device, index) => {
+          const option = document.createElement('option');
+          option.value = device.deviceId;
+          option.textContent = device.label || `Mikrofon Default ${index + 1}`;
+          micSelect.appendChild(option);
+        });
+      } catch (err) {
+        console.error('Error enumerating devices:', err);
+        micSelect.innerHTML = '<option value="">Izinkan mikrofon untuk melihat daftar</option>';
+      }
+    }
+
+    // Audio Conversion Utilities
+    function createBlob(data) {
+      const l = data.length;
+      const int16 = new Int16Array(l);
+      for (let i = 0; i < l; i++) {
+        int16[i] = data[i] * 32768;
+      }
+      return {
+        data: encodeBase64(new Uint8Array(int16.buffer)),
+        mimeType: 'audio/pcm;rate=16000',
+      };
+    }
+
+    function encodeBase64(bytes) {
+      let binary = '';
+      const len = bytes.byteLength;
+      for (let i = 0; i < len; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      return btoa(binary);
+    }
+
+    function decodeBase64(base64) {
+      const binaryString = atob(base64);
+      const len = binaryString.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      return bytes;
+    }
+
+    async function decodeAudioData(data, ctx, sampleRate, numChannels) {
+      const dataInt16 = new Int16Array(data.buffer);
+      const frameCount = dataInt16.length / numChannels;
+      const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
+
+      for (let channel = 0; channel < numChannels; channel++) {
+        const channelData = buffer.getChannelData(channel);
+        for (let i = 0; i < frameCount; i++) {
+          channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
+        }
+      }
+      return buffer;
+    }
+
+    // Start Gemini Live Audio Session
+    async function startSession() {
+      if (!apiKey) {
+        showToast('API Key Gemini belum disetting. Harap isi API Key di menu pengaturan.', 'error');
+        configModal.classList.remove('hidden');
+        return;
+      }
+
+      hideDisconnectReason();
+      updateStatusUI('connecting');
+
+      try {
+        // Initialize Audio Contexts
+        inputAudioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+        outputAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+        
+        if (outputAudioContext.state === 'suspended') {
+          await outputAudioContext.resume();
+        }
+
+        // Set Analyser Nodes for Visualizer
+        inputAnalyser = inputAudioContext.createAnalyser();
+        inputAnalyser.fftSize = 64;
+        outputAnalyser = outputAudioContext.createAnalyser();
+        outputAnalyser.fftSize = 64;
+
+        // Obtain Microphone Stream with selected deviceId
+        const selectedMicId = micSelect.value;
+        const constraints = {
+          audio: {
+            channelCount: 1,
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+            ...(selectedMicId ? { deviceId: { exact: selectedMicId } } : {})
+          }
+        };
+
+        mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+        
+        // Listen for audio track disconnection
+        const audioTrack = mediaStream.getAudioTracks()[0];
+        if (audioTrack) {
+          audioTrack.onended = () => {
+            console.warn('Microphone track ended');
+            stopSession('Akses atau perangkat Mikrofon terputus.');
+          };
+        }
+
+        // Refresh device labels after permission is granted
+        populateMicrophones();
+
+        // Worklet Code inline for PCM streaming
+        const workletCode = `
+        class RecorderProcessor extends AudioWorkletProcessor {
+          process(inputs, outputs, parameters) {
+            const input = inputs[0];
+            if (input.length > 0 && input[0]) {
+              this.port.postMessage(input[0]);
+            }
+            return true;
+          }
+        }
+        registerProcessor('recorder-processor', RecorderProcessor);
+        `;
+
+        const workletBlob = new Blob([workletCode], { type: 'application/javascript' });
+        const workletUrl = URL.createObjectURL(workletBlob);
+        await inputAudioContext.audioWorklet.addModule(workletUrl);
+
+        // Connect Gemini AI Live Client
+        const ai = new GoogleGenAI({ apiKey: apiKey });
+        const selectedVoice = voiceSelect.value;
+
+        sessionPromise = ai.live.connect({
+          model: 'gemini-3.1-flash-live-preview',
+          callbacks: {
+            onopen: () => {
+              console.log('Gemini Live Connected');
+              updateStatusUI('live');
+              startTimer();
+              startVisualizerLoop();
+              showToast('Terhubung dengan Coach Gemini! Silakan berbicara.', 'success');
+
+              // Setup microphone audio streaming
+              const source = inputAudioContext.createMediaStreamSource(mediaStream);
+              const recorder = new AudioWorkletNode(inputAudioContext, 'recorder-processor');
+
+              source.connect(inputAnalyser);
+              source.connect(recorder);
+              recorder.connect(inputAudioContext.destination);
+
+              recorder.port.onmessage = (event) => {
+                if (isMuted || !isSessionActive) return;
+                const inputData = event.data; // Float32Array
+                const pcmBlob = createBlob(inputData);
+
+                sessionPromise.then((session) => {
+                  session.sendRealtimeInput({ audio: pcmBlob });
+                });
+              };
+            },
+
+            onmessage: async (message) => {
+              // 1. Process Transcription Output / Input
+              if (message.serverContent?.outputTranscription) {
+                const text = message.serverContent.outputTranscription.text;
+                currentOutputText += text;
+                updateTranscriptBubble('coach', currentOutputText, false);
+                typingIndicator.classList.remove('opacity-0');
+              } 
+              
+              if (message.serverContent?.inputTranscription) {
+                const text = message.serverContent.inputTranscription.text;
+                currentInputText += text;
+                updateTranscriptBubble('user', currentInputText, false);
+              }
+
+              if (message.serverContent?.turnComplete) {
+                if (currentInputText.trim()) {
+                  updateTranscriptBubble('user', currentInputText, true);
+                  currentInputText = '';
+                }
+                if (currentOutputText.trim()) {
+                  updateTranscriptBubble('coach', currentOutputText, true);
+                  currentOutputText = '';
+                }
+                typingIndicator.classList.add('opacity-0');
+              }
+
+              // 2. Process Interruption Signal
+              const interrupted = message.serverContent?.interrupted;
+              if (interrupted) {
+                for (const source of sources.values()) {
+                  try { source.stop(); } catch(e){}
+                  sources.delete(source);
+                }
+                nextStartTime = 0;
+              }
+
+              // 3. Process Received Audio Buffer for Playback
+              const base64EncodedAudioString = message.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
+              if (base64EncodedAudioString && outputAudioContext) {
+                nextStartTime = Math.max(nextStartTime, outputAudioContext.currentTime);
+                const pcmBytes = decodeBase64(base64EncodedAudioString);
+                const audioBuffer = await decodeAudioData(pcmBytes, outputAudioContext, 24000, 1);
+
+                const source = outputAudioContext.createBufferSource();
+                source.buffer = audioBuffer;
+
+                const outputGain = outputAudioContext.createGain();
+                source.connect(outputGain);
+                outputGain.connect(outputAnalyser);
+                outputGain.connect(outputAudioContext.destination);
+
+                source.addEventListener('ended', () => {
+                  sources.delete(source);
+                });
+
+                source.start(nextStartTime);
+                nextStartTime += audioBuffer.duration;
+                sources.add(source);
+              }
+            },
+
+            onerror: (err) => {
+              console.error('Session error:', err);
+              const reason = parseErrorReason(err);
+              stopSession(reason);
+            },
+
+            onclose: (e) => {
+              console.log('Session closed:', e);
+              if (isSessionActive) {
+                const reason = parseCloseReason(e);
+                stopSession(reason);
+              }
+            }
+          },
+
+          config: {
+            responseModalities: [Modality.AUDIO],
+            speechConfig: {
+              voiceConfig: {
+                prebuiltVoiceConfig: { voiceName: selectedVoice }
+              }
+            },
+            systemInstruction: {
+              parts: [{ text: systemInstructionText }]
+            },
+            outputAudioTranscription: {},
+            inputAudioTranscription: {}
+          }
+        });
+
+      } catch (err) {
+        console.error('Error starting call:', err);
+        const reason = parseErrorReason(err);
+        showDisconnectReason('Gagal memulai audio session: ' + reason);
+        updateStatusUI('disconnected');
+      }
+    }
+
+    // Stop and Cleanup Session
+    function stopSession(reason = null) {
+      isSessionActive = false;
+      
+      // Close active Gemini Live WebSocket connection
+      if (sessionPromise) {
+        sessionPromise.then(session => {
+          try {
+            session.close();
+          } catch (e) {
+            console.error('Error closing live session:', e);
+          }
+        });
+        sessionPromise = null;
+      }
+
+      // Stop all playing audio sources
+      for (const source of sources.values()) {
+        try { source.stop(); } catch(e){}
+      }
+      sources.clear();
+
+      // Stop mic tracks
+      if (mediaStream) {
+        mediaStream.getTracks().forEach(track => track.stop());
+        mediaStream = null;
+      }
+
+      // Close Audio Contexts
+      if (inputAudioContext) {
+        inputAudioContext.close();
+        inputAudioContext = null;
+      }
+      if (outputAudioContext) {
+        outputAudioContext.close();
+        outputAudioContext = null;
+      }
+
+      stopTimer();
+      stopVisualizerLoop();
+      updateStatusUI('disconnected');
+
+      if (reason) {
+        showDisconnectReason(reason);
+      } else {
+        showToast('Sesi percakapan berakhir.', 'info');
+      }
+    }
+
+    // Send Text Topic / Prompt Trigger during Active Session
+    function sendTextTopic(topicName) {
+      if (!isSessionActive || !sessionPromise) {
+        showToast('Mulai sesi audio terlebih dahulu untuk mengirim topik.', 'info');
+        return;
+      }
+
+      const messageText = `Let's discuss the topic: "${topicName}". Please lead the conversation.`;
+      
+      // Append bubble to UI
+      updateTranscriptBubble('user', `[Topic selected: ${topicName}]`, true);
+
+      sessionPromise.then(session => {
+        session.sendRealtimeInput({ text: messageText });
+      });
+    }
+
+    // Update Connection Status UI State
+    function updateStatusUI(state) {
+      if (state === 'live') {
+        isSessionActive = true;
+        statusDot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-ping';
+        statusText.textContent = 'Live Session';
+        statusBadge.className = 'flex items-center space-x-2 px-3 py-1.5 rounded-full bg-emerald-950/80 text-xs font-semibold text-emerald-400 border border-emerald-800';
+        
+        startCallBtn.classList.add('hidden');
+        stopCallBtn.classList.remove('hidden');
+        stopCallBtn.classList.add('flex');
+        stopCallBtn.disabled = false;
+        toggleMuteBtn.disabled = false;
+
+        centerOrb.className = 'absolute w-28 h-28 rounded-full bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center shadow-xl pulse-ring scale-100 transition duration-500';
+        centerOrbIcon.className = 'fa-solid fa-volume-high text-3xl text-slate-950';
+
+      } else if (state === 'connecting') {
+        statusDot.className = 'w-2 h-2 rounded-full bg-amber-400 animate-pulse';
+        statusText.textContent = 'Connecting...';
+        statusBadge.className = 'flex items-center space-x-2 px-3 py-1.5 rounded-full bg-amber-950/80 text-xs font-semibold text-amber-400 border border-amber-800';
+        
+        startCallBtn.disabled = true;
+        startCallBtn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin text-base"></i> <span>Menghubungkan...</span>`;
+
+      } else {
+        isSessionActive = false;
+        statusDot.className = 'w-2 h-2 rounded-full bg-slate-500';
+        statusText.textContent = 'Disconnected';
+        statusBadge.className = 'hidden sm:flex items-center space-x-2 px-3 py-1.5 rounded-full bg-slate-800 text-xs font-medium text-slate-400 border border-slate-700';
+        
+        startCallBtn.disabled = false;
+        startCallBtn.classList.remove('hidden');
+        startCallBtn.innerHTML = `<i class="fa-solid fa-phone text-base"></i> <span>Mulai Percakapan Audio</span>`;
+        
+        stopCallBtn.classList.add('hidden');
+        stopCallBtn.classList.remove('flex');
+        stopCallBtn.disabled = true;
+        toggleMuteBtn.disabled = true;
+
+        centerOrb.className = 'absolute w-24 h-24 rounded-full bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center shadow-xl scale-90 opacity-90 transition duration-500';
+        centerOrbIcon.className = 'fa-solid fa-microphone text-3xl text-slate-950';
+        typingIndicator.classList.add('opacity-0');
+      }
+    }
+
+    // Live Audio Visualizer Loop
+    function startVisualizerLoop() {
+      const bufferLength = 32;
+      const dataArrayIn = new Uint8Array(bufferLength);
+      const dataArrayOut = new Uint8Array(bufferLength);
+
+      function renderFrame() {
+        animationFrameId = requestAnimationFrame(renderFrame);
+
+        canvasCtx.clearRect(0, 0, visualizerCanvas.width, visualizerCanvas.height);
+        
+        if (inputAnalyser) inputAnalyser.getByteFrequencyData(dataArrayIn);
+        if (outputAnalyser) outputAnalyser.getByteFrequencyData(dataArrayOut);
+
+        const centerX = visualizerCanvas.width / 2;
+        const centerY = visualizerCanvas.height / 2;
+
+        let avgIn = dataArrayIn.reduce((a, b) => a + b, 0) / bufferLength;
+        let avgOut = dataArrayOut.reduce((a, b) => a + b, 0) / bufferLength;
+
+        // Outer Ring - Coach Speaking
+        canvasCtx.beginPath();
+        canvasCtx.arc(centerX, centerY, 55 + (avgOut * 0.4), 0, 2 * Math.PI);
+        canvasCtx.strokeStyle = `rgba(34, 197, 94, ${Math.max(0.2, avgOut / 255)})`;
+        canvasCtx.lineWidth = 4 + (avgOut * 0.05);
+        canvasCtx.stroke();
+
+        // Inner Ring - User Speaking
+        canvasCtx.beginPath();
+        canvasCtx.arc(centerX, centerY, 42 + (avgIn * 0.3), 0, 2 * Math.PI);
+        canvasCtx.strokeStyle = `rgba(56, 189, 248, ${Math.max(0.2, avgIn / 255)})`;
+        canvasCtx.lineWidth = 3 + (avgIn * 0.05);
+        canvasCtx.stroke();
+      }
+
+      renderFrame();
+    }
+
+    function stopVisualizerLoop() {
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = null;
+      }
+      drawVisualizerIdle();
+    }
+
+    function drawVisualizerIdle() {
+      canvasCtx.clearRect(0, 0, visualizerCanvas.width, visualizerCanvas.height);
+      const centerX = visualizerCanvas.width / 2;
+      const centerY = visualizerCanvas.height / 2;
+
+      canvasCtx.beginPath();
+      canvasCtx.arc(centerX, centerY, 55, 0, 2 * Math.PI);
+      canvasCtx.strokeStyle = 'rgba(71, 85, 105, 0.4)';
+      canvasCtx.lineWidth = 2;
+      canvasCtx.stroke();
+    }
+
+    // Timer Logic
+    function startTimer() {
+      sessionSeconds = 0;
+      sessionTimer.textContent = '00:00';
+      sessionTimerInterval = setInterval(() => {
+        sessionSeconds++;
+        const mins = String(Math.floor(sessionSeconds / 60)).padStart(2, '0');
+        const secs = String(sessionSeconds % 60).padStart(2, '0');
+        sessionTimer.textContent = `${mins}:${secs}`;
+      }, 1000);
+    }
+
+    function stopTimer() {
+      if (sessionTimerInterval) {
+        clearInterval(sessionTimerInterval);
+        sessionTimerInterval = null;
+      }
+      sessionTimer.textContent = '00:00';
+    }
+
+    // Transcript Renderer
+    function updateTranscriptBubble(sender, text, isFinal) {
+      if (!text.trim()) return;
+
+      const elementId = `turn-${sender}-latest`;
+      let bubble = document.getElementById(elementId);
+
+      if (!bubble || bubble.dataset.final === 'true') {
+        bubble = document.createElement('div');
+        bubble.id = elementId;
+        bubble.dataset.final = 'false';
+        
+        if (sender === 'coach') {
+          bubble.className = 'flex items-start space-x-3 text-xs';
+          bubble.innerHTML = `
+            <div class="w-8 h-8 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold flex-shrink-0 border border-emerald-500/30">
+              <i class="fa-solid fa-graduation-cap"></i>
+            </div>
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl rounded-tl-none p-3.5 text-slate-200 max-w-xl leading-relaxed">
+              <span class="block text-xs font-bold text-emerald-400 uppercase tracking-wider mb-1">English Coach</span>
+              <p class="bubble-content whitespace-pre-wrap"></p>
+            </div>
+          `;
+        } else {
+          bubble.className = 'flex items-start space-x-3 justify-end text-xs';
+          bubble.innerHTML = `
+            <div class="bg-emerald-950/80 border border-emerald-800/80 rounded-2xl rounded-tr-none p-3.5 text-emerald-100 max-w-xl leading-relaxed">
+              <span class="block text-xs font-bold text-emerald-400 uppercase tracking-wider mb-1 text-right">You</span>
+              <p class="bubble-content whitespace-pre-wrap"></p>
+            </div>
+            <div class="w-8 h-8 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center font-bold flex-shrink-0 border border-slate-700">
+              <i class="fa-solid fa-user"></i>
+            </div>
+          `;
+        }
+        transcriptBox.appendChild(bubble);
+      }
+
+      const contentEl = bubble.querySelector('.bubble-content');
+      if (contentEl) contentEl.textContent = text;
+
+      if (isFinal) {
+        bubble.dataset.final = 'true';
+        bubble.removeAttribute('id');
+      }
+
+      // Auto-scroll to bottom
+      transcriptBox.scrollTop = transcriptBox.scrollHeight;
+    }
+
+    // Single Setup Event Listeners
+    function setupEventListeners() {
+      // Start / Stop Session
+      startCallBtn.addEventListener('click', startSession);
+      stopCallBtn.addEventListener('click', stopSession);
+
+      // Reconnect & Close Alert Banner
+      if (reconnectBtn) {
+        reconnectBtn.addEventListener('click', () => {
+          hideDisconnectReason();
+          startSession();
+        });
+      }
+      if (closeAlertBtn) {
+        closeAlertBtn.addEventListener('click', hideDisconnectReason);
+      }
+
+      // Mute Microphone
+      toggleMuteBtn.addEventListener('click', () => {
+        isMuted = !isMuted;
+        if (isMuted) {
+          toggleMuteBtn.className = 'p-3.5 rounded-full bg-rose-600 hover:bg-rose-500 text-white border border-rose-500 transition';
+          showToast('Mikrofon di-mute.', 'info');
+        } else {
+          toggleMuteBtn.className = 'p-3.5 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition';
+          showToast('Mikrofon aktif.', 'info');
+        }
+      });
+
+      // Refresh Microphones List
+      refreshMicsBtn.addEventListener('click', populateMicrophones);
+
+      // Topic Buttons
+      document.querySelectorAll('.topic-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const topic = btn.getAttribute('data-topic');
+          sendTextTopic(topic);
+        });
+      });
+
+      // Config Modal Toggle
+      openConfigBtn.addEventListener('click', () => {
+        apiKeyInput.value = apiKey;
+        systemPromptInput.value = systemInstructionText;
+        configModal.classList.remove('hidden');
+      });
+      closeConfigBtn.addEventListener('click', () => configModal.classList.add('hidden'));
+
+      // Toggle API Key Password Visibility
+      toggleApiKeyVisibility.addEventListener('click', () => {
+        const icon = toggleApiKeyVisibility.querySelector('i');
+        if (apiKeyInput.type === 'password') {
+          apiKeyInput.type = 'text';
+          icon.className = 'fa-solid fa-eye-slash';
+        } else {
+          apiKeyInput.type = 'password';
+          icon.className = 'fa-solid fa-eye';
+        }
+      });
+
+      // Save Settings
+      saveConfigBtn.addEventListener('click', () => {
+        apiKey = apiKeyInput.value.trim();
+        systemInstructionText = systemPromptInput.value.trim();
+
+        localStorage.setItem('gemini_live_api_key', apiKey);
+        localStorage.setItem('gemini_live_system_instruction', systemInstructionText);
+
+        showToast('Pengaturan berhasil disimpan!', 'success');
+        configModal.classList.add('hidden');
+      });
+
+      // Reset System Prompt to default
+      resetPromptBtn.addEventListener('click', () => {
+        systemPromptInput.value = DEFAULT_SYSTEM_INSTRUCTION;
+      });
+
+      // Clear Chat Log
+      clearChatBtn.addEventListener('click', () => {
+        transcriptBox.innerHTML = '';
+        showToast('Transkrip dibersihkan.', 'info');
+      });
+
+      // Copy Chat Log
+      copyChatBtn.addEventListener('click', () => {
+        const textToCopy = transcriptBox.innerText;
+        if (!textToCopy.trim()) return;
+
+        navigator.clipboard.writeText(textToCopy).then(() => {
+          showToast('Transkrip berhasil disalin ke clipboard!', 'success');
+        }).catch(() => {
+          document.execCommand('copy');
+          showToast('Transkrip berhasil disalin!', 'success');
+        });
+      });
+    }
+
+    // App Initialization
+    setupEventListeners();
+    populateMicrophones();
+    drawVisualizerIdle();
+  </script>
+</body>
+</html>

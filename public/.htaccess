@@ -3,7 +3,7 @@
 </FilesMatch>
 Options -MultiViews
 RewriteEngine On
-RewriteBase /learnenglish/
+# Relative fallback keeps this SPA portable at the domain root or any subfolder.
 RewriteCond %{REQUEST_FILENAME} -f [OR]
 RewriteCond %{REQUEST_FILENAME} -d
 RewriteRule ^ - [L]

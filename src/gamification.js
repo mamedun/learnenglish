@@ -30,7 +30,8 @@ export function awardXP(progress, points) {
 export function achievements(progress) {
   const count =
     (progress.completed?.length || 0) +
-    (progress.listeningCompleted?.length || 0);
+    (progress.listeningCompleted?.length || 0) +
+    (progress.liveCompleted?.length || 0);
   return [
     {
       icon: "sprout",

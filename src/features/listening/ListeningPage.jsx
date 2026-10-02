@@ -12,24 +12,46 @@ import {
 import { toast } from "sonner";
 import { apiJson } from "../../api";
 import { awardXP } from "../../gamification";
+import { normalizeSpeechThreshold } from "../../lib/speechSimilarity";
+import { isTtsBusy } from "../../lib/ttsRocks";
+import ListeningSpeakingTask from "./ListeningSpeakingTask";
+import CourseMedia from "../courses/CourseMedia";
 
 export default function ListeningPage({
   lessons: allLessons,
   levels: curriculum,
+  courseId = "ielts",
   initialLessonId,
+  onSelectLesson,
   data,
   setData,
+  speak,
+  ttsStatus,
+  speechInputMode = "live_transcribe",
+  speechScoringMode = "local",
+  speechSimilarityThreshold = 90,
+  aiProvider = "clario",
+  maxRecordSeconds = 180,
+  maxAiAudioBytes = 12 * 1024 * 1024,
+  unlimitedDiamonds = false,
+  onDiamondsChanged = () => {},
+  onCourseProgress = () => {},
 }) {
+  const speechThreshold = normalizeSpeechThreshold(speechSimilarityThreshold);
+  const scopedData =
+    courseId === "ielts" ? data : (data.courseProgress || {})[courseId] || {};
   const [level, setLevel] = useState("All");
   const [activeId, setActiveId] = useState(null);
   useEffect(() => {
-    if (initialLessonId) {
-      setLevel("All");
-      setActiveId(initialLessonId);
-    }
-  }, [initialLessonId]);
-  const [answers, setAnswers] = useState({});
-  const [results, setResults] = useState({});
+    setLevel("All");
+    setActiveId(initialLessonId || null);
+  }, [initialLessonId, courseId]);
+  const [answers, setAnswers] = useState(
+    () => scopedData.listeningAnswers || {},
+  );
+  const [results, setResults] = useState(
+    () => scopedData.listeningResults || {},
+  );
   const [checking, setChecking] = useState(null);
   const [showScript, setShowScript] = useState(false);
   const lessons = useMemo(
@@ -37,13 +59,63 @@ export default function ListeningPage({
     [allLessons, level],
   );
   const active = lessons.find((x) => x.id === activeId) || lessons[0];
-  const done = data.listeningCompleted || [];
+  const done = scopedData.listeningCompleted || [];
+  const speechPassed = (scopedData.speakingCompleted || []).includes(
+    active?.id,
+  );
+  const speechScore = Number(scopedData.speakingScores?.[active?.id] || 0);
+  const ttsBusy = isTtsBusy(ttsStatus);
   const doneCount = allLessons.filter((x) => done.includes(x.id)).length;
   const next = allLessons.find((l) => !done.includes(l.id)) || allLessons[0];
   const keyFor = (question) => `${active.id}:${question.id}`;
+  function patchProgress(previous, updates) {
+    if (courseId === "ielts") return { ...previous, ...updates };
+    return {
+      ...previous,
+      courseProgress: {
+        ...(previous.courseProgress || {}),
+        [courseId]: {
+          ...((previous.courseProgress || {})[courseId] || {}),
+          ...updates,
+        },
+      },
+    };
+  }
+  function saveAnswer(key, value) {
+    const updated = { ...answers, [key]: value };
+    setAnswers(updated);
+    setData((previous) =>
+      patchProgress(previous, { listeningAnswers: updated }),
+    );
+  }
+  function saveResult(key, value) {
+    const updated = { ...results, [key]: value };
+    setResults(updated);
+    setData((previous) =>
+      patchProgress(previous, { listeningResults: updated }),
+    );
+  }
+  function clearQuestion(key) {
+    const updatedAnswers = { ...answers };
+    const updatedResults = { ...results };
+    delete updatedAnswers[key];
+    delete updatedResults[key];
+    setAnswers(updatedAnswers);
+    setResults(updatedResults);
+    setData((previous) =>
+      patchProgress(previous, {
+        listeningAnswers: updatedAnswers,
+        listeningResults: updatedResults,
+      }),
+    );
+  }
   const score =
     active?.questions.filter((q) => results[keyFor(q)]?.correct).length || 0;
   const finished = !!active && done.includes(active.id);
+  useEffect(() => {
+    setAnswers(scopedData.listeningAnswers || {});
+    setResults(scopedData.listeningResults || {});
+  }, [scopedData.listeningAnswers, scopedData.listeningResults]);
   useEffect(() => {
     window.speechSynthesis?.cancel();
     setShowScript(false);
@@ -51,21 +123,12 @@ export default function ListeningPage({
   useEffect(() => () => window.speechSynthesis?.cancel(), []);
 
   function play() {
-    if (!("speechSynthesis" in window)) {
-      toast.error("Audio TTS tidak tersedia. Gunakan naskah tertulis.");
+    if (typeof speak !== "function") {
+      toast.error("Text-to-speech belum tersedia. Gunakan naskah tertulis.");
       setShowScript(true);
       return;
     }
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(active.script);
-    utterance.lang = "en-US";
-    utterance.rate =
-      active.level === "A1" || active.level === "A2" ? 0.82 : 0.94;
-    const voice = window.speechSynthesis
-      .getVoices()
-      .find((v) => v.lang.toLowerCase().startsWith("en"));
-    if (voice) utterance.voice = voice;
-    window.speechSynthesis.speak(utterance);
+    speak(active.script, { type: "listening", item: active });
   }
   async function check(question) {
     const key = keyFor(question);
@@ -77,12 +140,13 @@ export default function ListeningPage({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          lesson_id: active.id,
+          course_id: courseId,
+          unit_id: active.id,
           question_id: question.id,
           answer: answers[key],
         }),
       });
-      setResults((v) => ({ ...v, [key]: result }));
+      saveResult(key, result);
       if (result.correct)
         toast.success("Betul! +1 langkah menuju lesson selesai.");
       else toast.info("Belum tepat. Baca petunjuknya dan coba lagi!");
@@ -99,11 +163,21 @@ export default function ListeningPage({
       );
       return;
     }
+    if (!speechPassed && !finished) {
+      toast.info(
+        `Selesaikan latihan membaca nyaring hingga minimal ${speechThreshold}% sesuai.`,
+      );
+      return;
+    }
     if (!finished) {
-      setData((p) => ({
-        ...awardXP(p, 10),
-        listeningCompleted: [...(p.listeningCompleted || []), active.id],
-      }));
+      setData((previous) =>
+        patchProgress(awardXP(previous, 10), {
+          listeningCompleted: Array.from(
+            new Set([...(scopedData.listeningCompleted || []), active.id]),
+          ),
+        }),
+      );
+      onCourseProgress(courseId);
       toast.success(
         "Lesson selesai! +10 XP dan progres tersimpan di akunmu ✨",
       );
@@ -145,12 +219,14 @@ export default function ListeningPage({
       <div className="listening-notice">
         <Volume2 size={21} />
         <div>
-          <b>Audio aman & sederhana</b>
+          <b>Audio lesson & privasi mic</b>
           <span>
-            Naskah dibacakan oleh speech synthesis browser/perangkatmu.
-            Ketersediaan suara dan pemrosesan offline bergantung OS/browser.
-            Tidak ada unggahan audio atau speech recognition. Buka naskah kapan
-            saja.
+            Audio memakai cache bersama sesuai voice default materi atau TTS
+            pilihanmu. Cache miss saat mode cached aktif memakai Browser Native.
+            Latihan speaking memakai mode global admin: transkripsi browser
+            read-only atau rekaman yang dikirim ke AI hanya setelah persetujuan.
+            Web Speech dapat menggunakan layanan vendor browser; audio tidak
+            diarsipkan oleh SpeakUp.
           </span>
         </div>
       </div>
@@ -166,6 +242,7 @@ export default function ListeningPage({
               onClick={() => {
                 setLevel("All");
                 setActiveId(null);
+                onSelectLesson?.(null);
               }}
             >
               Semua
@@ -177,6 +254,7 @@ export default function ListeningPage({
                 onClick={() => {
                   setLevel(x.id);
                   setActiveId(null);
+                  onSelectLesson?.(null);
                 }}
               >
                 {x.id}
@@ -194,6 +272,7 @@ export default function ListeningPage({
                 onClick={() => {
                   setActiveId(l.id);
                   setShowScript(false);
+                  onSelectLesson?.(l.id);
                 }}
               >
                 <span className="listen-level">{l.level}</span>
@@ -220,16 +299,12 @@ export default function ListeningPage({
             <p>{active.objective}</p>
           </div>
           {active.image && (
-            <figure className="listening-visual">
-              <img
-                src={active.image}
-                alt={`Ilustrasi pelengkap untuk ${active.title}`}
-              />
-              <figcaption>
-                Ilustrasi pelengkap · jawaban ada dalam naskah audio, bukan
-                gambar.
-              </figcaption>
-            </figure>
+            <CourseMedia
+              src={active.image}
+              alt={`Ilustrasi pelengkap untuk ${active.title}`}
+              className="listening-visual"
+              caption="Ilustrasi pelengkap · jawaban ada dalam naskah audio, bukan gambar."
+            />
           )}
           <div className="audio-player-card">
             <span className="audio-disc">
@@ -237,10 +312,23 @@ export default function ListeningPage({
             </span>
             <div>
               <b>Ready to listen?</b>
-              <small>Original script · {active.level} · TTS perangkat</small>
+              <small>
+                Original script · {active.level} · shared audio / TTS
+              </small>
             </div>
-            <button className="btn-primary" onClick={play}>
-              <Play size={17} fill="currentColor" /> Putar audio
+            <button className="btn-primary" onClick={play} disabled={ttsBusy}>
+              {ttsBusy ? (
+                <>
+                  <span className="spinner" />
+                  {ttsStatus?.phase === "speaking"
+                    ? "Sedang membaca…"
+                    : "Menyiapkan audio…"}
+                </>
+              ) : (
+                <>
+                  <Play size={17} fill="currentColor" /> Putar audio
+                </>
+              )}
             </button>
           </div>
           <button
@@ -279,12 +367,16 @@ export default function ListeningPage({
                         disabled={!!result?.correct}
                         className={`${answers[key] === j ? "chosen" : ""} ${result && j === result.correct_index ? "right" : ""} ${result && answers[key] === j && !result.correct ? "wrong" : ""}`}
                         onClick={() => {
-                          setAnswers((v) => ({ ...v, [key]: j }));
-                          setResults((v) => {
-                            const copy = { ...v };
-                            delete copy[key];
-                            return copy;
-                          });
+                          saveAnswer(key, j);
+                          const updatedResults = { ...results };
+                          delete updatedResults[key];
+                          setResults(updatedResults);
+                          setData((previous) =>
+                            patchProgress(previous, {
+                              listeningAnswers: { ...answers, [key]: j },
+                              listeningResults: updatedResults,
+                            }),
+                          );
                         }}
                       >
                         <span>{String.fromCharCode(65 + j)}</span>
@@ -299,7 +391,9 @@ export default function ListeningPage({
                       onClick={() => check(q)}
                     >
                       {checking === key ? (
-                        "Memeriksa..."
+                        <>
+                          <span className="spinner" /> Memeriksa...
+                        </>
                       ) : (
                         <>
                           Periksa jawaban <ArrowRight size={15} />
@@ -319,18 +413,7 @@ export default function ListeningPage({
                       {!result.correct && (
                         <button
                           className="text-button"
-                          onClick={() => {
-                            setResults((v) => {
-                              const copy = { ...v };
-                              delete copy[key];
-                              return copy;
-                            });
-                            setAnswers((v) => {
-                              const copy = { ...v };
-                              delete copy[key];
-                              return copy;
-                            });
-                          }}
+                          onClick={() => clearQuestion(key)}
                         >
                           <RotateCcw size={14} /> Pilih jawaban lain
                         </button>
@@ -341,6 +424,75 @@ export default function ListeningPage({
               );
             })}
           </div>
+          <ListeningSpeakingTask
+            lesson={active}
+            speak={(text) => speak(text, { type: "listening", item: active })}
+            ttsStatus={ttsStatus}
+            speechInputMode={speechInputMode}
+            speechScoringMode={speechScoringMode}
+            speechSimilarityThreshold={speechThreshold}
+            aiProvider={aiProvider}
+            courseId={courseId}
+            maxRecordSeconds={maxRecordSeconds}
+            maxAiAudioBytes={maxAiAudioBytes}
+            unlimitedDiamonds={unlimitedDiamonds}
+            passed={speechPassed}
+            passedScore={speechScore}
+            savedTranscript={scopedData.speakingTranscripts?.[active.id] || ""}
+            onDiamondsChanged={onDiamondsChanged}
+            onAttempt={(percent, transcript, method) =>
+              setData((previous) => {
+                const scope =
+                  courseId === "ielts"
+                    ? previous
+                    : (previous.courseProgress || {})[courseId] || {};
+                const previousScore = Number(
+                  scope.speakingScores?.[active.id] || 0,
+                );
+                const hasScore =
+                  percent !== null &&
+                  percent !== undefined &&
+                  Number.isFinite(Number(percent));
+                return patchProgress(previous, {
+                  speakingScores: hasScore
+                    ? {
+                        ...(scope.speakingScores || {}),
+                        [active.id]: Math.max(previousScore, Number(percent)),
+                      }
+                    : scope.speakingScores || {},
+                  speakingTranscripts: {
+                    ...(scope.speakingTranscripts || {}),
+                    [active.id]: {
+                      text: String(transcript || "").trim(),
+                      score: hasScore ? Number(percent) : null,
+                      method,
+                      updatedAt: new Date().toISOString(),
+                    },
+                  },
+                });
+              })
+            }
+            onPass={(percent) =>
+              setData((previous) => {
+                const scope =
+                  courseId === "ielts"
+                    ? previous
+                    : (previous.courseProgress || {})[courseId] || {};
+                return patchProgress(previous, {
+                  speakingCompleted: Array.from(
+                    new Set([...(scope.speakingCompleted || []), active.id]),
+                  ),
+                  speakingScores: {
+                    ...(scope.speakingScores || {}),
+                    [active.id]: Math.max(
+                      Number(scope.speakingScores?.[active.id] || 0),
+                      Number(percent) || 0,
+                    ),
+                  },
+                });
+              })
+            }
+          />
           <div className="lesson-end">
             <div>
               <b>
@@ -351,7 +503,9 @@ export default function ListeningPage({
               <small>
                 {finished
                   ? "Lanjutkan ke cerita berikutnya untuk terus berkembang."
-                  : "Pastikan semua jawaban benar untuk mendapat +10 XP."}
+                  : speechPassed
+                    ? `Soal benar dan speaking minimal ${speechThreshold}% — siap mendapat +10 XP.`
+                    : `Jawab soal dengan benar dan selesaikan latihan speaking minimal ${speechThreshold}%.`}
               </small>
             </div>
             {finished ? (
@@ -360,6 +514,7 @@ export default function ListeningPage({
                 onClick={() => {
                   setLevel("All");
                   setActiveId(next.id);
+                  onSelectLesson?.(next.id);
                   window.scrollTo({ top: 0, behavior: "smooth" });
                 }}
               >
@@ -369,7 +524,7 @@ export default function ListeningPage({
               <button
                 className="btn-primary"
                 onClick={complete}
-                disabled={score !== active.questions.length}
+                disabled={score !== active.questions.length || !speechPassed}
               >
                 Selesaikan misi <Check size={16} />
               </button>

@@ -1,21 +1,39 @@
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 
+function normalizeBasePath(value) {
+  const path = String(value ?? "/learnenglish").trim();
+  if (!path || path === "/") return "/";
+  return `/${path.replace(/^\/+|\/+$/g, "")}/`;
+}
+
+function normalizePathPrefix(value) {
+  const path = String(value ?? "")
+    .trim()
+    .replace(/^\/+|\/+$/g, "");
+  return path ? `/${path}` : "";
+}
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, ".", "");
+  const base = normalizeBasePath(env.VITE_BASE_PATH);
+  const basePath = base === "/" ? "" : base.slice(0, -1);
+  const browserApiPath = `${basePath}/api`;
   const proxyTarget = env.VITE_API_PROXY_TARGET || "http://127.0.0.1:8787";
-  const configuredPrefix = env.VITE_API_PROXY_PATH_PREFIX;
-  const proxyPrefix = (
-    configuredPrefix === undefined ? "/learnenglish" : configuredPrefix
-  ).replace(/\/$/, "");
+  const proxyPrefix = normalizePathPrefix(
+    env.VITE_API_PROXY_PATH_PREFIX === undefined
+      ? basePath
+      : env.VITE_API_PROXY_PATH_PREFIX,
+  );
+
   return {
-    base: "/learnenglish/",
+    base,
     plugins: [react()],
     server: {
       host: "0.0.0.0",
       allowedHosts: true,
       proxy: {
-        "/learnenglish/api": {
+        [browserApiPath]: {
           target: proxyTarget,
           changeOrigin: true,
           secure: false,
@@ -24,7 +42,7 @@ export default defineConfig(({ mode }) => {
           configure: (proxy) =>
             proxy.on("proxyReq", (request) => request.removeHeader("origin")),
           rewrite: (path) =>
-            path.replace(/^\/learnenglish\/api/, `${proxyPrefix}/api`),
+            `${proxyPrefix}/api${path.slice(browserApiPath.length)}`,
         },
       },
     },

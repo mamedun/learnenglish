@@ -3,6 +3,8 @@ import {
   ArrowRight,
   CircleHelp,
   Download,
+  Cpu,
+  Database,
   FileAudio2,
   Play,
   Settings,
@@ -14,6 +16,13 @@ import {
 import PasswordForm from "../auth/PasswordForm";
 import { toast } from "sonner";
 import Swal from "sweetalert2";
+import { useEffect, useState } from "react";
+import useSmallViewport from "../../hooks/useSmallViewport";
+import {
+  getKokoroCacheInfo,
+  isTtsBusy,
+  KOKORO_VOICES,
+} from "../../lib/ttsRocks";
 
 export default function SettingsPage({
   data,
@@ -23,12 +32,27 @@ export default function SettingsPage({
   handleImport,
   resetData,
   exportBackup: exportBackup2,
+  importingBackup = false,
   speak,
+  preloadTTS,
+  ttsStatus,
   user,
   onLogout,
   onAdmin,
   onPasswordChanged,
 }) {
+  const [cacheInfo, setCacheInfo] = useState(null);
+  const [backupBusy, setBackupBusy] = useState(false);
+  const isSmallViewport = useSmallViewport();
+  const activeTtsEngine = isSmallViewport
+    ? "native"
+    : data.settings.tts === "native"
+      ? "native"
+      : "kokoro";
+  const ttsBusy = isTtsBusy(ttsStatus);
+  useEffect(() => {
+    getKokoroCacheInfo().then(setCacheInfo);
+  }, [ttsStatus?.phase]);
   const update = (key, value) =>
     setData((p) => ({ ...p, settings: { ...p.settings, [key]: value } }));
   async function makeBackup() {
@@ -55,10 +79,13 @@ export default function SettingsPage({
         if (!choice.isConfirmed) return;
         includeAudio = choice.value === "yes";
       }
+      setBackupBusy(true);
       await exportBackup2(data, includeAudio);
       toast.success("Backup akun berhasil dibuat.");
     } catch (e) {
       toast.error(e.message || "Ekspor gagal.");
+    } finally {
+      setBackupBusy(false);
     }
   }
   return (
@@ -86,48 +113,201 @@ export default function SettingsPage({
               </div>
             </div>
             <label className="field-label">TEXT-TO-SPEECH ENGINE</label>
-            <div className="tts-options">
-              <div className="tts-option selected">
+            <div
+              className="tts-options"
+              role="group"
+              aria-label="Mesin text to speech"
+            >
+              {!isSmallViewport && (
+                <button
+                  type="button"
+                  className={`tts-option ${activeTtsEngine === "kokoro" ? "selected" : ""}`}
+                  aria-pressed={activeTtsEngine === "kokoro"}
+                  onClick={() => update("tts", "kokoro")}
+                >
+                  <span className="radio-dot" />
+                  <span>
+                    <b>Kokoro · TTS.Rocks</b>
+                    <small>Suara neural lokal · WebGPU atau WASM</small>
+                  </span>
+                  <span className="ready-tag">DEFAULT</span>
+                </button>
+              )}
+              <button
+                type="button"
+                className={`tts-option ${activeTtsEngine === "native" ? "selected" : ""}`}
+                aria-pressed={activeTtsEngine === "native"}
+                disabled={isSmallViewport}
+                onClick={() => update("tts", "native")}
+              >
                 <span className="radio-dot" />
                 <span>
                   <b>Browser Native</b>
-                  <small>Siap dipakai tanpa model tambahan</small>
+                  <small>Suara sistem operasi · tanpa unduhan model</small>
                 </span>
-                <span className="ready-tag">READY</span>
-              </div>
-            </div>
-            <label className="field-label">VOICE</label>
-            <div className="voice-row">
-              <select
-                className="text-field"
-                value={data.settings.voice}
-                onChange={(e) => update("voice", e.target.value)}
-              >
-                <option value="">English voice (default)</option>
-                {voices.map((v) => (
-                  <option key={v.name} value={v.name}>
-                    {v.name} · {v.lang}
-                  </option>
-                ))}
-              </select>
-              <button
-                className="sample-btn"
-                onClick={() =>
-                  speak(
-                    "Hello! It is lovely to practice English with you today.",
-                  )
-                }
-              >
-                <Play size={14} fill="currentColor" /> Listen sample
+                <span className="ready-tag">
+                  {isSmallViewport ? "DEFAULT" : "READY"}
+                </span>
               </button>
             </div>
-            <div className="info-box">
-              <CircleHelp size={15} />
-              <span>
-                Suara yang tersedia dan pemrosesan offline bergantung pada
-                browser dan sistem operasimu.
-              </span>
-            </div>
+            {activeTtsEngine === "kokoro" ? (
+              <>
+                <div className="info-box">
+                  <CircleHelp size={15} />
+                  <span>
+                    Materi Listening dan AI Lesson selalu memeriksa shared audio
+                    terlebih dahulu; jika cache tidak ada atau gagal diputar,
+                    Browser Native digunakan. Pilihan Kokoro ini berlaku untuk
+                    balasan tutor dinamis.
+                  </span>
+                </div>
+                <label className="field-label">
+                  KOKORO VOICE · BALASAN TUTOR DINAMIS
+                </label>
+                <div className="voice-row">
+                  <select
+                    className="text-field"
+                    value={data.settings.voice || "af_heart"}
+                    onChange={(e) => update("voice", e.target.value)}
+                  >
+                    {KOKORO_VOICES.map((voice) => (
+                      <option key={voice.id} value={voice.id}>
+                        {voice.name} · {voice.accent} ({voice.id})
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    className="sample-btn"
+                    onClick={() =>
+                      speak(
+                        "Hello! It is lovely to practice English with you today.",
+                        { forceKokoro: true },
+                      )
+                    }
+                    disabled={ttsBusy}
+                  >
+                    {ttsBusy ? (
+                      <>
+                        <span className="spinner" /> Menyiapkan…
+                      </>
+                    ) : (
+                      <>
+                        <Play size={14} fill="currentColor" /> Listen sample
+                      </>
+                    )}
+                  </button>
+                </div>
+                <label className="field-label">COMPUTE MODE</label>
+                <div className="select-wrap">
+                  <select
+                    className="text-field"
+                    value={data.settings.ttsCompute || "auto"}
+                    onChange={(e) => update("ttsCompute", e.target.value)}
+                  >
+                    <option value="auto">
+                      Otomatis · WebGPU jika tersedia, selain itu WASM
+                    </option>
+                    <option value="webgpu">
+                      WebGPU · fallback ke WASM jika tidak tersedia
+                    </option>
+                    <option value="wasm">
+                      WASM · kompatibilitas lebih luas
+                    </option>
+                  </select>
+                  <Cpu size={16} />
+                </div>
+                <div className="tts-cache-row">
+                  <span
+                    className={`cache-indicator ${cacheInfo?.cached ? "cached" : ""}`}
+                  >
+                    <Database size={15} />
+                    {cacheInfo?.cached
+                      ? `Model tersimpan di perangkat · ${(cacheInfo.bytes / 1024 / 1024).toFixed(0)} MB`
+                      : "Model akan diunduh sekali lalu disimpan di IndexedDB"}
+                  </span>
+                  <button
+                    className="outline-btn"
+                    onClick={preloadTTS}
+                    disabled={ttsBusy}
+                  >
+                    {ttsBusy ? (
+                      <>
+                        <span className="spinner" />
+                        {ttsStatus?.phase === "speaking"
+                          ? "Memutar audio…"
+                          : "Menyiapkan model…"}
+                      </>
+                    ) : (
+                      <>
+                        <Download size={14} /> Unduh / muat model
+                      </>
+                    )}
+                  </button>
+                </div>
+                <p
+                  className={`tts-status ${ttsBusy ? "tts-status-loading" : ""}`}
+                  role="status"
+                >
+                  {ttsBusy && <span className="processing-status-spinner" />}
+                  {ttsStatus?.message ||
+                    "Model dimuat otomatis saat suara pertama kali diputar."}
+                </p>
+                <div className="info-box">
+                  <CircleHelp size={15} />
+                  <span>
+                    Download awal sekitar 82 MB. File model diproses lokal dan
+                    dicache pada browser/perangkat ini; browser dapat menghapus
+                    cache jika ruang penyimpanan terbatas.
+                  </span>
+                </div>
+              </>
+            ) : (
+              <>
+                <label className="field-label">BROWSER VOICE</label>
+                <div className="voice-row">
+                  <select
+                    className="text-field"
+                    value={data.settings.nativeVoice || ""}
+                    onChange={(e) => update("nativeVoice", e.target.value)}
+                  >
+                    <option value="">English voice (default)</option>
+                    {voices.map((voice) => (
+                      <option key={voice.name} value={voice.name}>
+                        {voice.name} · {voice.lang}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    className="sample-btn"
+                    onClick={() =>
+                      speak(
+                        "Hello! It is lovely to practice English with you today.",
+                      )
+                    }
+                    disabled={ttsBusy}
+                  >
+                    {ttsBusy ? (
+                      <>
+                        <span className="spinner" /> Menyiapkan…
+                      </>
+                    ) : (
+                      <>
+                        <Play size={14} fill="currentColor" /> Listen sample
+                      </>
+                    )}
+                  </button>
+                </div>
+                <div className="info-box">
+                  <CircleHelp size={15} />
+                  <span>
+                    Daftar suara tergantung browser dan sistem operasi. Di
+                    ponsel, Browser Native menjadi default agar model besar
+                    tidak perlu diunduh; shared audio lesson tetap
+                    diprioritaskan.
+                  </span>
+                </div>
+              </>
+            )}
           </section>
           <section className="settings-card">
             <div className="setting-title">
@@ -144,7 +324,7 @@ export default function SettingsPage({
                 <b>Default persetujuan simpan audio</b>
                 <small>
                   Ditanyakan lagi tiap sesi. Jika disetujui, file disimpan di
-                  /learnenglish/api/uploads/{user.id}/ dan DB hanya menyimpan
+                  private server storage dan DB hanya menyimpan
                   metadata/referensi.
                 </small>
               </span>
@@ -158,18 +338,18 @@ export default function SettingsPage({
             <div className="info-box">
               <CircleHelp size={15} />
               <span>
-                Speech recognition lokal/offline belum disertakan. SpeakUp tidak
-                mengaktifkan SpeechRecognition browser/cloud. Jika memilih
-                evaluasi audio, rekaman hanya dikirim ke Gemini setelah
-                persetujuan satu kali.
+                Mode input untuk AI Lesson dan latihan membaca nyaring
+                ditentukan admin secara global: transkripsi langsung browser
+                atau rekaman audio yang dikirim ke server AI setelah
+                persetujuan.
               </span>
             </div>
             <div className="privacy-note">
               <ShieldCheck size={16} />
               <p>
-                Audio arsip tidak pernah dikirim ulang otomatis. Evaluasi audio
-                AI adalah tindakan terpisah, satu kali, dan memerlukan
-                persetujuan sebelum dikirim ke Google Gemini.
+                Audio tidak pernah dikirim atau diarsipkan diam-diam. Mode
+                rekaman meminta persetujuan sebelum mengirim ke server AI; arsip
+                audio memerlukan persetujuan terpisah.
               </p>
             </div>
           </section>
@@ -188,14 +368,35 @@ export default function SettingsPage({
               file audio pilihanmu. Impor akan mengganti progres akun ini.
             </p>
             <div className="backup-actions">
-              <button className="btn-primary" onClick={makeBackup}>
-                <ArrowDownToLine size={16} /> Ekspor backup ZIP
+              <button
+                className="btn-primary"
+                onClick={makeBackup}
+                disabled={backupBusy || importingBackup}
+              >
+                {backupBusy ? (
+                  <>
+                    <span className="spinner" /> Membuat backup…
+                  </>
+                ) : (
+                  <>
+                    <ArrowDownToLine size={16} /> Ekspor backup ZIP
+                  </>
+                )}
               </button>
               <button
                 className="outline-btn"
                 onClick={() => fileInput.current?.click()}
+                disabled={backupBusy || importingBackup}
               >
-                <Upload size={16} /> Impor backup
+                {importingBackup ? (
+                  <>
+                    <span className="spinner" /> Mengimpor…
+                  </>
+                ) : (
+                  <>
+                    <Upload size={16} /> Impor backup
+                  </>
+                )}
               </button>
             </div>
           </section>
@@ -216,11 +417,7 @@ export default function SettingsPage({
                 <b>{user.name}</b>
                 <small>
                   {user.email} ·{" "}
-                  {user.role === "admin"
-                    ? "Administrator"
-                    : user.plan === "premium"
-                      ? "Premium"
-                      : "Regular \xB7 Listening"}
+                  {user.role === "admin" ? "Administrator" : "Learner"}
                 </small>
               </div>
             </div>

@@ -17,6 +17,8 @@ function catalog_install(PDO $pdo): void
         prep_seconds INTEGER NOT NULL DEFAULT 0, response_seconds INTEGER NOT NULL DEFAULT 60,
         image TEXT, image_context TEXT, sort_order INTEGER NOT NULL DEFAULT 0,
         published INTEGER NOT NULL DEFAULT 1 CHECK(published IN (0,1)),
+        default_voice TEXT NOT NULL DEFAULT 'af_heart',
+        tts_segments_json TEXT NOT NULL DEFAULT '[]',
         updated_at TEXT NOT NULL
     )");
     $pdo->exec('CREATE INDEX IF NOT EXISTS speaking_order ON speaking_units(level_id, sort_order)');
@@ -25,8 +27,28 @@ function catalog_install(PDO $pdo): void
         title TEXT NOT NULL, objective TEXT NOT NULL, script TEXT NOT NULL,
         image TEXT, sort_order INTEGER NOT NULL DEFAULT 0,
         published INTEGER NOT NULL DEFAULT 1 CHECK(published IN (0,1)),
+        default_voice TEXT NOT NULL DEFAULT 'af_heart',
+        tts_segments_json TEXT NOT NULL DEFAULT '[]',
         updated_at TEXT NOT NULL
     )");
+
+    // Existing installs are migrated in place; seed content is not rewritten.
+    foreach ([
+        'speaking_units' => [
+            'default_voice' => "TEXT NOT NULL DEFAULT 'af_heart'",
+            'tts_segments_json' => "TEXT NOT NULL DEFAULT '[]'",
+        ],
+        'listening_lessons' => [
+            'default_voice' => "TEXT NOT NULL DEFAULT 'af_heart'",
+            'tts_segments_json' => "TEXT NOT NULL DEFAULT '[]'",
+        ],
+    ] as $table => $columns) {
+        $existing = array_column($pdo->query("PRAGMA table_info($table)")->fetchAll(), 'name');
+        foreach ($columns as $column => $definition) {
+            if (!in_array($column, $existing, true))
+                $pdo->exec("ALTER TABLE $table ADD COLUMN $column $definition");
+        }
+    }
     $pdo->exec('CREATE INDEX IF NOT EXISTS listening_order ON listening_lessons(level_id, sort_order)');
     $pdo->exec("CREATE TABLE IF NOT EXISTS listening_questions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -75,6 +97,74 @@ function catalog_install(PDO $pdo): void
     }
 }
 
+function catalog_tts_voice_ids(): array
+{
+    return [
+        'af_heart', 'af_alloy', 'af_aoede', 'af_bella', 'af_jessica', 'af_kore',
+        'af_nicole', 'af_nova', 'af_river', 'af_sarah', 'af_sky',
+        'am_adam', 'am_echo', 'am_eric', 'am_fenrir', 'am_liam', 'am_michael',
+        'am_onyx', 'am_puck', 'am_santa',
+        'bf_alice', 'bf_emma', 'bf_isabella', 'bf_lily',
+        'bm_daniel', 'bm_fable', 'bm_george', 'bm_lewis',
+    ];
+}
+
+function catalog_tts_segments(array $input): array
+{
+    $raw = $input['ttsSegments'] ?? [];
+    if (!is_array($raw) || !array_is_list($raw) || count($raw) > 20)
+        respond(['error' => 'Dialog harus berupa daftar maksimal 20 giliran.'], 422);
+    if ($raw !== [] && count($raw) < 2)
+        respond(['error' => 'Dialog multi-speaker perlu sedikitnya dua giliran.'], 422);
+
+    $segments = [];
+    $totalTextLength = 0;
+    foreach ($raw as $segment) {
+        if (!is_array($segment)) respond(['error' => 'Format giliran dialog tidak valid.'], 422);
+        $speaker = catalog_text($segment, 'speaker', 60);
+        $text = catalog_text($segment, 'text', 2000);
+        $totalTextLength += function_exists('mb_strlen') ? mb_strlen($text, 'UTF-8') : strlen($text);
+        if ($totalTextLength > 6000) respond(['error' => 'Total teks dialog maksimal 6000 karakter.'], 422);
+        $voice = catalog_text($segment, 'voice', 40);
+        if (!in_array($voice, catalog_tts_voice_ids(), true))
+            respond(['error' => 'Model suara dialog tidak didukung.'], 422);
+        $segments[] = ['speaker' => $speaker, 'voice' => $voice, 'text' => $text];
+    }
+    return $segments;
+}
+
+function catalog_tts_revision_value(string $type, string $id, string $text, string $segmentsJson, string $defaultVoice = 'af_heart'): string
+{
+    $segments = json_decode($segmentsJson, true);
+    $canonicalSegments = json_encode(
+        is_array($segments) && array_is_list($segments) ? $segments : [],
+        JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE
+    ) ?: '[]';
+    if (!in_array($defaultVoice, catalog_tts_voice_ids(), true)) $defaultVoice = 'af_heart';
+    return hash('sha256', "speakup-tts-v2\n$type\n$id\n$text\n$defaultVoice\n$canonicalSegments");
+}
+
+function catalog_tts_revision(PDO $pdo, string $type, string $id): ?string
+{
+    if ($type === 'speaking') {
+        $q = $pdo->prepare('SELECT prompt AS source_text, tts_segments_json, default_voice FROM speaking_units WHERE id=?');
+    } elseif ($type === 'listening') {
+        $q = $pdo->prepare('SELECT script AS source_text, tts_segments_json, default_voice FROM listening_lessons WHERE id=?');
+    } else {
+        return null;
+    }
+    $q->execute([$id]);
+    $row = $q->fetch();
+    if (!$row) return null;
+    return catalog_tts_revision_value(
+        $type,
+        $id,
+        (string) $row['source_text'],
+        (string) ($row['tts_segments_json'] ?? '[]'),
+        (string) ($row['default_voice'] ?? 'af_heart'),
+    );
+}
+
 function catalog_data(PDO $pdo, bool $admin = false): array
 {
     $levels = [];
@@ -89,6 +179,8 @@ function catalog_data(PDO $pdo, bool $admin = false): array
     $units = $pdo->query("SELECT * FROM speaking_units $visibility ORDER BY level_id, sort_order, id")->fetchAll();
     foreach ($units as $u) {
         if (!isset($levels[$u['level_id']])) continue;
+        $defaultVoice = in_array($u['default_voice'] ?? '', catalog_tts_voice_ids(), true)
+            ? $u['default_voice'] : 'af_heart';
         $item = [
             'id' => $u['id'], 'level' => $u['level_id'], 'title' => $u['title'],
             'subtitle' => $u['subtitle'], 'emoji' => $u['emoji'],
@@ -96,8 +188,13 @@ function catalog_data(PDO $pdo, bool $admin = false): array
             'objective' => $u['objective'], 'part' => $u['part'],
             'questionType' => $u['question_type'], 'bandTarget' => $u['band_target'],
             'prepSeconds' => (int) $u['prep_seconds'], 'responseSeconds' => (int) $u['response_seconds'],
-            'image' => $u['image'], 'imageContext' => $u['image_context'],
+            'image' => app_public_asset_url($u['image']), 'imageContext' => $u['image_context'],
             'sortOrder' => (int) $u['sort_order'],
+            'defaultVoice' => $defaultVoice,
+            'ttsSegments' => json_decode($u['tts_segments_json'] ?? '[]', true) ?: [],
+            'ttsRevision' => catalog_tts_revision_value(
+                'speaking', (string) $u['id'], (string) $u['prompt'], (string) ($u['tts_segments_json'] ?? '[]'), $defaultVoice
+            ),
         ];
         if ($admin) $item['published'] = (bool) $u['published'];
         $levels[$u['level_id']]['units'][] = $item;
@@ -105,10 +202,17 @@ function catalog_data(PDO $pdo, bool $admin = false): array
     $listening = [];
     $lessonRows = $pdo->query("SELECT * FROM listening_lessons $visibility ORDER BY level_id, sort_order, id")->fetchAll();
     foreach ($lessonRows as $l) {
+        $defaultVoice = in_array($l['default_voice'] ?? '', catalog_tts_voice_ids(), true)
+            ? $l['default_voice'] : 'af_heart';
         $listening[$l['id']] = [
             'id' => $l['id'], 'level' => $l['level_id'], 'title' => $l['title'],
-            'objective' => $l['objective'], 'script' => $l['script'], 'image' => $l['image'],
+            'objective' => $l['objective'], 'script' => $l['script'], 'image' => app_public_asset_url($l['image']),
             'sortOrder' => (int) $l['sort_order'], 'questions' => [],
+            'defaultVoice' => $defaultVoice,
+            'ttsSegments' => json_decode($l['tts_segments_json'] ?? '[]', true) ?: [],
+            'ttsRevision' => catalog_tts_revision_value(
+                'listening', (string) $l['id'], (string) $l['script'], (string) ($l['tts_segments_json'] ?? '[]'), $defaultVoice
+            ),
         ];
         if ($admin) $listening[$l['id']]['published'] = (bool) $l['published'];
     }
@@ -152,10 +256,14 @@ function catalog_level_id(PDO $pdo, array $input): string
 function catalog_image(array $input): ?string
 {
     $image = catalog_text($input, 'image', 220, false);
-    if ($image !== '' && !preg_match('#^/learnenglish/images/[a-zA-Z0-9/_-]+\.(jpg|jpeg|png|webp)$#', $image)) {
-        respond(['error' => 'Gunakan path gambar lokal /learnenglish/images/... (jpg/png/webp).'], 422);
+    if ($image === '') return null;
+    $image = app_rebase_local_image_path($image);
+    $root = rtrim(app_public_path('images'), '/') . '/';
+    if ($image === null || !str_starts_with($image, $root)
+        || !preg_match('/^[A-Za-z0-9/_-]+\\.(jpg|jpeg|png|webp)$/iD', substr($image, strlen($root)))) {
+        respond(['error' => 'Gunakan gambar lokal dari public/images (jpg/png/webp).'], 422);
     }
-    return $image === '' ? null : $image;
+    return $image;
 }
 function catalog_save_level(PDO $pdo, string $id, array $d): void
 {
@@ -173,6 +281,12 @@ function catalog_save_unit(PDO $pdo, array $d, ?string $id): string
     if (!is_int($prep) || $prep < 0 || $prep > 120 || !is_int($response) || $response < 15 || $response > 840) {
         respond(['error' => 'Durasi persiapan/respons tidak valid.'], 422);
     }
+    $defaultVoice = catalog_text($d, 'defaultVoice', 40, false) ?: 'af_heart';
+    if (!in_array($defaultVoice, catalog_tts_voice_ids(), true))
+        respond(['error' => 'Model suara default tidak didukung.'], 422);
+    $segments = catalog_tts_segments($d);
+    $segmentsJson = json_encode($segments, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+    if ($segmentsJson === false) respond(['error' => 'Dialog tidak dapat disimpan.'], 422);
     $fields = [
         $level, catalog_text($d, 'title', 120), catalog_text($d, 'subtitle', 300),
         catalog_text($d, 'emoji', 12), catalog_text($d, 'duration', 50),
@@ -180,14 +294,14 @@ function catalog_save_unit(PDO $pdo, array $d, ?string $id): string
         catalog_text($d, 'part', 160), catalog_text($d, 'questionType', 160),
         catalog_text($d, 'bandTarget', 250), $prep, $response, catalog_image($d),
         catalog_text($d, 'imageContext', 1000, false) ?: null, catalog_order($d),
-        !empty($d['published']) ? 1 : 0, gmdate('c'),
+        !empty($d['published']) ? 1 : 0, $defaultVoice, $segmentsJson, gmdate('c'),
     ];
     if ($id === null) {
         $id = 'S-' . strtoupper(bin2hex(random_bytes(5)));
-        $q = $pdo->prepare('INSERT INTO speaking_units(id,level_id,title,subtitle,emoji,duration,prompt,objective,part,question_type,band_target,prep_seconds,response_seconds,image,image_context,sort_order,published,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+        $q = $pdo->prepare('INSERT INTO speaking_units(id,level_id,title,subtitle,emoji,duration,prompt,objective,part,question_type,band_target,prep_seconds,response_seconds,image,image_context,sort_order,published,default_voice,tts_segments_json,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
         $q->execute(array_merge([$id], $fields));
     } else {
-        $q = $pdo->prepare('UPDATE speaking_units SET level_id=?, title=?, subtitle=?, emoji=?, duration=?, prompt=?, objective=?, part=?, question_type=?, band_target=?, prep_seconds=?, response_seconds=?, image=?, image_context=?, sort_order=?, published=?, updated_at=? WHERE id=?');
+        $q = $pdo->prepare('UPDATE speaking_units SET level_id=?, title=?, subtitle=?, emoji=?, duration=?, prompt=?, objective=?, part=?, question_type=?, band_target=?, prep_seconds=?, response_seconds=?, image=?, image_context=?, sort_order=?, published=?, default_voice=?, tts_segments_json=?, updated_at=? WHERE id=?');
         $q->execute(array_merge($fields, [$id]));
         if (!$q->rowCount()) respond(['error' => 'Unit tidak ditemukan.'], 404);
     }
@@ -214,15 +328,25 @@ function catalog_save_listening(PDO $pdo, array $d, ?string $id): string
         if (!is_int($answer) || $answer < 0 || $answer >= count($options)) respond(['error' => 'Kunci jawaban di luar pilihan.'], 422);
         $questions[] = [catalog_text($q, 'prompt', 500), json_encode($options, JSON_UNESCAPED_UNICODE), $answer, catalog_text($q, 'explain', 1000)];
     }
-    $fields = [$level, catalog_text($d, 'title', 120), catalog_text($d, 'objective', 300), catalog_text($d, 'script', 6000), catalog_image($d), catalog_order($d), !empty($d['published']) ? 1 : 0, gmdate('c')];
+    $defaultVoice = catalog_text($d, 'defaultVoice', 40, false) ?: 'af_heart';
+    if (!in_array($defaultVoice, catalog_tts_voice_ids(), true))
+        respond(['error' => 'Model suara default tidak didukung.'], 422);
+    $segments = catalog_tts_segments($d);
+    $segmentsJson = json_encode($segments, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+    if ($segmentsJson === false) respond(['error' => 'Dialog tidak dapat disimpan.'], 422);
+    $fields = [
+        $level, catalog_text($d, 'title', 120), catalog_text($d, 'objective', 300),
+        catalog_text($d, 'script', 6000), catalog_image($d), catalog_order($d),
+        !empty($d['published']) ? 1 : 0, $defaultVoice, $segmentsJson, gmdate('c'),
+    ];
     $pdo->beginTransaction();
     try {
         if ($id === null) {
             $id = 'L-' . strtoupper(bin2hex(random_bytes(5)));
-            $q = $pdo->prepare('INSERT INTO listening_lessons(id,level_id,title,objective,script,image,sort_order,published,updated_at) VALUES(?,?,?,?,?,?,?,?,?)');
+            $q = $pdo->prepare('INSERT INTO listening_lessons(id,level_id,title,objective,script,image,sort_order,published,default_voice,tts_segments_json,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)');
             $q->execute(array_merge([$id], $fields));
         } else {
-            $q = $pdo->prepare('UPDATE listening_lessons SET level_id=?,title=?,objective=?,script=?,image=?,sort_order=?,published=?,updated_at=? WHERE id=?');
+            $q = $pdo->prepare('UPDATE listening_lessons SET level_id=?,title=?,objective=?,script=?,image=?,sort_order=?,published=?,default_voice=?,tts_segments_json=?,updated_at=? WHERE id=?');
             $q->execute(array_merge($fields, [$id]));
             if (!$q->rowCount()) respond(['error' => 'Lesson tidak ditemukan.'], 404);
             $pdo->prepare('DELETE FROM listening_questions WHERE lesson_id=?')->execute([$id]);
@@ -238,10 +362,16 @@ function catalog_save_listening(PDO $pdo, array $d, ?string $id): string
 }
 function catalog_archive(PDO $pdo, string $table, string $id): void
 {
-    $table = $table === 'unit' ? 'speaking_units' : 'listening_lessons';
+    $contentType = $table === 'unit' ? 'speaking' : 'listening';
+    $table = $contentType === 'speaking' ? 'speaking_units' : 'listening_lessons';
     $q = $pdo->prepare("UPDATE $table SET published=0, updated_at=? WHERE id=?");
     $q->execute([gmdate('c'), $id]);
-    if (!$q->rowCount()) respond(['error' => 'Materi tidak ditemukan.'], 404);
+    if (!$q->rowCount()) {
+        $exists = $pdo->prepare("SELECT 1 FROM $table WHERE id=?");
+        $exists->execute([$id]);
+        if (!$exists->fetchColumn()) respond(['error' => 'Materi tidak ditemukan.'], 404);
+    }
+    tts_cache_delete_content($contentType, $id);
 }
 function catalog_check_answer(PDO $pdo, array $d): array
 {

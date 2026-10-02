@@ -1,0 +1,1828 @@
+<?php
+// AiSlide Main API Processor
+// Handles auth, projects, coin/diamond, storage, AI proxy
+// DB: SQLite at /api/db/data.db
+// Base path: /aislide/
+
+$config = require __DIR__ . '/config.php';
+
+header('Content-Type: application/json; charset=utf-8');
+
+// CORS handling
+$origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+if ($origin) {
+    $allowed = $config['cors_allowed_origins'] ?? [];
+    $isAllowed = false;
+    foreach ($allowed as $a) {
+        if (strpos($origin, $a) !== false || $a === '*') { $isAllowed = true; break; }
+    }
+    // allow local dev
+    if (strpos($origin, 'localhost') !== false || strpos($origin, '127.0.0.1') !== false) $isAllowed = true;
+    if ($isAllowed) {
+        header("Access-Control-Allow-Origin: $origin");
+        header('Access-Control-Allow-Credentials: true');
+    }
+}
+header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
+header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, X-API-Key');
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(200); exit; }
+
+function sanitizeErrorMessage($msg){
+    if (!is_string($msg)) return $msg;
+    // Hide any internal server URLs/domains from user
+    $patterns = [
+        '/https?:\/\/[^\s]*ichsanlabs\.com[^\s]*/i' => '[AI Server]',
+        '/https?:\/\/[^\s]*sulapfoto[^\s]*/i' => '[AI Server]',
+        '/sg\d+\.ichsanlabs\.com/i' => '[AI Server]',
+        '/api\.sulapfoto\.id/i' => '[AI Server]',
+        '/sulapfoto\.com/i' => '[AI Server]',
+        '/ichsanlabs\.com/i' => '[AI Server]',
+    ];
+    foreach ($patterns as $pat=>$rep){
+        $msg = preg_replace($pat, $rep, $msg);
+    }
+    // If after sanitization still contains internal hint and it's an error about all servers, replace entirely
+    if (stripos($msg, 'All public servers failed') !== false || stripos($msg, 'ichsanlabs') !== false || stripos($msg, 'sulapfoto') !== false){
+        $msg = 'Server AI sedang sibuk, coba lagi beberapa saat. Jika terus gagal hubungi admin.';
+    }
+    return $msg;
+}
+function jsonResponse($data, $code = 200) {
+    // Sanitize error field if present
+    if (isset($data['error']) && is_string($data['error'])){
+        $data['error'] = sanitizeErrorMessage($data['error']);
+    }
+    if (isset($data['message']) && is_string($data['message'])){
+        // only sanitize if it looks like it leaks internal URL
+        if (preg_match('/ichsanlabs|sulapfoto|sg\d+/i', $data['message'])){
+            $data['message'] = sanitizeErrorMessage($data['message']);
+        }
+    }
+    http_response_code($code);
+    echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+}
+
+function getBearerToken() {
+    $h = $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '';
+    if (!$h) {
+        // fallback from apache_request_headers
+        if (function_exists('getallheaders')) {
+            $headers = getallheaders();
+            $h = $headers['Authorization'] ?? $headers['authorization'] ?? '';
+        }
+    }
+    if (preg_match('/Bearer\s+(.*)$/i', $h, $m)) return trim($m[1]);
+    return null;
+}
+
+function db() {
+    static $pdo = null;
+    global $config;
+    if ($pdo) return $pdo;
+    $dbPath = $config['db_path'];
+    $dir = dirname($dbPath);
+    if (!is_dir($dir)) mkdir($dir, 0775, true);
+    $pdo = new PDO('sqlite:' . $dbPath);
+    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+    // init tables
+    $pdo->exec("CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE NOT NULL,
+        email TEXT,
+        password_hash TEXT NOT NULL,
+        tier TEXT NOT NULL DEFAULT 'micro',
+        coins INTEGER NOT NULL DEFAULT 10,
+        diamonds INTEGER NOT NULL DEFAULT 0,
+        storage_limit_mb INTEGER NOT NULL DEFAULT 20,
+        last_coin_refresh DATE,
+        expires_at DATE,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS user_sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        token TEXT UNIQUE NOT NULL,
+        device_info TEXT,
+        ip TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        last_active DATETIME DEFAULT CURRENT_TIMESTAMP,
+        expires_at DATETIME,
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    )");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS projects (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        type TEXT NOT NULL, -- manual or auto
+        title TEXT NOT NULL,
+        topic TEXT,
+        size_bytes INTEGER DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    )");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS coin_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        amount INTEGER NOT NULL,
+        reason TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    )");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS diamond_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        amount INTEGER NOT NULL,
+        reason TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    )");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS app_config (
+        key TEXT PRIMARY KEY,
+        value TEXT
+    )");
+
+    // migrations: add expires_at if missing
+    try {
+        $cols = $pdo->query("PRAGMA table_info(users)")->fetchAll();
+        $hasExpires = false;
+        $hasLastRefresh = false;
+        foreach ($cols as $c) {
+            if ($c['name']==='expires_at') $hasExpires=true;
+            if ($c['name']==='last_coin_refresh') $hasLastRefresh=true;
+        }
+        if (!$hasExpires) $pdo->exec("ALTER TABLE users ADD COLUMN expires_at DATE");
+        if (!$hasLastRefresh) $pdo->exec("ALTER TABLE users ADD COLUMN last_coin_refresh DATE");
+    } catch (Exception $e) {}
+
+    // migrate free -> micro
+    try {
+        $pdo->exec("UPDATE users SET tier='micro' WHERE tier='free'");
+    } catch (Exception $e) {}
+
+    // ensure admin exists
+    $stmt = $pdo->query("SELECT COUNT(*) as c FROM users WHERE tier='admin'");
+    $row = $stmt->fetch();
+    if (($row['c'] ?? 0) == 0) {
+        $admin = $config['admin_default'];
+        $hash = password_hash($admin['password'], PASSWORD_BCRYPT);
+        $pdo->prepare("INSERT INTO users (username,email,password_hash,tier,coins,diamonds,storage_limit_mb,last_coin_refresh,expires_at) VALUES (?,?,?,?,?,?,?,date('now'),date('now','+10 years'))")
+            ->execute([$admin['username'], $admin['email'], $hash, 'admin', -1, 9999, 1024]);
+    }
+    return $pdo;
+}
+
+function getPrivateConfig() {
+    global $config;
+    $filePriv = $config['private'] ?? [];
+    try {
+        $pdo = db();
+        $stmt = $pdo->prepare("SELECT value FROM app_config WHERE key='private_config'");
+        $stmt->execute();
+        $row = $stmt->fetch();
+        if ($row && !empty($row['value'])) {
+            $dbVal = json_decode($row['value'], true);
+            if (is_array($dbVal)) {
+                $filePriv = array_merge($filePriv, $dbVal);
+            } else {
+                $inner = json_decode($dbVal['value'] ?? '', true);
+                if (is_array($inner)) $filePriv = array_merge($filePriv, $inner);
+            }
+        }
+    } catch (Exception $e) {}
+
+    // UNIFY: migrate old text_model_lite -> text_model if exists
+    if (!empty($filePriv['text_model_lite'])) {
+        // if text_model still old (2.0-flash) and lite exists, prefer lite
+        if (empty($filePriv['text_model']) || $filePriv['text_model']==='gemini-2.0-flash' || stripos($filePriv['text_model'],'imagen')!==false) {
+            $filePriv['text_model'] = $filePriv['text_model_lite'];
+        }
+        unset($filePriv['text_model_lite']); // hapus biar unify
+    }
+    if (empty($filePriv['text_model'])) {
+        $filePriv['text_model'] = 'gemini-3.1-flash-lite';
+    }
+    if (empty($filePriv['image_model'])) {
+        $filePriv['image_model'] = 'gemini-3.1-flash-image';
+    }
+    if (empty($filePriv['image_models'])) {
+        $filePriv['image_models'] = [
+            'nano_banana' => 'gemini-2.5-flash-image-preview',
+            'nano_banana_2' => 'gemini-3.1-flash-image',
+            'nano_banana_2_lite' => 'gemini-3.1-flash-lite-image'
+        ];
+    }
+    // Enforce 1K 16:9 untuk hemat biaya (sesuai request user)
+    if (empty($filePriv['image_size'])) $filePriv['image_size']='1K';
+    if (empty($filePriv['image_aspect'])) $filePriv['image_aspect']='16:9';
+
+    return $filePriv;
+}
+
+function getAiProviderConfig() {
+    global $config;
+    $fileCfg = $config['ai_provider'] ?? ['provider'=>'private','private_type'=>'gemini','public_mode'=>'proxy'];
+    try {
+        $pdo = db();
+        $stmt = $pdo->prepare("SELECT value FROM app_config WHERE key='ai_provider_config'");
+        $stmt->execute();
+        $row = $stmt->fetch();
+        if ($row && !empty($row['value'])) {
+            $dbVal = json_decode($row['value'], true);
+            if (is_array($dbVal)) $fileCfg = array_merge($fileCfg, $dbVal);
+        }
+    } catch (Exception $e) {}
+    return $fileCfg;
+}
+
+function getPublicApiConfig() {
+    global $config;
+    $fileCfg = $config['public_api'] ?? ['mode'=>'proxy','direct_retry'=>3,'clone_headers'=>true,'use_random'=>true];
+    try {
+        $pdo = db();
+        $stmt = $pdo->prepare("SELECT value FROM app_config WHERE key='public_api_config'");
+        $stmt->execute();
+        $row = $stmt->fetch();
+        if ($row && !empty($row['value'])) {
+            $dbVal = json_decode($row['value'], true);
+            if (is_array($dbVal)) $fileCfg = array_merge($fileCfg, $dbVal);
+        }
+    } catch (Exception $e) {}
+    // sync with ai_provider if exists
+    try {
+        $ai = getAiProviderConfig();
+        if (!empty($ai['public_mode'])) $fileCfg['mode'] = $ai['public_mode'];
+    } catch (Exception $e) {}
+    return $fileCfg;
+}
+
+function getOpenRouterConfig() {
+    global $config;
+    $fileCfg = $config['openrouter'] ?? [];
+    try {
+        $pdo = db();
+        $stmt = $pdo->prepare("SELECT value FROM app_config WHERE key='openrouter_config'");
+        $stmt->execute();
+        $row = $stmt->fetch();
+        if ($row && !empty($row['value'])) {
+            $dbVal = json_decode($row['value'], true);
+            if (is_array($dbVal)) $fileCfg = array_merge($fileCfg, $dbVal);
+        }
+    } catch (Exception $e) {}
+    // defaults - ENFORCE 1K MAX
+    if (empty($fileCfg['text_model'])) $fileCfg['text_model']='google/gemma-3-27b-it:free';
+    if (empty($fileCfg['vision_model'])) $fileCfg['vision_model']='google/gemma-3-27b-it:free';
+    if (empty($fileCfg['image_model'])) $fileCfg['image_model']='openai/gpt-image-2'; // $0.006 cheapest 1K
+    if (empty($fileCfg['base_url'])) $fileCfg['base_url']='https://openrouter.ai/api/v1';
+    if (empty($fileCfg['image_size'])) $fileCfg['image_size']='1K';
+    if (empty($fileCfg['image_aspect'])) $fileCfg['image_aspect']='16:9';
+    return $fileCfg;
+}
+
+function getTierConfig($tier) {
+    global $config;
+    $tiers = $config['tiers'] ?? [];
+    // legacy free -> micro
+    if ($tier==='free') $tier='micro';
+    return $tiers[$tier] ?? $tiers['micro'] ?? ['coins_daily'=>10,'coins_max'=>15,'storage_mb'=>20,'max_devices'=>1];
+}
+
+function isUserExpired($userRow) {
+    if (($userRow['tier'] ?? '') === 'admin') return false;
+    $exp = $userRow['expires_at'] ?? null;
+    if (!$exp) return false; // no expiry set = not expired
+    $today = date('Y-m-d');
+    return $exp < $today;
+}
+
+function getUserByToken($token) {
+    if (!$token) return null;
+    $pdo = db();
+    $stmt = $pdo->prepare("SELECT us.*, u.* FROM user_sessions us JOIN users u ON u.id=us.user_id WHERE us.token=? AND (us.expires_at IS NULL OR us.expires_at > datetime('now'))");
+    $stmt->execute([$token]);
+    $row = $stmt->fetch();
+    if (!$row) return null;
+    // update last_active
+    $pdo->prepare("UPDATE user_sessions SET last_active=datetime('now') WHERE token=?")->execute([$token]);
+
+    // daily coin refresh with cap logic
+    $today = date('Y-m-d');
+    if (($row['last_coin_refresh'] ?? '') !== $today && $row['tier'] !== 'admin') {
+        $tierCfg = getTierConfig($row['tier']);
+        $daily = $tierCfg['coins_daily'] ?? 10;
+        $max = $tierCfg['coins_max'] ?? 15;
+        $currentCoins = intval($row['coins'] ?? 0);
+        // unlimited
+        if ($daily === -1 || $max === -1) {
+            // no refresh needed, but update date
+            $pdo->prepare("UPDATE users SET last_coin_refresh=date('now'), updated_at=datetime('now') WHERE id=?")->execute([$row['user_id']]);
+        } else {
+            // only add if below cap
+            if ($currentCoins < $max) {
+                $newCoins = min($max, $currentCoins + $daily);
+                $pdo->prepare("UPDATE users SET coins=?, last_coin_refresh=date('now'), updated_at=datetime('now') WHERE id=?")->execute([$newCoins, $row['user_id']]);
+                $row['coins'] = $newCoins;
+            } else {
+                // already at or above cap (admin may have set higher), do not reduce, just update refresh date
+                $pdo->prepare("UPDATE users SET last_coin_refresh=date('now'), updated_at=datetime('now') WHERE id=?")->execute([$row['user_id']]);
+            }
+        }
+        // also handle diamond monthly for VIP if expired? We'll handle separately in a daily cron? For now check if tier vip and expires still valid, add monthly diamond on first day of month? Simpler: if tier vip and last refresh month changed, add 50? We'll implement monthly check: if diamond_monthly >0 and last refresh != today, and day == 1 or month changed, we add. For simplicity, we add diamond monthly on each coin refresh if tier has diamond_monthly and last refresh month != current month
+        $tierCfg = getTierConfig($row['tier']);
+        if (($tierCfg['diamond_monthly'] ?? 0) > 0) {
+            // check if last_coin_refresh month != today month, or we can check if we already gave this month via a separate log? Simplified: if last refresh date's month != today month, give diamond
+            $last = $row['last_coin_refresh'] ?? '';
+            $lastMonth = substr($last, 0, 7);
+            $curMonth = substr($today, 0, 7);
+            if ($lastMonth !== $curMonth) {
+                $addDiamond = intval($tierCfg['diamond_monthly']);
+                $pdo->prepare("UPDATE users SET diamonds=diamonds+?, updated_at=datetime('now') WHERE id=?")->execute([$addDiamond, $row['user_id']]);
+                $pdo->prepare("INSERT INTO diamond_logs (user_id, amount, reason) VALUES (?,?,?)")->execute([$row['user_id'], $addDiamond, 'monthly vip bonus']);
+            }
+        }
+    }
+    return $row;
+}
+
+function requireAuth() {
+    $token = getBearerToken();
+    $user = getUserByToken($token);
+    if (!$user) jsonResponse(['success'=>false,'error'=>'unauthorized'], 401);
+    return $user;
+}
+
+function requireAdmin($user) {
+    if (($user['tier'] ?? '') !== 'admin') jsonResponse(['success'=>false,'error'=>'forbidden'], 403);
+}
+
+function getInput() {
+    $ct = $_SERVER['CONTENT_TYPE'] ?? '';
+    if (strpos($ct, 'application/json') !== false) {
+        $raw = file_get_contents('php://input');
+        $data = json_decode($raw, true);
+        return is_array($data) ? $data : [];
+    }
+    // form-data or x-www-form-urlencoded
+    return $_POST;
+}
+
+function ensureUploadDir($userId, $projectId) {
+    global $config;
+    $base = rtrim($config['uploads_dir'], '/');
+    $path = "$base/$userId/$projectId";
+    if (!is_dir($path)) mkdir($path, 0775, true);
+    return $path;
+}
+
+function calcUserStorage($userId) {
+    global $config;
+    $base = rtrim($config['uploads_dir'], '/') . "/$userId";
+    if (!is_dir($base)) return 0;
+    $size = 0;
+    $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($base, FilesystemIterator::SKIP_DOTS));
+    foreach ($it as $file) {
+        if ($file->isFile()) $size += $file->getSize();
+    }
+    return $size;
+}
+
+function calcProjectSize($userId, $projectId) {
+    global $config;
+    $base = rtrim($config['uploads_dir'], '/') . "/$userId/$projectId";
+    if (!is_dir($base)) return 0;
+    $size = 0;
+    $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($base, FilesystemIterator::SKIP_DOTS));
+    foreach ($it as $file) { if ($file->isFile()) $size += $file->getSize(); }
+    return $size;
+}
+
+function base64url_encode_php($data) {
+    return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
+}
+function generatePublicJWT() {
+    global $config;
+    $auth = $config['public_auth'] ?? [];
+    $secret = $auth['jwt_secret'] ?? 'sufo888';
+    $sub = $auth['sub'] ?? 'api-client';
+    $ttlMin = intval($auth['ttl_min'] ?? 30);
+    $header = ['alg'=>'HS256','typ'=>'JWT'];
+    $now = time();
+    // leeway 60s for clock skew like TokenManager refreshLead
+    $payload = ['sub'=>$sub,'iat'=>$now - 60,'exp'=>$now + $ttlMin*60];
+    $h = base64url_encode_php(json_encode($header, JSON_UNESCAPED_SLASHES));
+    $p = base64url_encode_php(json_encode($payload, JSON_UNESCAPED_SLASHES));
+    $sig = hash_hmac('sha256', "$h.$p", $secret, true);
+    $sigB64 = base64url_encode_php($sig);
+    return "$h.$p.$sigB64";
+}
+function buildCurlHeaders($apiKey, $jwt){
+    $headers = [];
+    if ($apiKey) $headers[] = "X-API-Key: $apiKey";
+    if ($jwt) $headers[] = "Authorization: Bearer $jwt";
+    return $headers;
+}
+function applyRobustCurlOptions($ch){
+    // Mirror browser resilience: ignore SSL CA issues, force IPv4, add UA, follow redirects, handle gzip
+    // Use browser-like UA to avoid WAF blocking datacenter UA
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+    curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+    curl_setopt($ch, CURLOPT_ENCODING, '');
+    curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
+    curl_setopt($ch, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
+    // Force TLS 1.2+ like browser
+    if (defined('CURL_SSLVERSION_TLSv1_2')) curl_setopt($ch, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_2);
+    // timeouts set outside
+}
+function buildBrowserHeaders($apiKey, $jwt){
+    $h = [];
+    if ($apiKey) $h[] = "X-API-Key: $apiKey";
+    if ($jwt) $h[] = "Authorization: Bearer $jwt";
+    $h[] = "Accept: application/json, text/plain, */*";
+    $h[] = "Accept-Language: en-US,en;q=0.9,id;q=0.8";
+    $h[] = "Cache-Control: no-cache";
+    $h[] = "Pragma: no-cache";
+    $h[] = "Origin: https://www.xpcore.net";
+    $h[] = "Referer: https://www.xpcore.net/";
+    return $h;
+}
+
+
+function proxyToPublicServer($endpoint, $payload, $isFormData = false) {
+    global $config;
+    $servers = $config['public_servers'] ?? [];
+    shuffle($servers);
+    $path = $config['endpoints'][$endpoint] ?? "/$endpoint";
+
+    $auth = $config['public_auth'] ?? [];
+    $apiKey = $auth['api_key'] ?? 'kalaubutuhapikeysulapfotohubungiadminmurahdanunlimited';
+    $jwt = generatePublicJWT();
+
+    // OPTIMIZED: Use curl_multi parallel like multi-app.html Promise.all, return first success (fastest)
+    // Previously sequential loop caused 9*10s timeout = very slow on hosting with firewall
+    $mh = curl_multi_init();
+    $handles = [];
+    $tmpFilesToCleanup = []; // keep refs for FormData temp files if needed (already handled outside)
+
+    foreach ($servers as $i=>$base){
+        $url = rtrim($base, '/') . $path;
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 30); // reduced from 75 to 30 for faster failover (multi-app uses 8s)
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5); // reduced from 10 to 5
+        applyRobustCurlOptions($ch);
+        $headers = buildBrowserHeaders($apiKey, $jwt);
+        if ($isFormData) {
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+        } else {
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, is_string($payload) ? $payload : json_encode($payload, JSON_UNESCAPED_SLASHES));
+            $headers[] = 'Content-Type: application/json';
+            curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+        }
+        curl_multi_add_handle($mh, $ch);
+        $handles[$i] = ['ch'=>$ch, 'base'=>$base, 'url'=>$url];
+    }
+
+    $running = null;
+    $firstSuccess = null;
+    $lastError = null;
+    $lastCode = 0;
+
+    // Execute parallel, but with early exit when first success found (like Promise.race)
+    do {
+        $status = curl_multi_exec($mh, $running);
+        // Check for completed handles
+        while ($info = curl_multi_info_read($mh)) {
+            $ch = $info['handle'];
+            $idx = null;
+            foreach ($handles as $k=>$h) { if ($h['ch']===$ch) { $idx=$k; break; } }
+            if ($idx===null) continue;
+            $resp = curl_multi_getcontent($ch);
+            $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $err = curl_error($ch);
+            $base = $handles[$idx]['base'];
+
+            if ($resp !== false && $code >=200 && $code <300) {
+                $decoded = json_decode($resp, true);
+                if (json_last_error()===JSON_ERROR_NONE) {
+                    $firstSuccess = $decoded;
+                    break 2; // break both loops - we have success
+                }
+                if (!empty($resp)) {
+                    $firstSuccess = ['success'=>true,'raw'=>$resp,'imageUrl'=>$resp];
+                    break 2;
+                }
+            }
+            $lastError = $err ?: "HTTP $code";
+            $lastCode = $code;
+            error_log("[proxyToPublicServer-parallel] $endpoint failed base=".substr($base,0,40)." code=$code err=$err");
+        }
+        if ($firstSuccess) break;
+        // Prevent busy loop
+        if ($running) curl_multi_select($mh, 0.5);
+    } while ($running > 0);
+
+    // Cleanup
+    foreach ($handles as $h) {
+        curl_multi_remove_handle($mh, $h['ch']);
+        curl_close($h['ch']);
+    }
+    curl_multi_close($mh);
+
+    if ($firstSuccess) return $firstSuccess;
+
+    // If parallel all failed, fallback to sequential retry with fresh JWT (old logic as last resort)
+    $jwt2 = generatePublicJWT();
+    foreach ($servers as $base) {
+        $url = rtrim($base, '/') . $path;
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 20);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
+        applyRobustCurlOptions($ch);
+        $headers = buildBrowserHeaders($apiKey, $jwt2);
+        if ($isFormData) {
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+        } else {
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, is_string($payload) ? $payload : json_encode($payload, JSON_UNESCAPED_SLASHES));
+            $headers[] = 'Content-Type: application/json';
+            curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+        }
+        $resp = curl_exec($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $err = curl_error($ch);
+        curl_close($ch);
+        if ($resp !== false && $code >=200 && $code <300) {
+            $decoded = json_decode($resp, true);
+            if (json_last_error()===JSON_ERROR_NONE) return $decoded;
+            if (!empty($resp)) return ['success'=>true,'raw'=>$resp,'imageUrl'=>$resp];
+        }
+        $lastError = $err ?: "HTTP $code";
+        $lastCode = $code;
+    }
+
+    $msg = "Server AI sedang sibuk, coba lagi beberapa saat. Jika terus gagal hubungi admin.";
+    if ($lastCode === 401 || $lastCode === 403) {
+        $msg = "Server AI sedang sibuk (auth gagal), coba lagi. Jika terus gagal hubungi admin.";
+    } else if ($lastCode==0 || $lastCode>=500){
+        $msg = "Koneksi ke Server AI terputus, coba lagi beberapa saat. (Hosting firewall mungkin block outbound, tapi client-side check di Admin Panel bisa tetap ONLINE)";
+    }
+    return ['success'=>false,'error'=>$msg,'code'=>$lastCode,'debug'=>$lastError];
+}
+
+function proxyToPrivateGemini($prompt, $images = [], $mode = 'chat', $options = []) {
+    $priv = getPrivateConfig();
+    if (empty($priv['enabled']) || empty($priv['api_key'])) {
+        return ['success'=>false,'error'=>'Private server not configured'];
+    }
+    $apiKey = $priv['api_key'];
+    $base = rtrim($priv['base_url'] ?? 'https://generativelanguage.googleapis.com', '/');
+
+    // Determine model with override support - UNIFIED: text_model is already lite (hemat)
+    if ($mode === 'generate') {
+        $model = $options['model'] ?? $priv['image_model'] ?? 'gemini-3.1-flash-image';
+    } else {
+        $model = $options['model'] ?? $priv['text_model'] ?? 'gemini-3.1-flash-lite';
+    }
+
+    // === TEXT / CHAT MODE ===
+    if ($mode === 'chat') {
+        $url = "$base/v1beta/models/$model:generateContent?key=$apiKey";
+        $parts = [['text'=>$prompt]];
+        foreach ($images as $imgDataUrl) {
+            if (preg_match('/data:(.*?);base64,(.*)/', $imgDataUrl, $m)) {
+                $parts[] = ['inline_data'=>['mime_type'=>$m[1],'data'=>$m[2]]];
+            }
+        }
+        $payloadArr = ['contents'=>[['parts'=>$parts]]];
+
+        // Optional response_schema for JSON output (cost saving + accuracy)
+        if (!empty($options['response_schema'])) {
+            $schema = $options['response_schema'];
+            if (is_string($schema)) {
+                $decodedSchema = json_decode($schema, true);
+                if ($decodedSchema) $schema = $decodedSchema;
+            }
+            $payloadArr['generationConfig'] = [
+                'responseMimeType' => 'application/json',
+                'responseSchema' => $schema,
+                'temperature' => $options['temperature'] ?? 0.2,
+                'maxOutputTokens' => $options['max_tokens'] ?? 8192
+            ];
+        } else {
+            // cost efficient defaults for analysis
+            $payloadArr['generationConfig'] = [
+                'temperature' => $options['temperature'] ?? 0.3,
+                'maxOutputTokens' => $options['max_tokens'] ?? 8192
+            ];
+            // if prompt asks for JSON, hint model to output JSON only
+            if (stripos($prompt, 'Return JSON') !== false || stripos($prompt, 'JSON') !== false) {
+                $payloadArr['generationConfig']['responseMimeType'] = 'application/json';
+            }
+        }
+
+        $payload = json_encode($payloadArr, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 90);
+        $resp = curl_exec($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $err = curl_error($ch);
+        curl_close($ch);
+        $decoded = json_decode($resp, true);
+        if (isset($decoded['candidates'][0]['content']['parts'][0]['text'])) {
+            return ['success'=>true,'response'=>$decoded['candidates'][0]['content']['parts'][0]['text'], 'model'=>$model, 'raw'=>$decoded];
+        }
+        // If schema was used, sometimes text is still in candidates
+        if ($decoded) {
+            // try to extract text anyway
+            if (isset($decoded['candidates'])) {
+                return ['success'=>false,'error'=>'Gemini returned no text','raw'=>$decoded,'code'=>$code,'model'=>$model];
+            }
+            return $decoded;
+        }
+        return ['success'=>false,'error'=>"Gemini text error $code: $resp err:$err", 'model'=>$model];
+    }
+
+    // === IMAGE GENERATION MODE ===
+    // Try Interactions API for nano-banana models
+    $isNanoBanana = (stripos($model, 'flash-image') !== false || stripos($model, 'image-preview') !== false || stripos($model, 'flash-lite-image') !== false);
+
+    if ($isNanoBanana) {
+        // Use new Interactions API (cost efficient, supports 16:9)
+        $url = "$base/v1beta/interactions?key=$apiKey";
+        // Alternative endpoint: /v1beta/models/{model}:generateContent with responseModalities IMAGE also works for 2.5
+        // We'll try interactions first
+
+        $inputBlocks = [];
+        $inputBlocks[] = ['type'=>'text','text'=>$prompt];
+        foreach ($images as $imgDataUrl) {
+            if (preg_match('/data:(.*?);base64,(.*)/', $imgDataUrl, $m)) {
+                $mime = $m[1];
+                $b64 = $m[2];
+                $inputBlocks[] = ['type'=>'image','mime_type'=>$mime,'data'=>$b64];
+            }
+        }
+
+        // ENFORCED: hasil image hanya 1K max dengan 16:9 untuk hemat biaya (sesuai request)
+        $aspect = '16:9'; // paksa 16:9
+        $imageSize = '1K'; // paksa 1K max, bukan 2K
+        // allow override only if explicitly allowed, but default enforced
+        if (!empty($priv['image_aspect'])) $aspect = $priv['image_aspect'];
+        if (!empty($priv['image_size'])) $imageSize = $priv['image_size'];
+        // force 16:9 & 1K regardless of frontend request untuk private server
+        $aspect = '16:9';
+        $imageSize = '1K';
+
+        $payloadArr = [
+            'model' => $model,
+            'input' => $inputBlocks,
+            'response_format' => [
+                'type' => 'image',
+                'aspect_ratio' => $aspect,
+                'image_size' => $imageSize
+            ]
+        ];
+
+        $payload = json_encode($payloadArr, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            'Content-Type: application/json',
+            'x-goog-api-key: '.$apiKey,
+            'Api-Revision: 2026-05-20'
+        ]);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 120);
+        $resp = curl_exec($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $err = curl_error($ch);
+        curl_close($ch);
+        $decoded = json_decode($resp, true);
+
+        if ($decoded) {
+            // Parse output_image
+            $imageData = null;
+            $mime = 'image/png';
+            if (isset($decoded['output_image']['data'])) {
+                $imageData = $decoded['output_image']['data'];
+                $mime = $decoded['output_image']['mime_type'] ?? 'image/png';
+            } elseif (isset($decoded['output_images'][0]['data'])) {
+                $imageData = $decoded['output_images'][0]['data'];
+                $mime = $decoded['output_images'][0]['mime_type'] ?? 'image/png';
+            } elseif (isset($decoded['steps'])) {
+                foreach ($decoded['steps'] as $step) {
+                    if (($step['type'] ?? '') === 'model_output' && isset($step['content'])) {
+                        foreach ($step['content'] as $block) {
+                            if (($block['type'] ?? '') === 'image' && isset($block['data'])) {
+                                $imageData = $block['data'];
+                                $mime = $block['mime_type'] ?? 'image/png';
+                                break 2;
+                            }
+                        }
+                    }
+                }
+            } elseif (isset($decoded['candidates'][0]['content']['parts'])) {
+                // fallback generateContent style
+                foreach ($decoded['candidates'][0]['content']['parts'] as $part) {
+                    if (isset($part['inlineData']['data'])) {
+                        $imageData = $part['inlineData']['data'];
+                        $mime = $part['inlineData']['mimeType'] ?? 'image/png';
+                        break;
+                    }
+                    if (isset($part['inline_data']['data'])) {
+                        $imageData = $part['inline_data']['data'];
+                        $mime = $part['inline_data']['mime_type'] ?? 'image/png';
+                        break;
+                    }
+                }
+            }
+
+            if ($imageData) {
+                $dataUrl = "data:$mime;base64,$imageData";
+                return ['success'=>true,'imageUrl'=>$dataUrl,'model'=>$model,'raw'=>$decoded];
+            }
+            // If no image but has text error, return error
+            if (isset($decoded['error'])) {
+                return ['success'=>false,'error'=>'Gemini image error: '.json_encode($decoded['error']),'code'=>$code,'model'=>$model,'raw'=>$decoded];
+            }
+            // If we got here, try fallback to generateContent method
+        }
+
+        // Fallback: try generateContent with IMAGE modality (works for gemini-2.5-flash-image-preview)
+        $url2 = "$base/v1beta/models/$model:generateContent?key=$apiKey";
+        $parts = [['text'=>$prompt]];
+        foreach ($images as $imgDataUrl) {
+            if (preg_match('/data:(.*?);base64,(.*)/', $imgDataUrl, $m)) {
+                $parts[] = ['inline_data'=>['mime_type'=>$m[1],'data'=>$m[2]]];
+            }
+        }
+        $payloadArr2 = [
+            'contents'=>[['parts'=>$parts]],
+            'generationConfig'=>[
+                'responseModalities'=>['IMAGE','TEXT'],
+                'imageConfig'=>[
+                    'aspectRatio'=>$aspect
+                ]
+            ]
+        ];
+        $payload2 = json_encode($payloadArr2, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $ch2 = curl_init($url2);
+        curl_setopt($ch2, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch2, CURLOPT_POST, true);
+        curl_setopt($ch2, CURLOPT_POSTFIELDS, $payload2);
+        curl_setopt($ch2, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+        curl_setopt($ch2, CURLOPT_TIMEOUT, 120);
+        $resp2 = curl_exec($ch2);
+        $code2 = curl_getinfo($ch2, CURLINFO_HTTP_CODE);
+        $err2 = curl_error($ch2);
+        curl_close($ch2);
+        $decoded2 = json_decode($resp2, true);
+        if ($decoded2 && isset($decoded2['candidates'][0]['content']['parts'])) {
+            foreach ($decoded2['candidates'][0]['content']['parts'] as $part) {
+                if (isset($part['inlineData']['data'])) {
+                    $mime = $part['inlineData']['mimeType'] ?? 'image/png';
+                    $dataUrl = "data:$mime;base64,".$part['inlineData']['data'];
+                    return ['success'=>true,'imageUrl'=>$dataUrl,'model'=>$model,'raw'=>$decoded2];
+                }
+                if (isset($part['inline_data']['data'])) {
+                    $mime = $part['inline_data']['mime_type'] ?? 'image/png';
+                    $dataUrl = "data:$mime;base64,".$part['inline_data']['data'];
+                    return ['success'=>true,'imageUrl'=>$dataUrl,'model'=>$model,'raw'=>$decoded2];
+                }
+            }
+        }
+        return ['success'=>false,'error'=>"Gemini image error fallback $code2: ".substr($resp2,0,500)." err:$err2",'model'=>$model];
+    } else {
+        // Legacy Imagen model via predict
+        $url = "$base/v1beta/models/$model:predict?key=$apiKey";
+        $instances = [['prompt'=>$prompt]];
+        $payload = json_encode(['instances'=>$instances]);
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 90);
+        $resp = curl_exec($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        $decoded = json_decode($resp, true);
+        if ($decoded) {
+            // Try to extract image
+            if (isset($decoded['predictions'][0]['bytesBase64Encoded'])) {
+                $b64 = $decoded['predictions'][0]['bytesBase64Encoded'];
+                return ['success'=>true,'imageUrl'=>"data:image/png;base64,$b64",'model'=>$model,'raw'=>$decoded];
+            }
+            return $decoded;
+        }
+        return ['success'=>false,'error'=>"Gemini image error $code: $resp",'model'=>$model];
+    }
+}
+
+function proxyToOpenRouter($prompt, $images = [], $mode = 'chat', $options = []) {
+    $cfg = getOpenRouterConfig();
+    if (empty($cfg['enabled']) || empty($cfg['api_key'])) {
+        return ['success'=>false,'error'=>'OpenRouter not configured'];
+    }
+    $apiKey = $cfg['api_key'];
+    $base = rtrim($cfg['base_url'] ?? 'https://openrouter.ai/api/v1', '/');
+
+    if ($mode === 'chat') {
+        $model = $options['model'] ?? $cfg['text_model'] ?? 'google/gemma-3-27b-it:free';
+        if (!empty($images) && !empty($cfg['vision_model'])) {
+            $model = $options['vision_model'] ?? $cfg['vision_model'];
+        }
+        $url = "$base/chat/completions";
+        $content = [];
+        $content[] = ['type'=>'text','text'=>$prompt];
+        foreach ($images as $imgDataUrl) {
+            if (strpos($imgDataUrl, 'data:')===0) {
+                $content[] = ['type'=>'image_url','image_url'=>['url'=>$imgDataUrl]];
+            }
+        }
+        $payload = [
+            'model'=>$model,
+            'messages'=>[['role'=>'user','content'=>$content]],
+            'max_tokens'=>$options['max_tokens'] ?? 8192,
+            'temperature'=>$options['temperature'] ?? 0.3
+        ];
+        if (!empty($options['response_schema'])) {
+            $payload['response_format'] = ['type'=>'json_object'];
+        }
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload, JSON_UNESCAPED_UNICODE));
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            'Content-Type: application/json',
+            'Authorization: Bearer '.$apiKey,
+            'HTTP-Referer: https://www.xpcore.net/',
+            'X-Title: AiSlide'
+        ]);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 90);
+        $resp = curl_exec($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $err = curl_error($ch);
+        curl_close($ch);
+        $decoded = json_decode($resp, true);
+        if (isset($decoded['choices'][0]['message']['content'])) {
+            return ['success'=>true,'response'=>$decoded['choices'][0]['message']['content'],'model'=>$model,'raw'=>$decoded];
+        }
+        return ['success'=>false,'error'=>"OpenRouter chat error $code: ".substr($resp,0,500)." err:$err",'model'=>$model,'raw'=>$decoded??$resp];
+    } else {
+        $model = $options['model'] ?? $cfg['image_model'] ?? 'openai/gpt-image-2';
+        // ENFORCE 1K MAX untuk irit token - jangan pernah pakai >1024
+        $url = "$base/images/generations";
+        $payload = [
+            'model'=>$model,
+            'prompt'=>$prompt,
+            'n'=>1,
+            'size'=>'1024x576', // 16:9 1K - irit token
+        ];
+        if (stripos($model,'gpt-image')!==false) {
+            // gpt-image-2, gpt-image-1-mini, gpt-image-1 semua pakai 1024x1024 max (1K) untuk irit
+            // gpt-image-2 cheapest $0.006, support 1024x1024, 1024x1536 etc tapi kita paksa 1K
+            $payload['size']='1024x1024'; // 1K square, nanti prompt bilang 16:9
+            // Optional: quality low for gpt-image-2 to save cost
+            if (stripos($model,'gpt-image-2')!==false) {
+                $payload['quality']='low'; // low = cheapest, still good
+            } else {
+                $payload['quality']='medium'; // medium for mini/1
+            }
+        }
+        // Flux & others also enforce 1K
+        if (stripos($model,'flux')!==false) {
+            $payload['size']='1024x576'; // flux schnell 1K
+        }
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload, JSON_UNESCAPED_UNICODE));
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            'Content-Type: application/json',
+            'Authorization: Bearer '.$apiKey,
+            'HTTP-Referer: https://www.xpcore.net/',
+            'X-Title: AiSlide'
+        ]);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 120);
+        $resp = curl_exec($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $err = curl_error($ch);
+        curl_close($ch);
+        $decoded = json_decode($resp, true);
+        if (isset($decoded['data'][0]['b64_json'])) {
+            $b64 = $decoded['data'][0]['b64_json'];
+            return ['success'=>true,'imageUrl'=>"data:image/png;base64,$b64",'model'=>$model,'raw'=>$decoded];
+        }
+        if (isset($decoded['data'][0]['url'])) {
+            return ['success'=>true,'imageUrl'=>$decoded['data'][0]['url'],'model'=>$model,'raw'=>$decoded];
+        }
+        if ($code>=400) {
+            $url2 = "$base/images";
+            $ch2 = curl_init($url2);
+            curl_setopt($ch2, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch2, CURLOPT_POST, true);
+            curl_setopt($ch2, CURLOPT_POSTFIELDS, json_encode($payload, JSON_UNESCAPED_UNICODE));
+            curl_setopt($ch2, CURLOPT_HTTPHEADER, [
+                'Content-Type: application/json',
+                'Authorization: Bearer '.$apiKey,
+                'HTTP-Referer: https://www.xpcore.net/',
+                'X-Title: AiSlide'
+            ]);
+            curl_setopt($ch2, CURLOPT_TIMEOUT, 120);
+            $resp2 = curl_exec($ch2);
+            $code2 = curl_getinfo($ch2, CURLINFO_HTTP_CODE);
+            $err2 = curl_error($ch2);
+            curl_close($ch2);
+            $decoded2 = json_decode($resp2, true);
+            if (isset($decoded2['data'][0]['b64_json'])) {
+                $b64 = $decoded2['data'][0]['b64_json'];
+                return ['success'=>true,'imageUrl'=>"data:image/png;base64,$b64",'model'=>$model,'raw'=>$decoded2];
+            }
+            return ['success'=>false,'error'=>"OpenRouter image error $code2: ".substr($resp2,0,500)." err:$err2",'model'=>$model];
+        }
+        return ['success'=>false,'error'=>"OpenRouter image error $code: ".substr($resp,0,500)." err:$err",'model'=>$model,'raw'=>$decoded??$resp];
+    }
+}
+
+// Routing
+$action = $_GET['action'] ?? $_POST['action'] ?? '';
+if (!$action) {
+    $jsonInput = getInput();
+    $action = $jsonInput['action'] ?? '';
+}
+$action = trim($action);
+$input = getInput();
+
+// For multipart/form-data, $_POST may contain action, but files in $_FILES
+if (empty($action) && isset($_GET['action'])) $action = $_GET['action'];
+
+switch ($action) {
+    // Public registration catalogue: explicit allowlist, never expose admin_config_get.
+    case 'registration_info': {
+        header('Cache-Control: no-store');
+        $pdo = db();
+        $stmt = $pdo->prepare("SELECT value FROM app_config WHERE key='wa_admin'");
+        $stmt->execute();
+        $stored = $stmt->fetchColumn();
+        $wa = $stored !== false ? (json_decode($stored, true) ?? $stored) : ($config['wa_admin'] ?? '');
+        $wa = is_scalar($wa) ? preg_replace('/[^0-9]/', '', (string)$wa) : '';
+        if (substr($wa, 0, 1) === '0') $wa = '62'.substr($wa, 1);
+        if (!preg_match('/^[1-9][0-9]{7,14}$/', $wa)) $wa = '';
+        $plans = [];
+        $publicFields = ['label','price','price_yearly_total','coins_daily','storage_mb','max_devices','diamond_bonus','diamond_monthly','is_custom'];
+        foreach (['micro','regular','premium','vip','organization'] as $tier) {
+            $tierConfig = getTierConfig($tier);
+            $plan = ['id'=>$tier];
+            foreach ($publicFields as $field) {
+                if (array_key_exists($field, $tierConfig)) $plan[$field] = $tierConfig[$field];
+            }
+            $plans[] = $plan;
+        }
+        jsonResponse(['success'=>true, 'wa_admin'=>$wa, 'plans'=>$plans]);
+        break;
+    }
+    case 'login': {
+        $username = trim($input['username'] ?? $_POST['username'] ?? '');
+        $password = $input['password'] ?? $_POST['password'] ?? '';
+        $device = substr($input['device'] ?? $_POST['device'] ?? ($_SERVER['HTTP_USER_AGENT'] ?? 'unknown'), 0, 200);
+        if (!$username || !$password) jsonResponse(['success'=>false,'error'=>'Username & password required'], 400);
+        $pdo = db();
+        $stmt = $pdo->prepare("SELECT * FROM users WHERE username=?");
+        $stmt->execute([$username]);
+        $user = $stmt->fetch();
+        if (!$user || !password_verify($password, $user['password_hash'])) {
+            jsonResponse(['success'=>false,'error'=>'Invalid credentials'], 401);
+        }
+        // check expiry - still allow login but flag expired
+        $isExpired = isUserExpired($user);
+
+        // device limit per tier - HYBRID with confirmation
+        $tierCfg = getTierConfig($user['tier']);
+        $maxDevices = $tierCfg['max_devices'] ?? $config['auth']['max_devices_default'] ?? 1;
+        $force = !empty($input['force']) || !empty($input['force_logout']) || !empty($_POST['force']) || !empty($_POST['force_logout']);
+        $stmt = $pdo->prepare("SELECT COUNT(*) as c FROM user_sessions WHERE user_id=? AND (expires_at IS NULL OR expires_at > datetime('now'))");
+        $stmt->execute([$user['id']]);
+        $count = $stmt->fetch()['c'] ?? 0;
+        if ($count >= $maxDevices) {
+            if ($maxDevices == 1) {
+                // for single device, auto-kick oldest (allow login but replace) - no confirmation needed
+                $pdo->prepare("DELETE FROM user_sessions WHERE id IN (SELECT id FROM user_sessions WHERE user_id=? ORDER BY last_active ASC LIMIT 1)")->execute([$user['id']]);
+            } else {
+                // for multi device (2, 50, 100), if not force, return device list + error for confirmation
+                if (!$force) {
+                    $stmt2 = $pdo->prepare("SELECT id, device_info, ip, created_at, last_active FROM user_sessions WHERE user_id=? AND (expires_at IS NULL OR expires_at > datetime('now')) ORDER BY last_active DESC");
+                    $stmt2->execute([$user['id']]);
+                    $active = $stmt2->fetchAll();
+                    jsonResponse([
+                        'success'=>false,
+                        'error'=>'device_limit',
+                        'message'=>"Maksimal $maxDevices device login bersamaan untuk tier {$user['tier']}. Anda sudah login di $count device. Logout device lain dulu atau force logout tertua?",
+                        'max_devices'=>$maxDevices,
+                        'current_count'=>$count,
+                        'active_sessions'=>$active,
+                        'need_confirmation'=>true
+                    ], 403);
+                } else {
+                    // force=1 -> kick oldest
+                    $pdo->prepare("DELETE FROM user_sessions WHERE id IN (SELECT id FROM user_sessions WHERE user_id=? ORDER BY last_active ASC LIMIT 1)")->execute([$user['id']]);
+                }
+            }
+        }
+        $token = bin2hex(random_bytes(32));
+        $ttlHours = $config['auth']['token_ttl_hours'] ?? 168;
+        $pdo->prepare("INSERT INTO user_sessions (user_id, token, device_info, ip, expires_at) VALUES (?,?,?,?,datetime('now','+{$ttlHours} hours'))")
+            ->execute([$user['id'], $token, $device, $_SERVER['REMOTE_ADDR'] ?? '']);
+
+        // refresh coins with cap logic (same as getUserByToken)
+        $today = date('Y-m-d');
+        if (($user['last_coin_refresh'] ?? '') !== $today && $user['tier'] !== 'admin') {
+            $daily = $tierCfg['coins_daily'] ?? 10;
+            $max = $tierCfg['coins_max'] ?? 15;
+            $cur = intval($user['coins'] ?? 0);
+            if ($daily !== -1 && $max !== -1) {
+                if ($cur < $max) {
+                    $newCoins = min($max, $cur + $daily);
+                    $pdo->prepare("UPDATE users SET coins=?, last_coin_refresh=date('now'), updated_at=datetime('now') WHERE id=?")->execute([$newCoins, $user['id']]);
+                    $user['coins'] = $newCoins;
+                } else {
+                    $pdo->prepare("UPDATE users SET last_coin_refresh=date('now') WHERE id=?")->execute([$user['id']]);
+                }
+            } else {
+                $pdo->prepare("UPDATE users SET last_coin_refresh=date('now') WHERE id=?")->execute([$user['id']]);
+            }
+        }
+
+        unset($user['password_hash']);
+        $user['is_expired'] = $isExpired;
+        jsonResponse(['success'=>true,'token'=>$token,'user'=>$user]);
+        break;
+    }
+    case 'me': {
+        $user = requireAuth();
+        unset($user['password_hash']);
+        unset($user['token']);
+        $user['is_expired'] = isUserExpired($user);
+        $user['tier_config'] = getTierConfig($user['tier']);
+        jsonResponse(['success'=>true,'user'=>$user]);
+        break;
+    }
+    case 'sessions': {
+        $user = requireAuth();
+        $pdo = db();
+        $uid = $user['user_id'] ?? $user['id'];
+        $stmt = $pdo->prepare("SELECT id, device_info, ip, created_at, last_active, expires_at FROM user_sessions WHERE user_id=? AND (expires_at IS NULL OR expires_at > datetime('now')) ORDER BY last_active DESC");
+        $stmt->execute([$uid]);
+        $sessions = $stmt->fetchAll();
+        $tierCfg = getTierConfig($user['tier']);
+        jsonResponse(['success'=>true,'sessions'=>$sessions,'max_devices'=>$tierCfg['max_devices']??1,'count'=>count($sessions)]);
+        break;
+    }
+    case 'session_logout': {
+        $user = requireAuth();
+        $pdo = db();
+        $uid = $user['user_id'] ?? $user['id'];
+        $sid = $input['session_id'] ?? $_GET['session_id'] ?? null;
+        if ($sid) {
+            $pdo->prepare("DELETE FROM user_sessions WHERE id=? AND user_id=?")->execute([$sid, $uid]);
+        } else {
+            // logout all except current token
+            $token = getBearerToken();
+            $pdo->prepare("DELETE FROM user_sessions WHERE user_id=? AND token!=?")->execute([$uid, $token]);
+        }
+        jsonResponse(['success'=>true]);
+        break;
+    }
+    case 'logout': {
+        $token = getBearerToken();
+        if ($token) {
+            $pdo = db();
+            $pdo->prepare("DELETE FROM user_sessions WHERE token=?")->execute([$token]);
+        }
+        jsonResponse(['success'=>true]);
+        break;
+    }
+    case 'storage_check': {
+        $user = requireAuth();
+        $used = calcUserStorage($user['user_id'] ?? $user['id']);
+        $limitMb = $user['storage_limit_mb'] ?? $config['storage']['max_mb_default'] ?? 50;
+        $limitBytes = $limitMb * 1024 * 1024;
+        $percent = $limitBytes > 0 ? round(($used / $limitBytes) * 100, 2) : 0;
+        jsonResponse(['success'=>true,'used_bytes'=>$used,'limit_mb'=>$limitMb,'percent'=>$percent]);
+        break;
+    }
+    case 'projects': {
+        $user = requireAuth();
+        $pdo = db();
+        $stmt = $pdo->prepare("SELECT * FROM projects WHERE user_id=? ORDER BY updated_at DESC");
+        $stmt->execute([$user['user_id'] ?? $user['id']]);
+        $projects = $stmt->fetchAll();
+        $uid = $user['user_id'] ?? $user['id'];
+        foreach ($projects as &$p) {
+            $p['size_bytes'] = calcProjectSize($uid, $p['id']);
+            // try to get preview image from data.json
+            $preview = null;
+            $dir = rtrim($config['uploads_dir'],'/') . "/$uid/{$p['id']}";
+            $dataPath = "$dir/data.json";
+            if (file_exists($dataPath)) {
+                $content = @file_get_contents($dataPath);
+                $json = json_decode($content, true);
+                if ($json) {
+                    // manual: images {0: dataUrl}
+                    if (isset($json['images']) && is_array($json['images'])) {
+                        foreach ($json['images'] as $img) {
+                            if ($img) { $preview = $img; break; }
+                        }
+                    }
+                    // auto: slideImages
+                    if (!$preview && isset($json['slideImages']) && is_array($json['slideImages'])) {
+                        foreach ($json['slideImages'] as $img) {
+                            if ($img) { $preview = $img; break; }
+                        }
+                    }
+                    // fallback check data['images'] nested?
+                    if (!$preview && isset($json['form'])) {
+                        // no image in form
+                    }
+                }
+            }
+            // fallback: check image files on disk
+            if (!$preview && is_dir($dir)) {
+                $candidates = glob("$dir/image_*.jpg");
+                if ($candidates && count($candidates)>0) {
+                    // return as web path
+                    $fname = basename($candidates[0]);
+                    $preview = "/aislide/uploads/$uid/{$p['id']}/$fname";
+                } else {
+                    $candidates2 = glob("$dir/*.jpg");
+                    if ($candidates2) {
+                        $fname = basename($candidates2[0]);
+                        $preview = "/aislide/uploads/$uid/{$p['id']}/$fname";
+                    }
+                }
+            }
+            $p['preview'] = $preview;
+            // ensure topic fallback from title if empty
+            if (empty($p['topic']) && !empty($p['title'])) {
+                $p['topic'] = $p['title'];
+            }
+        }
+        jsonResponse(['success'=>true,'projects'=>$projects]);
+        break;
+    }
+    case 'project_get': {
+        $user = requireAuth();
+        $id = $_GET['id'] ?? $input['id'] ?? null;
+        if (!$id) jsonResponse(['success'=>false,'error'=>'id required'],400);
+        $pdo = db();
+        $stmt = $pdo->prepare("SELECT * FROM projects WHERE id=? AND user_id=?");
+        $stmt->execute([$id, $user['user_id'] ?? $user['id']]);
+        $proj = $stmt->fetch();
+        if (!$proj) jsonResponse(['success'=>false,'error'=>'not found'],404);
+        $uid = $user['user_id'] ?? $user['id'];
+        $dir = ensureUploadDir($uid, $proj['id']);
+        $files = [];
+        if (is_dir($dir)) {
+            $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS));
+            foreach ($it as $file) {
+                if ($file->isFile()) {
+                    $rel = str_replace($dir.'/', '', $file->getPathname());
+                    $files[] = ['name'=>$rel,'size'=>$file->getSize(),'path'=>"/aislide/uploads/$uid/{$proj['id']}/$rel"];
+                }
+            }
+        }
+        // try read data.json
+        $data = null;
+        $dataPath = "$dir/data.json";
+        if (file_exists($dataPath)) {
+            $data = json_decode(file_get_contents($dataPath), true);
+        }
+        jsonResponse(['success'=>true,'project'=>$proj,'files'=>$files,'data'=>$data]);
+        break;
+    }
+    case 'project_create': {
+        $user = requireAuth();
+        if (isUserExpired($user)) {
+            jsonResponse(['success'=>false,'error'=>'expired','message'=>'Masa berlaku akun habis. Tidak bisa membuat project baru. Hubungi admin untuk perpanjang.'], 403);
+        }
+        $type = $input['type'] ?? 'manual';
+        $title = trim($input['title'] ?? 'Untitled');
+        if (!in_array($type, ['manual','auto'])) $type='manual';
+        $used = calcUserStorage($user['user_id'] ?? $user['id']);
+        $limitMb = $user['storage_limit_mb'] ?? 50;
+        $limitBytes = $limitMb * 1024 * 1024;
+        if ($used >= $limitBytes) jsonResponse(['success'=>false,'error'=>'storage_full','message'=>'Project anda penuh, hapus project lama'], 400);
+        $percent = $limitBytes>0 ? ($used/$limitBytes)*100 : 0;
+        $warning = null;
+        if ($percent >= ($config['storage']['warning_threshold_percent'] ?? 85)) {
+            $warning = "Project anda hampir penuh ({$percent}%), harap hapus project yang tidak dibutuhkan agar project baru anda dapat tersimpan";
+        }
+        $pdo = db();
+        $pdo->prepare("INSERT INTO projects (user_id,type,title,topic) VALUES (?,?,?,?)")->execute([$user['user_id'] ?? $user['id'], $type, $title, $input['topic'] ?? '']);
+        $id = $pdo->lastInsertId();
+        $dir = ensureUploadDir($user['user_id'] ?? $user['id'], $id);
+        file_put_contents("$dir/data.json", json_encode(['title'=>$title,'type'=>$type,'created'=>date('c')], JSON_PRETTY_PRINT));
+        jsonResponse(['success'=>true,'id'=>$id,'warning'=>$warning]);
+        break;
+    }
+    case 'project_save': {
+        $user = requireAuth();
+        // allow save even if expired? For now block if expired to enforce read-only except download
+        if (isUserExpired($user)) {
+            // check if request is only updating size? We block all saves for expired to make it read-only
+            // but allow if data is empty? We'll block to be safe
+            jsonResponse(['success'=>false,'error'=>'expired','message'=>'Masa berlaku habis, project read-only. Hanya bisa download PDF.'], 403);
+        }
+        $id = $input['id'] ?? null;
+        if (!$id) jsonResponse(['success'=>false,'error'=>'id required'],400);
+        $pdo = db();
+        $stmt = $pdo->prepare("SELECT * FROM projects WHERE id=? AND user_id=?");
+        $stmt->execute([$id, $user['user_id'] ?? $user['id']]);
+        $proj = $stmt->fetch();
+        if (!$proj) jsonResponse(['success'=>false,'error'=>'not found'],404);
+        $dir = ensureUploadDir($user['user_id'] ?? $user['id'], $id);
+        $data = $input['data'] ?? null;
+        if ($data) {
+            file_put_contents("$dir/data.json", json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+        }
+        // handle files if FormData
+        if (!empty($_FILES)) {
+            foreach ($_FILES as $key=>$file) {
+                if ($file['error']===UPLOAD_ERR_OK) {
+                    $dest = "$dir/" . basename($file['name']);
+                    move_uploaded_file($file['tmp_name'], $dest);
+                }
+            }
+        }
+        // handle base64 images in data['images'] ?
+        if (isset($data['images']) && is_array($data['images'])) {
+            foreach ($data['images'] as $idx=>$b64) {
+                if (strpos($b64, 'data:image')===0) {
+                    $parts = explode(',', $b64, 2);
+                    $bin = base64_decode($parts[1] ?? '');
+                    if ($bin) file_put_contents("$dir/image_$idx.jpg", $bin);
+                }
+            }
+        }
+        $size = calcProjectSize($user['user_id'] ?? $user['id'], $id);
+        // extract topic from data for projects list display
+        $topicExtract = null;
+        if (isset($data['topic']) && is_string($data['topic'])) $topicExtract = trim($data['topic']);
+        elseif (isset($data['form']['topic']) && is_string($data['form']['topic'])) $topicExtract = trim($data['form']['topic']);
+        elseif (isset($data['title']) && is_string($data['title'])) $topicExtract = trim($data['title']);
+        // title is already from input['title'] which is topic in frontend, but ensure topic column updated
+        $newTitle = $input['title'] ?? null;
+        if ($topicExtract) {
+            if (!$newTitle) $newTitle = $topicExtract;
+            $pdo->prepare("UPDATE projects SET size_bytes=?, updated_at=datetime('now'), title=COALESCE(?,title), topic=COALESCE(?,topic) WHERE id=?")->execute([$size, $newTitle, $topicExtract, $id]);
+        } else {
+            $pdo->prepare("UPDATE projects SET size_bytes=?, updated_at=datetime('now'), title=COALESCE(?,title) WHERE id=?")->execute([$size, $newTitle, $id]);
+        }
+        jsonResponse(['success'=>true,'size_bytes'=>$size]);
+        break;
+    }
+    case 'project_delete': {
+        $user = requireAuth();
+        $id = $input['id'] ?? $_GET['id'] ?? null;
+        if (!$id) jsonResponse(['success'=>false,'error'=>'id required'],400);
+        $pdo = db();
+        $stmt = $pdo->prepare("SELECT * FROM projects WHERE id=? AND user_id=?");
+        $stmt->execute([$id, $user['user_id'] ?? $user['id']]);
+        $proj = $stmt->fetch();
+        if (!$proj) jsonResponse(['success'=>false,'error'=>'not found'],404);
+        $pdo->prepare("DELETE FROM projects WHERE id=?")->execute([$id]);
+        $dir = rtrim($config['uploads_dir'],'/') . "/" . ($user['user_id'] ?? $user['id']) . "/$id";
+        if (is_dir($dir)) {
+            // recursive delete
+            $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
+            foreach ($it as $file) {
+                if ($file->isDir()) rmdir($file->getRealPath());
+                else unlink($file->getRealPath());
+            }
+            @rmdir($dir);
+        }
+        jsonResponse(['success'=>true]);
+        break;
+    }
+    case 'deduct_coin': {
+        $user = requireAuth();
+        if (isUserExpired($user)) jsonResponse(['success'=>false,'error'=>'expired','message'=>'Masa berlaku habis. Tidak bisa generate.'], 403);
+        $amount = intval($input['amount'] ?? 1);
+        $reason = $input['reason'] ?? 'manual slide';
+        $uid = $user['user_id'] ?? $user['id'];
+        $pdo = db();
+        $stmt = $pdo->prepare("SELECT coins, tier FROM users WHERE id=?");
+        $stmt->execute([$uid]);
+        $u = $stmt->fetch();
+        if (($u['coins'] ?? 0) !== -1) {
+            if (($u['coins'] ?? 0) < $amount) jsonResponse(['success'=>false,'error'=>'insufficient_coins','message'=>'Coin tidak cukup'], 400);
+            $pdo->prepare("UPDATE users SET coins=coins-?, updated_at=datetime('now') WHERE id=?")->execute([$amount, $uid]);
+        }
+        $pdo->prepare("INSERT INTO coin_logs (user_id, amount, reason) VALUES (?,?,?)")->execute([$uid, -$amount, $reason]);
+        $stmt = $pdo->prepare("SELECT coins FROM users WHERE id=?");
+        $stmt->execute([$uid]);
+        $newCoins = $stmt->fetch()['coins'];
+        jsonResponse(['success'=>true,'coins'=>$newCoins]);
+        break;
+    }
+    case 'deduct_diamond': {
+        $user = requireAuth();
+        if (isUserExpired($user)) jsonResponse(['success'=>false,'error'=>'expired','message'=>'Masa berlaku habis'], 403);
+        $amount = intval($input['amount'] ?? 1);
+        $reason = $input['reason'] ?? 'auto';
+        $uid = $user['user_id'] ?? $user['id'];
+        $pdo = db();
+        $stmt = $pdo->prepare("SELECT diamonds FROM users WHERE id=?");
+        $stmt->execute([$uid]);
+        $d = $stmt->fetch()['diamonds'] ?? 0;
+        if ($d < $amount) jsonResponse(['success'=>false,'error'=>'insufficient_diamonds','message'=>'Diamond tidak cukup, hubungi admin via WhatsApp. Harga diamond Rp '.($config['costs']['diamond_price']??1000).'/buah'], 400);
+        $pdo->prepare("UPDATE users SET diamonds=diamonds-?, updated_at=datetime('now') WHERE id=?")->execute([$amount, $uid]);
+        $pdo->prepare("INSERT INTO diamond_logs (user_id, amount, reason) VALUES (?,?,?)")->execute([$uid, -$amount, $reason]);
+        $stmt = $pdo->prepare("SELECT diamonds FROM users WHERE id=?");
+        $stmt->execute([$uid]);
+        $new = $stmt->fetch()['diamonds'];
+        jsonResponse(['success'=>true,'diamonds'=>$new]);
+        break;
+    }
+    case 'admin_users': {
+        $user = requireAuth(); requireAdmin($user);
+        $pdo = db();
+        $users = $pdo->query("SELECT id,username,email,tier,coins,diamonds,storage_limit_mb,created_at,last_coin_refresh,expires_at FROM users ORDER BY id DESC")->fetchAll();
+        jsonResponse(['success'=>true,'users'=>$users]);
+        break;
+    }
+    case 'admin_user_create': {
+        $user = requireAuth(); requireAdmin($user);
+        $username = trim($input['username'] ?? '');
+        $email = trim($input['email'] ?? '');
+        $password = $input['password'] ?? '';
+        $tier = $input['tier'] ?? 'micro';
+        if ($tier==='free') $tier='micro';
+        $tierCfg = getTierConfig($tier);
+        $coins = isset($input['coins']) ? intval($input['coins']) : intval($tierCfg['coins_max'] ?? $tierCfg['coins_daily'] ?? 10);
+        $diamonds = isset($input['diamonds']) ? intval($input['diamonds']) : intval($tierCfg['diamond_bonus'] ?? 0);
+        $storage = isset($input['storage_limit_mb']) ? intval($input['storage_limit_mb']) : intval($tierCfg['storage_mb'] ?? 20);
+        $expires = $input['expires_at'] ?? null;
+        if (!$expires) {
+            // default 1 year for non-vip, 1 month for vip if not set? We'll default 1 year for all except vip monthly -> 1 month
+            if ($tier==='vip') $expires = date('Y-m-d', strtotime('+1 month'));
+            else $expires = date('Y-m-d', strtotime('+1 year'));
+        }
+        if (!$username || !$password) jsonResponse(['success'=>false,'error'=>'username & password required'],400);
+        $pdo = db();
+        try {
+            $hash = password_hash($password, PASSWORD_BCRYPT);
+            $pdo->prepare("INSERT INTO users (username,email,password_hash,tier,coins,diamonds,storage_limit_mb,last_coin_refresh,expires_at) VALUES (?,?,?,?,?,?,?,?,?)")
+                ->execute([$username,$email,$hash,$tier,$coins,$diamonds,$storage,date('now'),$expires]);
+            jsonResponse(['success'=>true,'id'=>$pdo->lastInsertId()]);
+        } catch (PDOException $e) {
+            jsonResponse(['success'=>false,'error'=>$e->getMessage()],400);
+        }
+        break;
+    }
+    case 'admin_user_update': {
+        $user = requireAuth(); requireAdmin($user);
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') jsonResponse(['success'=>false,'error'=>'method_not_allowed'],405);
+        $id = filter_var($input['id'] ?? null, FILTER_VALIDATE_INT, ['options'=>['min_range'=>1]]);
+        if (!$id) jsonResponse(['success'=>false,'error'=>'id required'],400);
+        $pdo = db();
+        $target = $pdo->prepare("SELECT id FROM users WHERE id=?");
+        $target->execute([$id]);
+        if (!$target->fetch()) jsonResponse(['success'=>false,'error'=>'User tidak ditemukan'],404);
+        $fields = [];
+        $params = [];
+        foreach (['username','email','tier','coins','diamonds','storage_limit_mb','expires_at'] as $f) {
+            if (isset($input[$f])) { $fields[] = "$f=?"; $params[] = $input[$f]; }
+        }
+        $changingPassword = array_key_exists('password', $input);
+        if ($changingPassword) {
+            $password = $input['password'];
+            if (!is_string($password) || !preg_match('/^.{8,}$/us', $password) || !trim($password) || strlen($password) > 72 || strpos($password, "\0") !== false) {
+                jsonResponse(['success'=>false,'error'=>'Password minimal 8 karakter dan maksimal 72 byte, tanpa karakter null.'],400);
+            }
+            $fields[] = "password_hash=?";
+            $params[] = password_hash($password, PASSWORD_BCRYPT);
+            unset($password);
+        }
+        if (empty($fields)) jsonResponse(['success'=>false,'error'=>'no fields'],400);
+        $params[] = $id;
+        try {
+            $pdo->beginTransaction();
+            $sql = "UPDATE users SET ".implode(',', $fields).", updated_at=datetime('now') WHERE id=?";
+            $pdo->prepare($sql)->execute($params);
+            if ($changingPassword) {
+                // Revoke the target user's sessions; keep only this admin's current
+                // session when changing their own password to avoid locking them out.
+                $pdo->prepare("DELETE FROM user_sessions WHERE user_id=? AND token<>?")
+                    ->execute([$id, getBearerToken()]);
+            }
+            $pdo->commit();
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) $pdo->rollBack();
+            jsonResponse(['success'=>false,'error'=>'Gagal menyimpan perubahan user.'],500);
+        }
+        jsonResponse(['success'=>true]);
+        break;
+    }
+    case 'admin_user_delete': {
+        $user = requireAuth(); requireAdmin($user);
+        $id = $input['id'] ?? null;
+        if (!$id) jsonResponse(['success'=>false,'error'=>'id required'],400);
+        $pdo = db();
+        $pdo->prepare("DELETE FROM users WHERE id=? AND tier!='admin'")->execute([$id]);
+        jsonResponse(['success'=>true]);
+        break;
+    }
+    case 'admin_config_get': {
+        $user = requireAuth(); requireAdmin($user);
+        $pdo = db();
+        $cfg = $pdo->query("SELECT * FROM app_config")->fetchAll();
+        $assoc = [];
+        foreach ($cfg as $row) $assoc[$row['key']] = json_decode($row['value'], true) ?? $row['value'];
+        // merge with file config
+        $fileCfg = $config;
+        jsonResponse(['success'=>true,'config'=>$assoc,'file_config'=>$fileCfg]);
+        break;
+    }
+    case 'admin_config_set': {
+        $user = requireAuth(); requireAdmin($user);
+        $pdo = db();
+        foreach ($input as $k=>$v) {
+            if ($k==='action') continue;
+            $val = is_string($v) ? $v : json_encode($v);
+            $pdo->prepare("INSERT INTO app_config (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")->execute([$k,$val]);
+        }
+        jsonResponse(['success'=>true]);
+        break;
+    }
+    case 'server_status': {
+        $user = requireAuth(); requireAdmin($user);
+        // Robust parallel check using curl_multi, mimicking multi-app.html Promise.all
+        // Also return raw diagnostics for admin
+        $servers = $config['public_servers'];
+        $auth = $config['public_auth'] ?? [];
+        $apiKey = $auth['api_key'] ?? '';
+        $jwt = generatePublicJWT();
+
+        // Use curl_multi for parallel like browser
+        $mh = curl_multi_init();
+        $handles = [];
+        foreach ($servers as $i=>$base){
+            $url = rtrim($base,'/') . ($config['endpoints']['systeminfo'] ?? '/systeminfo');
+            $ch = curl_init($url);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 15);
+            curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 8);
+            curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'GET');
+            applyRobustCurlOptions($ch);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, buildBrowserHeaders($apiKey, $jwt));
+            curl_multi_add_handle($mh, $ch);
+            $handles[$i] = ['ch'=>$ch, 'base'=>$base, 'url'=>$url];
+        }
+        // Execute parallel
+        $running = null;
+        do { curl_multi_exec($mh, $running); curl_multi_select($mh, 1); } while ($running > 0);
+
+        $results = [];
+        foreach ($handles as $i=>$info){
+            $ch = $info['ch'];
+            $base = $info['base'];
+            $resp = curl_multi_getcontent($ch);
+            $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $err = curl_error($ch);
+            $totalTime = curl_getinfo($ch, CURLINFO_TOTAL_TIME);
+            curl_multi_remove_handle($mh, $ch);
+            curl_close($ch);
+
+            $online = false; $data = null;
+            if ($resp && $code>=200 && $code<300){
+                $data = json_decode($resp, true);
+                $online = $data !== null;
+            } else {
+                // If timeout/SSL, try once more sequential with fresh token
+                if ($code==0 || $code==401 || $code==403 || stripos($err,'SSL')!==false || stripos($err,'timeout')!==false){
+                    $jwt2 = generatePublicJWT();
+                    $ch2 = curl_init($info['url']);
+                    curl_setopt($ch2, CURLOPT_RETURNTRANSFER, true);
+                    curl_setopt($ch2, CURLOPT_TIMEOUT, 15);
+                    curl_setopt($ch2, CURLOPT_CONNECTTIMEOUT, 8);
+                    applyRobustCurlOptions($ch2);
+                    curl_setopt($ch2, CURLOPT_HTTPHEADER, buildBrowserHeaders($apiKey, $jwt2));
+                    $resp2 = curl_exec($ch2);
+                    $code2 = curl_getinfo($ch2, CURLINFO_HTTP_CODE);
+                    $err2 = curl_error($ch2);
+                    curl_close($ch2);
+                    if ($resp2 && $code2>=200 && $code2<300){
+                        $data = json_decode($resp2, true);
+                        $online = $data !== null;
+                        $resp = $resp2; $code = $code2; $err = $err2;
+                    }
+                }
+            }
+            $results[] = [
+                'url'=>$base,
+                'online'=>$online,
+                'data'=>$data,
+                'error'=>$online ? '' : ($err ?: "HTTP $code"),
+                'raw_error'=>$err,
+                'code'=>$code,
+                'time'=>$totalTime,
+                'resp_snippet'=> $online ? '' : substr($resp??'',0,200)
+            ];
+        }
+        curl_multi_close($mh);
+        jsonResponse(['success'=>true,'servers'=>$results]);
+        break;
+    }
+    case 'public_auth_token': {
+        // For admin: provide JWT + apiKey so frontend can do client-side health check like multi-app.html
+        // This makes status accurate using client network, not server network
+        $user = requireAuth(); requireAdmin($user);
+        $auth = $config['public_auth'] ?? [];
+        $apiKey = $auth['api_key'] ?? '';
+        $jwt = generatePublicJWT();
+        $ttl = intval($auth['ttl_min'] ?? 30) * 60;
+        jsonResponse(['success'=>true,'apiKey'=>$apiKey,'token'=>$jwt,'expires_in'=>$ttl,'servers'=>$config['public_servers']]);
+        break;
+    }
+    case 'ai_chat': {
+        $user = requireAuth();
+        if (isUserExpired($user)) jsonResponse(['success'=>false,'error'=>'expired','message'=>'Masa berlaku habis. Tidak bisa pakai AI.'], 403);
+        $prompt = $input['prompt'] ?? $_POST['prompt'] ?? '';
+        $images = [];
+        if (isset($input['images']) && is_array($input['images'])) {
+            $images = $input['images'];
+        } elseif (!empty($_FILES)) {
+            foreach ($_FILES as $f) {
+                if ($f['error']===UPLOAD_ERR_OK) {
+                    $mime = mime_content_type($f['tmp_name']);
+                    $b64 = base64_encode(file_get_contents($f['tmp_name']));
+                    $images[] = "data:$mime;base64,$b64";
+                }
+            }
+        } elseif (isset($_POST['images'])) {
+            $images = [$_POST['images']];
+        }
+
+        // New hierarchical logic: ai_provider decides
+        $aiProvider = getAiProviderConfig();
+        $provider = $aiProvider['provider'] ?? 'private';
+        $privateType = $aiProvider['private_type'] ?? 'gemini';
+        $priv = getPrivateConfig();
+        $open = getOpenRouterConfig();
+        $usePrivate = !empty($priv['enabled']) && !empty($priv['api_key']);
+        $useOpenRouter = !empty($open['enabled']) && !empty($open['api_key']);
+        $options = [];
+        if (!empty($input['model'])) $options['model'] = $input['model'];
+        elseif (!empty($_POST['model'])) $options['model'] = $_POST['model'];
+        if (!empty($input['response_schema'])) $options['response_schema'] = $input['response_schema'];
+        if (!empty($_POST['response_schema'])) $options['response_schema'] = $_POST['response_schema'];
+        if (empty($options['model'])) {
+            $options['model'] = $priv['text_model'] ?? 'gemini-3.1-flash-lite';
+        }
+
+        if ($provider === 'private') {
+            // Jika private, public diabaikan
+            if ($privateType === 'gemini' && $usePrivate) {
+                $res = proxyToPrivateGemini($prompt, $images, 'chat', $options);
+                if (($res['success'] ?? false) || isset($res['response'])) {
+                    jsonResponse($res);
+                }
+                error_log("[ai_chat] private gemini failed, fallback to openrouter if enabled: ".json_encode($res));
+                // fallback to openrouter if gemini fails but openrouter enabled
+                if ($useOpenRouter) {
+                    $orOptions = $options;
+                    if (empty($input['model']) && empty($_POST['model'])) {
+                        $orOptions['model'] = $open['text_model'] ?? 'google/gemma-3-27b-it:free';
+                        if (!empty($images)) $orOptions['model'] = $open['vision_model'] ?? $open['text_model'];
+                    }
+                    $res2 = proxyToOpenRouter($prompt, $images, 'chat', $orOptions);
+                    if (($res2['success'] ?? false) || isset($res2['response'])) {
+                        jsonResponse($res2);
+                    }
+                }
+            } elseif ($privateType === 'openrouter' && $useOpenRouter) {
+                $orOptions = $options;
+                if (empty($input['model']) && empty($_POST['model'])) {
+                    $orOptions['model'] = $open['text_model'] ?? 'google/gemma-3-27b-it:free';
+                    if (!empty($images)) $orOptions['model'] = $open['vision_model'] ?? $open['text_model'];
+                }
+                $res = proxyToOpenRouter($prompt, $images, 'chat', $orOptions);
+                if (($res['success'] ?? false) || isset($res['response'])) {
+                    jsonResponse($res);
+                }
+                error_log("[ai_chat] private openrouter failed, fallback to gemini if enabled: ".json_encode($res));
+                if ($usePrivate) {
+                    $res2 = proxyToPrivateGemini($prompt, $images, 'chat', $options);
+                    if (($res2['success'] ?? false) || isset($res2['response'])) {
+                        jsonResponse($res2);
+                    }
+                }
+            } else {
+                // private selected but chosen type not enabled, try other private type
+                if ($usePrivate) {
+                    $res = proxyToPrivateGemini($prompt, $images, 'chat', $options);
+                    if (($res['success'] ?? false) || isset($res['response'])) jsonResponse($res);
+                }
+                if ($useOpenRouter) {
+                    $orOptions = $options;
+                    if (empty($input['model']) && empty($_POST['model'])) {
+                        $orOptions['model'] = $open['text_model'] ?? 'google/gemma-3-27b-it:free';
+                        if (!empty($images)) $orOptions['model'] = $open['vision_model'] ?? $open['text_model'];
+                    }
+                    $res = proxyToOpenRouter($prompt, $images, 'chat', $orOptions);
+                    if (($res['success'] ?? false) || isset($res['response'])) jsonResponse($res);
+                }
+            }
+            // If private selected, do NOT fallback to public (sesuai request: private maka public diabaikan)
+            jsonResponse(['success'=>false,'error'=>'Private API selected but not configured or failed'], 500);
+        } else {
+            // provider = public, private diabaikan, langsung public
+            // Public mode handled below (proxy)
+        }
+        // If provider=public OR private failed and we allow fallback to public only when provider=public
+        if ($provider === 'public') {
+            // skip private, go to public
+        } else {
+            // Legacy fallback for old behavior if provider not set: try private/openrouter then public
+            if ($usePrivate) {
+                $res = proxyToPrivateGemini($prompt, $images, 'chat', $options);
+                if (($res['success'] ?? false) || isset($res['response'])) {
+                    jsonResponse($res);
+                }
+            }
+            if ($useOpenRouter) {
+                $orOptions = $options;
+                if (empty($input['model']) && empty($_POST['model'])) {
+                    $orOptions['model'] = $open['text_model'] ?? 'google/gemma-3-27b-it:free';
+                    if (!empty($images)) $orOptions['model'] = $open['vision_model'] ?? $open['text_model'];
+                }
+                $res = proxyToOpenRouter($prompt, $images, 'chat', $orOptions);
+                if (($res['success'] ?? false) || isset($res['response'])) {
+                    jsonResponse($res);
+                }
+            }
+        }
+        // Public proxy mode
+        $payload = [];
+        $payload['prompt'] = $prompt;
+        $tmpFiles = [];
+        foreach ($images as $idx=>$dataUrl) {
+            if (strpos($dataUrl, 'data:')===0) {
+                preg_match('/data:(.*?);base64,(.*)/', $dataUrl, $m);
+                $mime = $m[1] ?? 'image/jpeg';
+                $ext = strpos($mime,'png')!==false ? 'png' : 'jpg';
+                $tmp = tempnam(sys_get_temp_dir(), 'aislide_') . ".$ext";
+                file_put_contents($tmp, base64_decode($m[2]));
+                $tmpFiles[] = $tmp;
+                $payload["images"] = new CURLFile($tmp, $mime, "ref_$idx.$ext");
+                break;
+            }
+        }
+        $res = proxyToPublicServer('chat', $payload, true);
+        foreach ($tmpFiles as $tf) @unlink($tf);
+        jsonResponse($res);
+        break;
+    }
+    case 'ai_generate': {
+        $user = requireAuth();
+        if (isUserExpired($user)) jsonResponse(['success'=>false,'error'=>'expired','message'=>'Masa berlaku habis.'], 403);
+        $instruction = $input['instruction'] ?? $_POST['instruction'] ?? $input['prompt'] ?? '';
+        $aspect = $input['aspectRatio'] ?? $_POST['aspectRatio'] ?? $_POST['aspect_ratio'] ?? '16:9';
+        $images = [];
+        if (isset($input['images']) && is_array($input['images'])) $images = $input['images'];
+        elseif (!empty($_FILES)) {
+            foreach ($_FILES as $f) {
+                if ($f['error']===UPLOAD_ERR_OK) {
+                    $mime = mime_content_type($f['tmp_name']);
+                    $b64 = base64_encode(file_get_contents($f['tmp_name']));
+                    $images[] = "data:$mime;base64,$b64";
+                }
+            }
+        }
+
+        $priv = getPrivateConfig();
+        $open = getOpenRouterConfig();
+        $usePrivate = !empty($priv['enabled']) && !empty($priv['api_key']);
+        $useOpenRouter = !empty($open['enabled']) && !empty($open['api_key']);
+        $options = [];
+        $options['aspectRatio'] = $aspect;
+        if (!empty($input['model'])) $options['model'] = $input['model'];
+        elseif (!empty($_POST['model'])) $options['model'] = $_POST['model'];
+        if (!empty($input['image_size'])) $options['image_size'] = $input['image_size'];
+        if (empty($options['model']) && $usePrivate) {
+            $options['model'] = $priv['image_model'] ?? 'gemini-3.1-flash-image';
+        }
+
+        if ($usePrivate) {
+            $res = proxyToPrivateGemini($instruction, $images, 'generate', $options);
+            if (($res['success'] ?? false) && !empty($res['imageUrl'])) {
+                jsonResponse($res);
+            }
+            error_log("[ai_generate] private failed model=".($options['model']??'')." err=".json_encode($res));
+        }
+        if ($useOpenRouter) {
+            $orOptions = $options;
+            if (empty($input['model']) && empty($_POST['model'])) {
+                $orOptions['model'] = $open['image_model'] ?? 'openai/gpt-image-1-mini';
+            }
+            $res = proxyToOpenRouter($instruction, $images, 'generate', $orOptions);
+            if (($res['success'] ?? false) && !empty($res['imageUrl'])) {
+                jsonResponse($res);
+            }
+            error_log("[ai_generate] openrouter failed model=".($orOptions['model']??'')." err=".json_encode($res));
+        }
+        $payload = [];
+        $payload['instruction'] = $instruction;
+        $payload['aspectRatio'] = $aspect;
+        $tmpFiles = [];
+        if (!empty($images)) {
+            $dataUrl = $images[0];
+            if (strpos($dataUrl, 'data:')===0) {
+                preg_match('/data:(.*?);base64,(.*)/', $dataUrl, $m);
+                $mime = $m[1] ?? 'image/jpeg';
+                $ext = strpos($mime,'png')!==false ? 'png' : 'jpg';
+                $tmp = tempnam(sys_get_temp_dir(), 'aislide_') . ".$ext";
+                file_put_contents($tmp, base64_decode($m[2]));
+                $tmpFiles[] = $tmp;
+                $payload['images'] = new CURLFile($tmp, $mime, "ref.$ext");
+            }
+        }
+        $res = proxyToPublicServer('generate', $payload, true);
+        foreach ($tmpFiles as $tf) @unlink($tf);
+        jsonResponse($res);
+        break;
+    }
+    case 'private_status': {
+        $user = requireAuth();
+        $priv = getPrivateConfig();
+        $open = getOpenRouterConfig();
+        $pub = getPublicApiConfig();
+        $enabled = !empty($priv['enabled']) && !empty($priv['api_key']);
+        $models = $priv['image_models'] ?? [
+            'nano_banana' => 'gemini-2.5-flash-image-preview',
+            'nano_banana_2' => 'gemini-3.1-flash-image',
+            'nano_banana_2_lite' => 'gemini-3.1-flash-lite-image'
+        ];
+        jsonResponse([
+            'success'=>true,
+            'enabled'=>$enabled,
+            'image_models'=>$models,
+            'default_image_model'=>$priv['image_model']??'gemini-3.1-flash-image',
+            'text_model'=>$priv['text_model']??'gemini-3.1-flash-lite',
+            'image_size'=>'1K',
+            'image_aspect'=>'16:9',
+            'openrouter_enabled'=>!empty($open['enabled']) && !empty($open['api_key']),
+            'openrouter_text_model'=>$open['text_model']??'google/gemma-3-27b-it:free',
+            'openrouter_image_model'=>$open['image_model']??'openai/gpt-image-1-mini',
+            'public_mode'=>$pub['mode']??'proxy'
+        ]);
+        break;
+    }
+    case 'public_direct_config': {
+        $user = requireAuth();
+        $auth = $config['public_auth'] ?? [];
+        $apiKey = $auth['api_key'] ?? '';
+        $jwt = generatePublicJWT();
+        $ttl = intval($auth['ttl_min'] ?? 30) * 60;
+        $pub = getPublicApiConfig();
+        $open = getOpenRouterConfig();
+        $priv = getPrivateConfig();
+        $aiProvider = getAiProviderConfig();
+        jsonResponse([
+            'success'=>true,
+            'apiKey'=>$apiKey,
+            'api_key'=>$apiKey,
+            'token'=>$jwt,
+            'expires_in'=>$ttl,
+            'exp'=>time() + $ttl,
+            'servers'=>$config['public_servers'],
+            'mode'=>$pub['mode']??'proxy',
+            'public_mode'=>$pub['mode']??'proxy',
+            'direct_retry'=>$pub['direct_retry']??3,
+            'clone_headers'=>!empty($pub['clone_headers']),
+            'private_enabled'=>!empty($priv['enabled']),
+            'openrouter_enabled'=>!empty($open['enabled']),
+            'ai_provider'=>$aiProvider['provider']??'private',
+            'private_type'=>$aiProvider['private_type']??'gemini',
+            'ai_provider_config'=>$aiProvider
+        ]);
+        break;
+    }
+    default:
+        jsonResponse(['success'=>false,'error'=>'unknown action: '.$action], 400);
+}

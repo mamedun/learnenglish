@@ -61,10 +61,25 @@ async function importBackup(file) {
   const raw = JSON.parse(await df.async("text"));
   if (!Array.isArray(raw.completed) || !Array.isArray(raw.sessions))
     throw new Error("Struktur backup tidak valid.");
+  const importedSettings = { ...initialData.settings, ...raw.settings };
+  if (!raw.settings?.ttsEngineVersion) {
+    importedSettings.tts = "kokoro";
+    importedSettings.voice = "af_heart";
+    importedSettings.ttsCompute = "auto";
+    importedSettings.ttsEngineVersion = 1;
+  }
+  if (
+    !["af_heart", "am_puck", "bf_emma", "bm_george"].includes(
+      importedSettings.voice,
+    )
+  )
+    importedSettings.voice = "af_heart";
+  importedSettings.useCachedVoice =
+    raw.settings?.useCachedVoice === false ? false : true;
   const data = {
     ...initialData,
     ...raw,
-    settings: { ...initialData.settings, ...raw.settings },
+    settings: importedSettings,
   };
   const idMap = {};
   const folder = zip.folder("audio");
