@@ -30,6 +30,8 @@ export function useSpeechRecognition({ language = "en-US" } = {}) {
   const [braveDetected] = useState(false);
   const recognitionRef = useRef(null);
   const prefixRef = useRef("");
+  const accumulatedRef = useRef("");
+  const lastChunkRef = useRef("");
   const ignoreLateResultsRef = useRef(false);
 
   useEffect(() => {
@@ -78,6 +80,8 @@ export function useSpeechRecognition({ language = "en-US" } = {}) {
       }
     }
     prefixRef.current = "";
+    accumulatedRef.current = "";
+    lastChunkRef.current = "";
     setListening(false);
     setTranscript("");
   }, []);
@@ -94,23 +98,45 @@ export function useSpeechRecognition({ language = "en-US" } = {}) {
 
       const prefix = append ? transcript.trim() : "";
       prefixRef.current = prefix;
+      accumulatedRef.current = "";
+      lastChunkRef.current = "";
       if (!append) setTranscript("");
 
       try {
         const recognition = new Recognition();
         recognition.continuous = true;
-        recognition.interimResults = true;
+        // Turn off interimResults to eliminate the duplicate word loop bug on Android/mobile Chrome/Brave/Edge
+        recognition.interimResults = false;
         recognition.lang = language;
         recognition.onresult = (event) => {
           if (ignoreLateResultsRef.current) return;
-          const parts = [];
-          for (let i = 0; i < event.results.length; i += 1) {
-            const result = event.results[i];
-            const text = result?.[0]?.transcript?.trim();
-            if (text) parts.push(text);
+          const current = event.resultIndex;
+          const item = event.results[current];
+          if (!item || !item[0]) return;
+          const text = (item[0].transcript || "").trim();
+          if (!text) return;
+
+          // Handle Android repeat bug (where resultIndex 1 repeats resultIndex 0)
+          const isMobileRepeat =
+            current === 1 &&
+            text.toLowerCase() ===
+              (event.results[0]?.[0]?.transcript || "").trim().toLowerCase();
+          if (isMobileRepeat) return;
+
+          // Prevent exact consecutive chunk duplicates
+          if (
+            lastChunkRef.current &&
+            lastChunkRef.current.toLowerCase() === text.toLowerCase()
+          ) {
+            return;
           }
-          const recognized = parts.join(" ").replace(/\s+/g, " ").trim();
-          const combined = [prefixRef.current, recognized]
+          lastChunkRef.current = text;
+
+          accumulatedRef.current = [accumulatedRef.current, text]
+            .filter(Boolean)
+            .join(" ");
+
+          const combined = [prefixRef.current, accumulatedRef.current]
             .filter(Boolean)
             .join(" ");
           setTranscript(combined);
