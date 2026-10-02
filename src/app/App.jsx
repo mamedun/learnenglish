@@ -3402,8 +3402,9 @@ Because this is live audio, comment on pronunciation or word stress only when a 
                     setData={setData}
                     speak={speak}
                     ttsStatus={ttsStatus}
-                    speechInputMode={appConfig.speech_input_mode}
-                    speechScoringMode={appConfig.speech_scoring_mode}
+                    aiAudioCost={
+                      appConfig.courseware_policy?.cost_listening_direct_audio ?? 3
+                    }
                     maxRecordSeconds={maxRecordingSeconds}
                     maxAiAudioBytes={
                       Number(appConfig.courseware_policy?.max_ai_audio_bytes) ||

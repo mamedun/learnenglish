@@ -1,14 +1,15 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AudioLines,
   Check,
   CheckCircle2,
   Mic,
   Pause,
+  Play,
   RotateCcw,
+  Sparkles,
   Volume2,
 } from "lucide-react";
-import Swal from "sweetalert2";
 import { toast } from "sonner";
 import { apiFetch } from "../../api";
 import { convertRecordingToWav } from "../../lib/audio";
@@ -28,8 +29,7 @@ import "./ListeningSpeakingTask.css";
 
 export default function ListeningSpeakingTask({
   lesson,
-  speechInputMode = "live_transcribe",
-  speechScoringMode = "local",
+  aiAudioCost = 3,
   speechSimilarityThreshold = 90,
   aiProvider = "clario",
   courseId = "ielts",
@@ -45,10 +45,10 @@ export default function ListeningSpeakingTask({
   onAttempt,
   onDiamondsChanged,
 }) {
-  const liveMode = speechInputMode !== "ai_audio";
-  const recognition = useSpeechRecognition({ language: "en-US" });
   const [open, setOpen] = useState(false);
-  const [directAudioMode, setDirectAudioMode] = useState(false);
+  const [mode, setMode] = useState("system"); // "system" | "ai"
+  const recognition = useSpeechRecognition({ language: "en-US" });
+
   const [recording, setRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [requestingMic, setRequestingMic] = useState(false);
@@ -57,54 +57,50 @@ export default function ListeningSpeakingTask({
   const [audioBlob, setAudioBlob] = useState(null);
   const [aiTranscript, setAiTranscript] = useState("");
   const [checked, setChecked] = useState(null);
+
   const recorderRef = useRef(null);
   const streamRef = useRef(null);
   const chunksRef = useRef([]);
-  const similarityThreshold = normalizeSpeechThreshold(
-    speechSimilarityThreshold,
-  );
+
+  const similarityThreshold = normalizeSpeechThreshold(speechSimilarityThreshold);
   const isSmallViewport = useSmallViewport();
-  const liveInput = liveMode && !directAudioMode;
-  const mobileTranscriptEditable = liveInput && isSmallViewport;
-  const answer = liveInput ? recognition.transcript : aiTranscript;
-  const preview = answer
-    ? compareSpokenText(lesson.script, answer, similarityThreshold)
-    : null;
-  const aiScoring = directAudioMode || speechScoringMode === "ai";
-  const displayedScore = aiScoring ? checked : (checked ?? preview);
-  const diamondCost = directAudioMode
-    ? 3
-    : liveInput
-      ? speechScoringMode === "ai"
-        ? 1
-        : 0
-      : speechScoringMode === "ai"
-        ? 2
-        : 1;
+  const mobileTranscriptEditable = mode === "system" && isSmallViewport;
+
+  const diamondCost = aiAudioCost ?? 3;
   const costLabel = unlimitedDiamonds
     ? "Gratis · Admin unlimited"
-    : diamondCost === 0
-      ? "Gratis"
-      : `${diamondCost} diamond${diamondCost === 1 ? "" : "s"}`;
+    : `${diamondCost} diamond`;
+
   const savedTranscriptText =
     typeof savedTranscript === "string"
       ? savedTranscript
       : String(savedTranscript?.text || "");
   const ttsBusy = isTtsBusy(ttsStatus);
 
+  const audioPreviewUrl = useMemo(() => {
+    if (!audioBlob) return null;
+    return URL.createObjectURL(audioBlob);
+  }, [audioBlob]);
+
+  useEffect(() => {
+    return () => {
+      if (audioPreviewUrl) URL.revokeObjectURL(audioPreviewUrl);
+    };
+  }, [audioPreviewUrl]);
+
   useEffect(() => {
     setOpen(false);
-    setDirectAudioMode(false);
     resetAttempt();
     return () => {
       streamRef.current?.getTracks().forEach((track) => track.stop());
     };
-    // Reset the recorder when lesson, input mode, or global AI provider changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lesson.id, liveMode, aiProvider]);
+  }, [lesson.id, aiProvider]);
+
   useEffect(() => {
     setChecked(null);
-  }, [speechScoringMode, speechSimilarityThreshold]);
+  }, [speechSimilarityThreshold]);
+
   useEffect(() => {
     if (!recording) return undefined;
     const timer = window.setInterval(
@@ -113,6 +109,7 @@ export default function ListeningSpeakingTask({
     );
     return () => window.clearInterval(timer);
   }, [recording]);
+
   useEffect(() => {
     if (
       recording &&
@@ -127,6 +124,7 @@ export default function ListeningSpeakingTask({
       else setRecording(false);
     }
   }, [recording, recordingSeconds, maxRecordSeconds]);
+
   useEffect(() => {
     const onSpeechError = (event) => {
       toast.error(
@@ -138,13 +136,21 @@ export default function ListeningSpeakingTask({
       window.removeEventListener("speakup:speech-error", onSpeechError);
   }, []);
 
+  function switchMode(newMode) {
+    if (newMode === mode) return;
+    if (recording || processing || requestingMic || recognition.listening)
+      return;
+    resetAttempt();
+    setMode(newMode);
+  }
+
   function resetAttempt() {
     if (recorderRef.current && recorderRef.current.state !== "inactive") {
       recorderRef.current.onstop = null;
       try {
         recorderRef.current.stop();
       } catch {
-        // Recorder may have ended already.
+        // Already stopped
       }
     }
     streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -158,35 +164,24 @@ export default function ListeningSpeakingTask({
     setChecked(null);
   }
 
-  function chooseDirectAudioMode(enabled) {
-    if (enabled === directAudioMode) return;
-    if (recording || processing || requestingMic || recognition.listening)
-      return;
-    recognition.reset();
-    setAudioBlob(null);
-    setAiTranscript("");
-    setChecked(null);
-    setDirectAudioMode(enabled);
-  }
-
   function startLiveTranscription() {
+    setChecked(null);
     const result = recognition.start({
       append: Boolean(recognition.transcript),
     });
     if (!result.ok) {
       toast.error(
         result.reason === "unsupported-brave"
-          ? "Brave tidak dapat mengakses layanan live transcription ini. Gunakan Google Chrome atau minta admin mengaktifkan mode rekaman AI."
+          ? "Brave tidak dapat mengakses layanan transkripsi live ini. Gunakan Google Chrome atau pilih tab Penilaian AI."
           : result.reason === "unsupported"
-            ? "Transkripsi langsung tidak didukung browser ini. Gunakan Google Chrome atau minta admin mengaktifkan mode rekaman AI."
-            : "Mikrofon tidak dapat dinyalakan. Periksa izin browser dan gunakan HTTPS.",
+            ? "Transkripsi langsung tidak didukung browser ini. Gunakan Google Chrome atau pilih tab Penilaian AI."
+            : "Mikrofon tidak dapat dinyalakan. Periksa izin browser dan pastikan menggunakan HTTPS.",
       );
-      return;
     }
-    setChecked(null);
   }
 
   async function startAudioRecording() {
+    setChecked(null);
     if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
       toast.error(
         "Perekaman audio tidak tersedia. Gunakan browser modern melalui HTTPS.",
@@ -231,7 +226,6 @@ export default function ListeningSpeakingTask({
       recorder.start(250);
       setAudioBlob(null);
       setAiTranscript("");
-      setChecked(null);
       setRecording(true);
     } catch (error) {
       streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -252,11 +246,9 @@ export default function ListeningSpeakingTask({
     else setRecording(false);
   }
 
-  async function checkLiveTranscript() {
+  function checkLiveTranscript() {
     if (recognition.listening) {
-      toast.info(
-        "Ketuk Selesai bicara terlebih dahulu agar transkrip lengkap.",
-      );
+      toast.info("Ketuk Selesai bicara terlebih dahulu.");
       return;
     }
     const transcript = recognition.transcript.trim();
@@ -264,86 +256,34 @@ export default function ListeningSpeakingTask({
       toast.info("Bicarakan paragrafnya terlebih dahulu.");
       return;
     }
-    onAttempt?.(null, transcript, aiScoring ? "ai" : "local");
-
-    if (aiScoring) {
-      setProcessing(true);
-      setProcessingMessage("Membandingkan transkrip dengan AI…");
-    }
-    try {
-      let result;
-      if (aiScoring) {
-        const response = await apiFetch("speech-score", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            expected_text: lesson.script,
-            transcript,
-            course_id: courseId,
-            unit_id: lesson.id,
-          }),
-        });
-        const payload = await response.json();
-        if (Number.isFinite(Number(payload.diamonds)))
-          onDiamondsChanged?.(Number(payload.diamonds));
-        if (!response.ok)
-          throw new Error(payload.error || "AI gagal membandingkan transkrip.");
-        const percent = Math.max(0, Math.min(100, Math.round(payload.percent)));
-        result = {
-          percent,
-          passed: meetsSpeechThreshold(percent, similarityThreshold),
-        };
-      } else {
-        result = compareSpokenText(
-          lesson.script,
-          transcript,
-          similarityThreshold,
-        );
-      }
-      setChecked(result);
-      onAttempt?.(result.percent, transcript, aiScoring ? "ai" : "local");
-      if (result.passed) {
-        onPass?.(result.percent, transcript);
-        toast.success(
-          `Bagus! Kemiripan ${result.percent}% — latihan speaking lulus.`,
-        );
-      } else {
-        toast.info(
-          `Kemiripan ${result.percent}%. Coba ulangi hingga minimal ${similarityThreshold}%.`,
-        );
-      }
-    } catch (error) {
-      toast.error(error.message || "Transkrip belum dapat dinilai.");
-    } finally {
-      if (aiScoring) {
-        setProcessing(false);
-        setProcessingMessage("");
-      }
+    onAttempt?.(null, transcript, "local");
+    const result = compareSpokenText(
+      lesson.script,
+      transcript,
+      similarityThreshold,
+    );
+    setChecked(result);
+    onAttempt?.(result.percent, transcript, "local");
+    if (result.passed) {
+      onPass?.(result.percent, transcript);
+      toast.success(
+        `Bagus! Kemiripan kata ${result.percent}% — latihan speaking lulus.`,
+      );
+    } else {
+      toast.info(
+        `Kemiripan kata ${result.percent}%. Coba ulangi hingga minimal ${similarityThreshold}%.`,
+      );
     }
   }
 
   async function checkAiAudio() {
     if (!audioBlob) {
-      toast.info("Rekam paragraf terlebih dahulu.");
+      toast.info("Rekam suara terlebih dahulu sebelum menilai.");
       return;
     }
-    const consent = await Swal.fire({
-      title: directAudioMode
-        ? "Kirim rekaman untuk penilaian suara langsung?"
-        : "Kirim rekaman untuk transkripsi AI?",
-      text: directAudioMode
-        ? "Audio akan dikirim langsung ke server AI yang dipilih admin untuk dinilai terhadap naskah. Browser tidak membuat transkrip terlebih dahulu. Audio tidak disimpan oleh proses evaluasi ini."
-        : "Audio dikirim satu kali ke server AI yang dipilih admin untuk membuat transkrip. Audio tidak disimpan oleh proses evaluasi ini.",
-      icon: "info",
-      showCancelButton: true,
-      confirmButtonText: "Setuju & proses audio",
-      cancelButtonText: "Batal",
-      confirmButtonColor: "#315c45",
-    });
-    if (!consent.isConfirmed) return;
 
     setProcessing(true);
-    setProcessingMessage("Menyiapkan rekaman untuk dikirim…");
+    setProcessingMessage("Menyiapkan rekaman audio untuk dikirim ke AI…");
     try {
       const audioForAI =
         aiProvider === "free"
@@ -364,10 +304,7 @@ export default function ListeningSpeakingTask({
               : "webm";
       const form = new FormData();
       form.append("consent", "1");
-      form.append(
-        "task_mode",
-        directAudioMode ? "read_aloud_direct" : "read_aloud",
-      );
+      form.append("task_mode", "read_aloud_direct");
       form.append("level", lesson.level);
       form.append("task", lesson.script);
       form.append("course_id", courseId);
@@ -378,108 +315,94 @@ export default function ListeningSpeakingTask({
         audioForAI,
         `read-aloud-${lesson.id}.${audioExtension}`,
       );
-      setProcessingMessage(
-        directAudioMode
-          ? "Mengirim audio langsung ke AI untuk dinilai…"
-          : speechScoringMode === "ai"
-            ? "Mengirim audio untuk transkripsi dan penilaian AI…"
-            : "Mengirim audio untuk transkripsi…",
-      );
+
+      setProcessingMessage("AI sedang menganalisis audio, pelafalan & artikulasi…");
       const response = await apiFetch("assess-audio", {
         method: "POST",
         body: form,
       });
-      setProcessingMessage(
-        directAudioMode
-          ? "Menerima skor AI dan hasil audio…"
-          : "Menerima transkrip dari AI…",
-      );
+
+      setProcessingMessage("Menerima skor akurasi dan laporan artikulasi dari AI…");
       const payload = await response.json();
       if (Number.isFinite(Number(payload.diamonds)))
         onDiamondsChanged?.(Number(payload.diamonds));
       if (!response.ok)
-        throw new Error(payload.error || "AI gagal mentranskripsikan audio.");
+        throw new Error(payload.error || "AI gagal menganalisis rekaman audio.");
+
       const text = String(payload.result?.transcript || "").trim();
-      if (!text) throw new Error("Server AI tidak menghasilkan transkrip.");
+      const percentRaw = Number(payload.result?.percent);
+      if (!Number.isFinite(percentRaw) || percentRaw < 0 || percentRaw > 100)
+        throw new Error("AI tidak mengembalikan skor kecocokan yang valid.");
+
+      const percent = Math.round(percentRaw);
       setAiTranscript(text);
-      const evaluationMethod = directAudioMode
-        ? "ai_direct"
-        : speechScoringMode === "ai"
-          ? "ai"
-          : "local";
-      onAttempt?.(null, text, evaluationMethod);
-      let result;
-      if (directAudioMode || speechScoringMode === "ai") {
-        const percent = Number(payload.result?.percent);
-        if (!Number.isFinite(percent) || percent < 0 || percent > 100)
-          throw new Error(
-            "AI tidak mengembalikan persentase kecocokan yang valid.",
-          );
-        result = {
-          percent: Math.round(percent),
-          passed: meetsSpeechThreshold(percent, similarityThreshold),
-        };
-      } else {
-        result = compareSpokenText(lesson.script, text, similarityThreshold);
-      }
+      onAttempt?.(null, text, "ai_direct");
+
+      const result = {
+        percent,
+        passed: meetsSpeechThreshold(percent, similarityThreshold),
+        articulationReport: payload.result?.articulation_report || null,
+      };
       setChecked(result);
-      onAttempt?.(result.percent, text, evaluationMethod);
+      onAttempt?.(result.percent, text, "ai_direct");
+
       if (result.passed) {
         onPass?.(result.percent, text);
         toast.success(
-          `Bagus! Kemiripan ${result.percent}% — latihan speaking lulus.`,
+          `Luar biasa! Skor pelafalan AI ${result.percent}% — latihan speaking lulus.`,
         );
       } else {
         toast.info(
-          `Kemiripan ${result.percent}%. Coba rekam ulang hingga minimal ${similarityThreshold}%.`,
+          `Skor pelafalan AI ${result.percent}%. Coba rekam ulang hingga minimal ${similarityThreshold}%.`,
         );
       }
     } catch (error) {
-      toast.error(error.message || "Rekaman belum dapat diproses.");
+      toast.error(error.message || "Rekaman audio belum dapat diproses oleh AI.");
     } finally {
       setProcessing(false);
       setProcessingMessage("");
     }
   }
 
+  // BUG FIX: Score is strictly hidden until the user clicks check!
+  const displayedScore = checked;
+
   return (
     <section className="listening-speaking-card">
       <div className="listening-speaking-heading">
         <div>
           <span className="eyebrow">
-            <AudioLines size={14} /> LISTENING + SPEAKING
+            <Volume2 size={14} /> SHADOWING & SPEAKING · MISI BINTANG
           </span>
-          <h3>Ucapkan kembali paragrafnya</h3>
+          <h3>Latihan Melafalkan Paragraf</h3>
           <p>
-            Dengarkan contoh, baca nyaring, lalu ulangi sampai kata-katanya
-            minimal {similarityThreshold}% sesuai.{" "}
-            {directAudioMode
-              ? unlimitedDiamonds
-                ? "AI menilai rekaman langsung; akses Admin tidak memakai diamond."
-                : "AI menilai audio langsung tanpa transkripsi browser terlebih dahulu · 3 diamond per penilaian."
-              : speechScoringMode === "ai"
-                ? `Pencocokan AI memakai ${unlimitedDiamonds ? "akses Admin tanpa diamond" : "1 diamond"}${liveInput ? "" : "; transkripsi audio juga memakai 1 diamond."}`
-                : liveInput
-                  ? ""
-                  : `Pencocokan lokal gratis; transkripsi audio AI memakai ${unlimitedDiamonds ? "akses Admin tanpa diamond" : "1 diamond"}.`}
+            Tirukan dan lafalkan naskah cerita untuk melatih kelancaran,
+            artikulasi, dan intonasi bahasa Inggrismu.
           </p>
         </div>
-        {passed && (
+        {passed ? (
           <span className="speech-pass-badge">
-            <CheckCircle2 size={15} /> LULUS · {passedScore}%
+            <CheckCircle2 size={15} /> Selesai ({passedScore || 100}%)
           </span>
+        ) : (
+          <span className="level-pill">Target {similarityThreshold}%</span>
         )}
       </div>
+
       <button
         className="outline-btn listening-speaking-toggle"
-        onClick={() => setOpen((value) => !value)}
+        onClick={() => setOpen(!open)}
       >
-        {open ? "Tutup latihan speaking" : "Mulai latihan speaking"}{" "}
         <Mic size={15} />
+        {open ? "Tutup latihan speaking" : "Buka latihan speaking"}
       </button>
+
       {open && (
         <div className="shadowing-body">
-          <div className="shadowing-passage">{lesson.script}</div>
+          <div className="shadowing-passage" lang="en">
+            {lesson.script}
+          </div>
+
           <button
             className="text-button"
             onClick={() => speak(lesson.script)}
@@ -487,46 +410,70 @@ export default function ListeningSpeakingTask({
           >
             {ttsBusy ? (
               <>
-                <span className="spinner" />
-                {ttsStatus?.phase === "speaking"
-                  ? "Sedang membacakan…"
-                  : "Menyiapkan audio…"}
+                <span className="spinner" /> Membaca audio…
               </>
             ) : (
               <>
-                <Volume2 size={15} /> Dengarkan paragraf
+                <Volume2 size={15} /> Dengarkan contoh pelafalan
               </>
             )}
           </button>
-          <div className="listening-direct-mode-picker">
+
+          {/* Mode Selector Tab Buttons */}
+          <div className="speaking-mode-tabs" role="tablist" aria-label="Mode Penilaian Speaking">
             <button
               type="button"
-              className={`text-button listening-direct-mode-toggle ${directAudioMode ? "active" : ""}`}
-              aria-pressed={directAudioMode}
-              onClick={() => chooseDirectAudioMode(!directAudioMode)}
-              disabled={
-                processing ||
-                recording ||
-                requestingMic ||
-                recognition.listening
-              }
+              role="tab"
+              aria-selected={mode === "system"}
+              className={`speaking-mode-tab ${mode === "system" ? "active" : ""}`}
+              onClick={() => switchMode("system")}
+              disabled={recording || processing || recognition.listening}
             >
-              <AudioLines size={15} />
-              {directAudioMode
-                ? "Mode penilaian suara langsung aktif · "
-                : "Coba penilaian suara langsung · "}
-              {unlimitedDiamonds ? "gratis untuk Admin" : "3 diamond"}
+              <Sparkles size={17} />
+              <div>
+                <b>Penilaian Sistem</b>
+                <small>Browser Speech-to-Text · Gratis</small>
+              </div>
             </button>
-            {directAudioMode && (
-              <small>
-                Rekaman dikirim ke server AI untuk dinilai langsung. Browser
-                tidak mentranskripsikan audio sebelum pengiriman.
-              </small>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === "ai"}
+              className={`speaking-mode-tab ${mode === "ai" ? "active" : ""}`}
+              onClick={() => switchMode("ai")}
+              disabled={recording || processing || recognition.listening}
+            >
+              <AudioLines size={17} />
+              <div>
+                <b>Penilaian AI</b>
+                <small>Analisis Suara & Artikulasi · {costLabel}</small>
+              </div>
+            </button>
+          </div>
+
+          {/* Mode Description Notice */}
+          <div className="speaking-mode-notice">
+            {mode === "system" ? (
+              <>
+                <span className="speaking-mode-pill system">Penilaian Sistem (Lokal)</span>
+                <p>
+                  Suara kamu dikonversi menjadi teks langsung oleh browser, lalu naskah dinilai secara instan oleh sistem pencocokan lokal tanpa mengirim audio (Gratis).
+                </p>
+              </>
+            ) : (
+              <>
+                <span className="speaking-mode-pill ai">Penilaian AI (Akurasi Tinggi)</span>
+                <p>
+                  Penilaian AI lebih akurat karena suara kamu diproses dan dianalisis langsung oleh AI untuk akurasi pengucapan, kejelasan artikulasi, dan kelancaran (stutter). Naskah dan rekaman suara dikirim langsung ke AI.
+                </p>
+              </>
             )}
           </div>
-          <div className="shadowing-controls">
-            {liveInput ? (
-              <>
+
+          {/* Controls & Inputs based on Mode */}
+          {mode === "system" ? (
+            <>
+              <div className="shadowing-controls">
                 <button
                   className={`mic-control ${recognition.listening ? "granted" : ""}`}
                   onClick={
@@ -534,10 +481,7 @@ export default function ListeningSpeakingTask({
                       ? recognition.stop
                       : startLiveTranscription
                   }
-                  disabled={
-                    !recognition.supported ||
-                    processing
-                  }
+                  disabled={!recognition.supported || processing}
                 >
                   {recognition.listening ? (
                     <Pause size={15} />
@@ -546,34 +490,66 @@ export default function ListeningSpeakingTask({
                   )}
                   {recognition.listening ? "Selesai bicara" : "Mulai bicara"}
                 </button>
+              </div>
+
+              {/* Transcript Textarea */}
+              <div className="transcript-area shadowing-transcript">
+                <div className="transcript-label">
+                  <span>
+                    {mobileTranscriptEditable
+                      ? "TRANSKRIP LANGSUNG · BISA DIEDIT"
+                      : "TRANSKRIP LANGSUNG (BROWSER)"}
+                  </span>
+                  <span>{recognition.transcript.length} karakter</span>
+                </div>
+                <textarea
+                  value={recognition.transcript}
+                  readOnly={!mobileTranscriptEditable}
+                  onFocus={() => {
+                    if (mobileTranscriptEditable && recognition.listening)
+                      recognition.stop({ discardPendingResults: true });
+                  }}
+                  onChange={(event) => {
+                    setChecked(null);
+                    recognition.setTranscript(event.target.value);
+                  }}
+                  aria-label="Transkrip bicara"
+                  placeholder={
+                    mobileTranscriptEditable
+                      ? "Ketik jawaban atau gunakan mikrofon keyboard untuk dikte…"
+                      : recognition.supported
+                        ? "Ketuk Mulai bicara, lalu bacakan paragraf di atas…"
+                        : "Browser tidak mendukung Web Speech API. Silakan pilih tab Penilaian AI."
+                  }
+                />
+                <div className="transcript-foot">
+                  {mobileTranscriptEditable
+                    ? "Di HP, gunakan mikrofon keyboard untuk dikte teks. Audio tidak diunggah."
+                    : "Tanda baca diabaikan saat menghitung persentase kecocokan kata."}
+                </div>
+              </div>
+
+              {/* Action Buttons Below Transcript (Mirip Soal Pilihan Ganda) */}
+              <div className="speaking-action-row">
                 <button
-                  className="outline-btn"
+                  className="btn-primary"
                   onClick={checkLiveTranscript}
-                  disabled={!answer || recognition.listening || processing}
+                  disabled={!recognition.transcript.trim() || recognition.listening || processing}
                 >
-                  {processing && aiScoring ? (
-                    <>
-                      <span className="spinner" /> Menilai…
-                    </>
-                  ) : (
-                    <>
-                      {aiScoring
-                        ? `Nilai dengan AI · ${unlimitedDiamonds ? "gratis untuk Admin" : "1 diamond"}`
-                        : "Periksa gratis"}{" "}
-                      <Check size={15} />
-                    </>
-                  )}
+                  <Check size={16} /> Periksa Jawaban (Gratis)
                 </button>
                 <button
-                  className="text-button"
+                  className="outline-btn"
                   onClick={resetAttempt}
                   disabled={recognition.listening || processing}
                 >
-                  <RotateCcw size={14} /> Reset / ulangi
+                  <RotateCcw size={14} /> Reset / Ulangi
                 </button>
-              </>
-            ) : (
-              <>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="shadowing-controls">
                 <button
                   className={`mic-control ${recording ? "granted" : ""}`}
                   onClick={recording ? stopAudioRecording : startAudioRecording}
@@ -587,125 +563,118 @@ export default function ListeningSpeakingTask({
                     <Mic size={15} />
                   )}
                   {recording
-                    ? "Selesai merekam"
+                    ? `Selesai merekam (${recordingSeconds}s)`
                     : requestingMic
-                      ? "Meminta akses…"
-                      : "Mulai merekam"}
+                      ? "Meminta akses mikrofon…"
+                      : "Mulai merekam suara"}
                 </button>
+              </div>
+
+              {/* Audio Preview if Recorded */}
+              {audioPreviewUrl ? (
+                <div className="speaking-audio-preview">
+                  <Play size={16} color="#315c45" />
+                  <audio controls src={audioPreviewUrl} />
+                </div>
+              ) : (
+                <p className="shadowing-privacy">
+                  Tekan <b>Mulai merekam suara</b>, bacakan paragraf di atas dengan jelas, lalu tekan <b>Selesai merekam</b>.
+                </p>
+              )}
+
+              {/* Action Buttons Below Audio Preview */}
+              <div className="speaking-action-row">
                 <button
-                  className="outline-btn"
+                  className="btn-primary"
                   onClick={checkAiAudio}
                   disabled={!audioBlob || recording || processing}
                 >
                   {processing ? (
                     <>
-                      <span className="spinner" /> Memproses…
+                      <span className="spinner" /> Memproses dengan AI…
                     </>
                   ) : (
                     <>
-                      {directAudioMode
-                        ? `Nilai audio langsung · ${costLabel}`
-                        : speechScoringMode === "ai"
-                          ? `Transkripsikan + AI match · ${unlimitedDiamonds ? "gratis untuk Admin" : "2 diamond"}`
-                          : `Transkripsikan · ${unlimitedDiamonds ? "gratis untuk Admin" : "1 diamond"}`}{" "}
-                      <Check size={15} />
+                      <Check size={16} /> Nilai dengan AI ({costLabel})
                     </>
                   )}
                 </button>
                 <button
-                  className="text-button"
+                  className="outline-btn"
                   onClick={resetAttempt}
-                  disabled={processing || requestingMic}
+                  disabled={recording || processing || requestingMic}
                 >
-                  <RotateCcw size={14} /> Reset / rekam ulang
+                  <RotateCcw size={14} /> Rekam Ulang
                 </button>
-              </>
-            )}
-          </div>
+              </div>
+            </>
+          )}
+
           {requestingMic && (
             <ProcessingStatus
               message="Meminta akses mikrofon…"
-              detail="Pilih Izinkan pada dialog browser jika diminta."
+              detail="Pilih Izinkan pada dialog izin browser."
               compact
               className="shadowing-processing-status"
             />
           )}
+
           {processing && (
             <ProcessingStatus
               message={processingMessage || "Memproses audio…"}
-              detail={
-                liveInput
-                  ? "Hanya teks naskah dan transkrip yang dibandingkan; audio tidak dikirim."
-                  : directAudioMode
-                    ? "Audio dikirim langsung ke provider AI setelah persetujuan; browser tidak mentranskripsikannya terlebih dahulu."
-                    : "Audio sedang dikirim dan dianalisis. Koneksi lambat bisa membutuhkan waktu."
-              }
+              detail="Audio sedang dianalisis oleh AI server. Mohon tunggu beberapa detik."
               compact
               className="shadowing-processing-status"
             />
           )}
-          {liveInput ? (
-            <div className="transcript-area shadowing-transcript">
-              <div className="transcript-label">
+
+          {/* Score & Articulation Display (Shown only AFTER clicking check) */}
+          {displayedScore && (
+            <>
+              <div
+                className={`shadowing-score ${displayedScore.passed ? "passed" : ""}`}
+                role="status"
+              >
                 <span>
-                  {mobileTranscriptEditable
-                    ? "TRANSKRIP LANGSUNG · BISA DIEDIT"
-                    : "TRANSKRIP LANGSUNG · READ-ONLY"}
+                  {mode === "ai" ? "Skor Akurasi · Penilaian AI" : "Kecocokan Kata · Sistem"}
                 </span>
-                <span>{answer.length} karakter</span>
+                <b>{displayedScore.percent}%</b>
+                <small>
+                  {displayedScore.passed
+                    ? `Target minimal ${similarityThreshold}% tercapai (LULUS)`
+                    : `Belum mencapai target ${similarityThreshold}%. Coba ulangi lagi.`}
+                </small>
               </div>
-              <textarea
-                value={answer}
-                readOnly={!mobileTranscriptEditable}
-                onFocus={() => {
-                  if (mobileTranscriptEditable && recognition.listening)
-                    recognition.stop({ discardPendingResults: true });
-                }}
-                onChange={(event) =>
-                  recognition.setTranscript(event.target.value)
-                }
-                aria-label={
-                  mobileTranscriptEditable
-                    ? "Transkrip live, bisa diedit atau diisi dengan dikte keyboard"
-                    : "Transkrip live, hanya baca"
-                }
-                placeholder={
-                  mobileTranscriptEditable
-                    ? "Ketik jawaban atau gunakan mikrofon keyboard untuk dikte…"
-                    : recognition.supported
-                      ? "Ketuk Mulai bicara, lalu ucapkan paragraf…"
-                      : "Browser tidak mendukung Web Speech API. Minta admin mengaktifkan mode rekaman AI."
-                }
-              />
-              <div className="transcript-foot">
-                {mobileTranscriptEditable
-                  ? "Di HP, gunakan mikrofon keyboard untuk dikte teks. Audio tidak diunggah."
-                  : speechScoringMode === "ai"
-                    ? "Naskah dan transkrip teks dinilai AI; audio tidak dikirim."
-                    : "Punctuation diabaikan saat menghitung kecocokan."}
-              </div>
-            </div>
-          ) : aiTranscript ? (
-            <div className="transcript-area shadowing-transcript">
-              <div className="transcript-label">
-                <span>TRANSKRIP HASIL AI</span>
-                <span>{aiTranscript.length} karakter</span>
-              </div>
-              <textarea value={aiTranscript} readOnly />
-            </div>
-          ) : (
-            <p className="shadowing-privacy">
-              {directAudioMode
-                ? "Audio belum dikirim. Penilaian langsung dimulai hanya setelah kamu menekan tombol nilai dan menyetujui pengiriman."
-                : "Audio belum dikirim. Pengiriman hanya terjadi setelah kamu menekan tombol transkripsi dan menyetujuinya."}
-            </p>
+
+              {/* AI Transcript & Articulation Report */}
+              {mode === "ai" && aiTranscript && (
+                <div className="transcript-area shadowing-transcript" style={{ marginTop: 8 }}>
+                  <div className="transcript-label">
+                    <span>TRANSKRIP TERDENGAR OLEH AI</span>
+                    <span>{aiTranscript.length} karakter</span>
+                  </div>
+                  <textarea value={aiTranscript} readOnly />
+                </div>
+              )}
+
+              {displayedScore.articulationReport && (
+                <div className="speaking-articulation-box">
+                  <b>
+                    <AudioLines size={15} /> Laporan Artikulasi & Kejelasan AI
+                  </b>
+                  <p>{displayedScore.articulationReport}</p>
+                </div>
+              )}
+            </>
           )}
+
           {savedTranscriptText &&
-            savedTranscriptText !== answer &&
+            !displayedScore &&
+            savedTranscriptText !== recognition.transcript &&
             savedTranscriptText !== aiTranscript && (
               <div className="transcript-area shadowing-transcript saved-speaking-transcript">
                 <div className="transcript-label">
-                  <span>TRANSKRIP TERAKHIR · TERSIMPAN</span>
+                  <span>TRANSKRIP LATIHAN TERAKHIR · TERSIMPAN</span>
                   <span>{savedTranscriptText.length} karakter</span>
                 </div>
                 <textarea
@@ -715,30 +684,15 @@ export default function ListeningSpeakingTask({
                 />
                 {savedTranscript?.score != null && (
                   <div className="transcript-foot">
-                    Skor terakhir: {savedTranscript.score}% · audio tidak
-                    disimpan.
+                    Skor terakhir: {savedTranscript.score}%
                   </div>
                 )}
               </div>
             )}
-          {displayedScore && (
-            <div
-              className={`shadowing-score ${displayedScore.passed ? "passed" : ""}`}
-              role="status"
-            >
-              <span>{aiScoring ? "Kecocokan · AI" : "Kecocokan kata"}</span>
-              <b>{displayedScore.percent}%</b>
-              <small>
-                {displayedScore.passed
-                  ? `Target minimal ${similarityThreshold}% tercapai`
-                  : `Ulangi hingga mencapai ${similarityThreshold}% atau lebih`}
-              </small>
-            </div>
-          )}
+
           {passed && (
             <p className="shadowing-success">
-              <CheckCircle2 size={15} /> Bagian speaking sudah selesai. Kamu
-              tetap bisa mengulang untuk latihan.
+              <CheckCircle2 size={16} /> Misi speaking materi ini sudah selesai. Kamu tetap bisa mengulang untuk terus melatih artikulasi.
             </p>
           )}
         </div>

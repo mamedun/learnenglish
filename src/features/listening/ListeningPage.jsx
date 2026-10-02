@@ -28,9 +28,8 @@ export default function ListeningPage({
   setData,
   speak,
   ttsStatus,
-  speechInputMode = "live_transcribe",
-  speechScoringMode = "local",
   speechSimilarityThreshold = 90,
+  aiAudioCost = 3,
   aiProvider = "clario",
   maxRecordSeconds = 180,
   maxAiAudioBytes = 12 * 1024 * 1024,
@@ -447,9 +446,8 @@ export default function ListeningPage({
             lesson={active}
             speak={(text) => speak(text, { type: "listening", item: active })}
             ttsStatus={ttsStatus}
-            speechInputMode={speechInputMode}
-            speechScoringMode={speechScoringMode}
             speechSimilarityThreshold={speechThreshold}
+            aiAudioCost={aiAudioCost}
             aiProvider={aiProvider}
             courseId={courseId}
             maxRecordSeconds={maxRecordSeconds}
