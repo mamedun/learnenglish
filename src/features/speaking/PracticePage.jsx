@@ -48,6 +48,7 @@ import {
   useSpeechRecognition,
 } from "../../hooks/useSpeechRecognition";
 import CourseMedia from "../courses/CourseMedia";
+import AudioRadarWaveform from "../../components/AudioRadarWaveform";
 import useSmallViewport from "../../hooks/useSmallViewport";
 
 function PrepTimer({ unit }) {
@@ -638,6 +639,13 @@ export default function PracticePage(p) {
             <div
               className={`mic-halo ${recording || transcribing ? "is-recording" : ""}`}
             >
+              {(recording || transcribing) && (
+                <div className="mic-radar-pulse" aria-hidden="true">
+                  <span className="radar-ring rr1" />
+                  <span className="radar-ring rr2" />
+                  <span className="radar-ring rr3" />
+                </div>
+              )}
               <button
                 className="mic-main"
                 onClick={() => {
@@ -691,19 +699,21 @@ export default function PracticePage(p) {
                   {liveTranscription ? "LIVE · EN-US" : formatTime(elapsed)}{" "}
                   <i className="live-dot" />
                 </span>
-                {!liveTranscription && (
-                  <div className="waveform">
-                    {Array.from({ length: 32 }, (_, i) => (
-                      <i
-                        key={i}
-                        style={{
-                          height: `${12 + Math.random() * 27}px`,
-                          animationDelay: `${i * 0.03}s`,
-                        }}
-                      />
-                    ))}
-                  </div>
-                )}
+                <AudioRadarWaveform
+                  compact
+                  theme={liveTranscription ? "emerald" : "coral"}
+                  label={
+                    liveTranscription
+                      ? "Mendengarkan ucapanmu secara live…"
+                      : `Merekam audio langsung (${formatTime(elapsed)})`
+                  }
+                  subLabel={
+                    liveTranscription
+                      ? "Bicaralah dalam bahasa Inggris untuk menjawab tantangan soal"
+                      : "Tekan 'Selesai bicara' jika telah selesai menjawab"
+                  }
+                  className="practice-audio-radar"
+                />
                 <button
                   className="stop-button"
                   onClick={liveTranscription ? recognizer.stop : stopRecording}

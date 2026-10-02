@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { formatTime } from "../../lib/formatTime";
 import { LIVE_TOPICS } from "../../data/liveTopics";
+import AudioRadarWaveform from "../../components/AudioRadarWaveform";
 
 export default function LivePage({
   liveOn,
@@ -70,6 +71,13 @@ export default function LivePage({
           </span>
         </div>
         <div className="live-orb-wrap">
+          {liveOn && (
+            <div className="live-orb-radar-rings" aria-hidden="true">
+              <span className="live-radar-wave lrw-1" />
+              <span className="live-radar-wave lrw-2" />
+              <span className="live-radar-wave lrw-3" />
+            </div>
+          )}
           <div className={`live-orb ${liveOn ? "speaking" : ""}`}>
             <div className="orb-inner">
               {liveOn ? <AudioLines size={36} /> : <Headphones size={36} />}
@@ -91,6 +99,14 @@ export default function LivePage({
             ? "Speak naturally; Maya will guide the role-play and give a quick, helpful correction after each turn."
             : "Pilih topik. Maya akan membuka percakapan dengan pertanyaan sesuai peran dan topik pilihanmu."}
         </p>
+        {liveOn && (
+          <AudioRadarWaveform
+            theme="emerald"
+            label="Gemini Live Aktif · Maya Mendengarkan & Merespons"
+            subLabel="Mikrofon aktif dua arah — bicaralah secara alami kapan saja"
+            className="live-radar-card"
+          />
+        )}
         <div className="live-topic">
           <label htmlFor="live-topic-select">TOPIK HARI INI</label>
           <div className="live-topic-content">

@@ -24,6 +24,7 @@ import {
   useSpeechRecognition,
 } from "../../hooks/useSpeechRecognition";
 import ProcessingStatus from "../../components/ProcessingStatus";
+import AudioRadarWaveform from "../../components/AudioRadarWaveform";
 import useSmallViewport from "../../hooks/useSmallViewport";
 import "./ListeningSpeakingTask.css";
 
@@ -475,7 +476,7 @@ export default function ListeningSpeakingTask({
             <>
               <div className="shadowing-controls">
                 <button
-                  className={`mic-control ${recognition.listening ? "granted" : ""}`}
+                  className={`mic-control ${recognition.listening ? "granted is-listening-live" : ""}`}
                   onClick={
                     recognition.listening
                       ? recognition.stop
@@ -491,6 +492,15 @@ export default function ListeningSpeakingTask({
                   {recognition.listening ? "Selesai bicara" : "Mulai bicara"}
                 </button>
               </div>
+
+              {/* Audio Radar & Waveform Animation when Mic is Active */}
+              {recognition.listening && (
+                <AudioRadarWaveform
+                  theme="emerald"
+                  label="Mikrofon Aktif · Sistem mendengarkan suaramu…"
+                  subLabel="Bicaralah dengan jelas sesuai naskah bahasa Inggris di atas"
+                />
+              )}
 
               {/* Transcript Textarea */}
               <div className="transcript-area shadowing-transcript">
@@ -551,7 +561,7 @@ export default function ListeningSpeakingTask({
             <>
               <div className="shadowing-controls">
                 <button
-                  className={`mic-control ${recording ? "granted" : ""}`}
+                  className={`mic-control ${recording ? "granted is-recording-live" : ""}`}
                   onClick={recording ? stopAudioRecording : startAudioRecording}
                   disabled={processing || requestingMic}
                 >
@@ -569,6 +579,15 @@ export default function ListeningSpeakingTask({
                       : "Mulai merekam suara"}
                 </button>
               </div>
+
+              {/* Audio Radar & Waveform Animation when Recording Audio for AI */}
+              {recording && (
+                <AudioRadarWaveform
+                  theme="coral"
+                  label={`Merekam Audio Langsung (${recordingSeconds} detik)`}
+                  subLabel="Bicaralah dengan tempo wajar. Tekan selesai jika telah membaca naskah."
+                />
+              )}
 
               {/* Audio Preview if Recorded */}
               {audioPreviewUrl ? (

@@ -1,0 +1,318 @@
+/* ==========================================================================
+   Audio Radar & Waveform Live Animation Component
+   ========================================================================== */
+
+.arw-container {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 18px;
+  border-radius: 16px;
+  margin: 10px 0 12px;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.04);
+  transition: all 0.3s ease;
+  user-select: none;
+}
+
+/* Radar Emitter Hub */
+.arw-radar-hub {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  display: grid;
+  place-items: center;
+}
+
+.arw-radar-center {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: #ffffff;
+  position: relative;
+  z-index: 2;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.arw-ripple {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.arw-r1 {
+  animation: arw-radar-ping 2s cubic-bezier(0, 0.2, 0.8, 1) infinite;
+}
+
+.arw-r2 {
+  animation: arw-radar-ping 2s cubic-bezier(0, 0.2, 0.8, 1) infinite 0.65s;
+}
+
+.arw-r3 {
+  animation: arw-radar-ping 2s cubic-bezier(0, 0.2, 0.8, 1) infinite 1.3s;
+}
+
+@keyframes arw-radar-ping {
+  0% {
+    transform: scale(0.8);
+    opacity: 0.85;
+  }
+  50% {
+    opacity: 0.45;
+  }
+  100% {
+    transform: scale(2.3);
+    opacity: 0;
+  }
+}
+
+/* Body & Header */
+.arw-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.arw-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.arw-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.arw-label {
+  font-size: 13.5px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.arw-sublabel {
+  font-size: 11.5px;
+  opacity: 0.82;
+  font-weight: 500;
+}
+
+.arw-live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+/* Dynamic Waveform Equalizer */
+.arw-waveform {
+  display: flex;
+  align-items: center;
+  gap: 3.5px;
+  height: 34px;
+  width: 100%;
+  padding: 2px 0;
+}
+
+.arw-bar {
+  flex: 1;
+  min-width: 2.5px;
+  max-width: 5px;
+  border-radius: 3px;
+  display: block;
+  transform-origin: bottom center;
+  animation-name: arw-wave-dance;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+
+@keyframes arw-wave-dance {
+  0%, 100% {
+    transform: scaleY(0.2);
+    opacity: 0.55;
+  }
+  30% {
+    transform: scaleY(0.85);
+    opacity: 0.95;
+  }
+  55% {
+    transform: scaleY(0.45);
+    opacity: 0.7;
+  }
+  75% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+/* ==========================================================================
+   Themes: Emerald, Coral, Purple
+   ========================================================================== */
+
+/* Theme: Emerald (System Mode / Gemini Live / Listening) */
+.arw-theme-emerald {
+  background: linear-gradient(135deg, #f0f8f3 0%, #e5f4eb 100%);
+  border: 1.5px solid #c9e6d3;
+}
+.arw-theme-emerald .arw-radar-center {
+  background: linear-gradient(135deg, #2f5d44, #428862);
+}
+.arw-theme-emerald .arw-ripple {
+  border: 1.5px solid rgba(49, 92, 69, 0.45);
+  background: rgba(49, 92, 69, 0.08);
+}
+.arw-theme-emerald .arw-label {
+  color: #214b34;
+}
+.arw-theme-emerald .arw-sublabel {
+  color: #476c57;
+}
+.arw-theme-emerald .arw-live-dot {
+  background: #2ea662;
+  box-shadow: 0 0 0 0 rgba(46, 166, 98, 0.4);
+  animation: arw-pulse-emerald 1.5s infinite;
+}
+.arw-theme-emerald .arw-bar {
+  background: linear-gradient(180deg, #449e6b 0%, #29573d 100%);
+}
+
+@keyframes arw-pulse-emerald {
+  0% {
+    box-shadow: 0 0 0 0 rgba(46, 166, 98, 0.6);
+  }
+  70% {
+    box-shadow: 0 0 0 7px rgba(46, 166, 98, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(46, 166, 98, 0);
+  }
+}
+
+/* Theme: Coral (Direct Audio Recording / Mic Active) */
+.arw-theme-coral {
+  background: linear-gradient(135deg, #fff2f0 0%, #fde8e5 100%);
+  border: 1.5px solid #fac7c1;
+}
+.arw-theme-coral .arw-radar-center {
+  background: linear-gradient(135deg, #d76154, #e87b6f);
+}
+.arw-theme-coral .arw-ripple {
+  border: 1.5px solid rgba(215, 97, 84, 0.5);
+  background: rgba(215, 97, 84, 0.09);
+}
+.arw-theme-coral .arw-label {
+  color: #a43a2e;
+}
+.arw-theme-coral .arw-sublabel {
+  color: #b05c52;
+}
+.arw-theme-coral .arw-live-dot {
+  background: #e84c3d;
+  box-shadow: 0 0 0 0 rgba(232, 76, 61, 0.4);
+  animation: arw-pulse-coral 1.5s infinite;
+}
+.arw-theme-coral .arw-bar {
+  background: linear-gradient(180deg, #f27c70 0%, #ca4e41 100%);
+}
+
+@keyframes arw-pulse-coral {
+  0% {
+    box-shadow: 0 0 0 0 rgba(232, 76, 61, 0.6);
+  }
+  70% {
+    box-shadow: 0 0 0 7px rgba(232, 76, 61, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(232, 76, 61, 0);
+  }
+}
+
+/* Theme: Purple (AI High Precision / Specialty) */
+.arw-theme-purple {
+  background: linear-gradient(135deg, #f5f2fe 0%, #ece6fd 100%);
+  border: 1.5px solid #dccefc;
+}
+.arw-theme-purple .arw-radar-center {
+  background: linear-gradient(135deg, #5c4bcb, #7a6be6);
+}
+.arw-theme-purple .arw-ripple {
+  border: 1.5px solid rgba(92, 75, 203, 0.45);
+  background: rgba(92, 75, 203, 0.08);
+}
+.arw-theme-purple .arw-label {
+  color: #3b2c9b;
+}
+.arw-theme-purple .arw-sublabel {
+  color: #5d4ec7;
+}
+.arw-theme-purple .arw-live-dot {
+  background: #735bf0;
+  box-shadow: 0 0 0 0 rgba(115, 91, 240, 0.4);
+  animation: arw-pulse-purple 1.5s infinite;
+}
+.arw-theme-purple .arw-bar {
+  background: linear-gradient(180deg, #8372f5 0%, #5240c4 100%);
+}
+
+@keyframes arw-pulse-purple {
+  0% {
+    box-shadow: 0 0 0 0 rgba(115, 91, 240, 0.6);
+  }
+  70% {
+    box-shadow: 0 0 0 7px rgba(115, 91, 240, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(115, 91, 240, 0);
+  }
+}
+
+/* Compact layout for tighter containers */
+.arw-compact {
+  padding: 10px 14px;
+  gap: 12px;
+}
+.arw-compact .arw-radar-hub {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+}
+.arw-compact .arw-radar-center {
+  width: 30px;
+  height: 30px;
+}
+.arw-compact .arw-waveform {
+  height: 26px;
+}
+
+/* Mobile responsive adjustments */
+@media (max-width: 600px) {
+  .arw-container {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 14px 12px;
+    gap: 12px;
+  }
+  .arw-radar-hub {
+    margin: 4px auto 0;
+  }
+  .arw-header {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 4px;
+  }
+  .arw-waveform {
+    height: 30px;
+  }
+}
