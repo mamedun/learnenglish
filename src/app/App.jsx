@@ -848,8 +848,14 @@ function App() {
         );
         return;
       }
+      const practiceCourse =
+        courseCache[routeCourseId]?.course ||
+        (currentCourseId === routeCourseId ? currentCoursePayload?.course : null) ||
+        courses.find((c) => c.id === routeCourseId);
       const isLinear =
-        appConfig.courseware_policy?.learning_progression_mode === "linear";
+        (practiceCourse?.aiLessonProgressionMode ||
+          practiceCourse?.progressionMode ||
+          appConfig.courseware_policy?.learning_progression_mode) === "linear";
       if (isLinear) {
         const firstIncompleteIndex = allUnits.findIndex(
           (item) => !completed.has(item.id),
@@ -909,8 +915,14 @@ function App() {
         );
         return;
       }
+      const listeningCourse =
+        courseCache[routeCourseId]?.course ||
+        (currentCourseId === routeCourseId ? currentCoursePayload?.course : null) ||
+        courses.find((c) => c.id === routeCourseId);
       const isLinear =
-        appConfig.courseware_policy?.learning_progression_mode === "linear";
+        (listeningCourse?.listeningProgressionMode ||
+          listeningCourse?.progressionMode ||
+          appConfig.courseware_policy?.learning_progression_mode) === "linear";
       if (isLinear && route.listeningId) {
         const scopedListeningData =
           routeCourseId === "ielts"
@@ -1001,6 +1013,41 @@ function App() {
     navigate(targetPath);
   };
   const startListening = (id, courseId = currentCourseId) => {
+    if (id) {
+      const listeningCourse =
+        courseCache[courseId]?.course ||
+        (currentCourseId === courseId ? currentCoursePayload?.course : null) ||
+        courses.find((c) => c.id === courseId);
+      const isLinear =
+        (listeningCourse?.listeningProgressionMode ||
+          listeningCourse?.progressionMode ||
+          appConfig.courseware_policy?.learning_progression_mode) === "linear";
+      if (isLinear) {
+        const scopedListeningData =
+          courseId === "ielts"
+            ? data
+            : (data.courseProgress || {})[courseId] || {};
+        const completedListening = new Set(
+          scopedListeningData.listeningCompleted || [],
+        );
+        const lessons =
+          courseId === currentCourseId
+            ? listeningLessons
+            : (courseCache[courseId]?.catalog?.listeningCategories || []).flatMap(
+                (cat) => cat.lessons || [],
+              );
+        const firstIncompleteIdx = lessons.findIndex(
+          (l) => !completedListening.has(l.id),
+        );
+        const currentIdx = lessons.findIndex((l) => l.id === id);
+        if (firstIncompleteIdx >= 0 && currentIdx > firstIncompleteIdx) {
+          toast.info(
+            "Mode Linear: Selesaikan lesson sebelumnya untuk membuka materi ini.",
+          );
+          return;
+        }
+      }
+    }
     setSelectedListeningId(id || null);
     setPage("listening");
     const targetPath = appRouteFor("listening", { listeningId: id, courseId });
@@ -1008,7 +1055,15 @@ function App() {
   };
   const startUnit = (unit, courseId = unit?.courseId || currentCourseId) => {
     if (!unit) return toast.info("Belum ada unit di level ini.");
-    if (courseId === "ielts") {
+    const aiLessonCourse =
+      courseCache[courseId]?.course ||
+      (currentCourseId === courseId ? currentCoursePayload?.course : null) ||
+      courses.find((c) => c.id === courseId);
+    const isLinear =
+      (aiLessonCourse?.aiLessonProgressionMode ||
+        aiLessonCourse?.progressionMode ||
+        appConfig.courseware_policy?.learning_progression_mode) === "linear";
+    if (isLinear) {
       const units =
         courseId === currentCourseId
           ? allUnits
@@ -1025,7 +1080,9 @@ function App() {
         (item) => !courseCompleted.has(item.id),
       );
       if (nextIndex >= 0 && index > nextIndex) {
-        toast.info("Selesaikan lesson sebelumnya untuk membuka materi ini.");
+        toast.info(
+          "Mode Linear: Selesaikan lesson sebelumnya untuk membuka materi ini.",
+        );
         return;
       }
     }
@@ -3328,7 +3385,8 @@ Because this is live audio, comment on pronunciation or word stress only when a 
                     aiProvider={appConfig.ai_provider}
                     unlimitedDiamonds={user?.unlimited_diamonds}
                     learningProgressionMode={
-currentCoursePayload?.course?.progressionMode ||
+                      currentCoursePayload?.course?.listeningProgressionMode ||
+                      currentCoursePayload?.course?.progressionMode ||
                       appConfig.courseware_policy?.learning_progression_mode ||
                       "parallel"
                     }
@@ -3416,7 +3474,8 @@ currentCoursePayload?.course?.progressionMode ||
                     sessionSaveAudio={sessionSaveAudio}
                     resetRecording={resetRecording}
                     learningProgressionMode={
-currentCoursePayload?.course?.progressionMode ||
+                      currentCoursePayload?.course?.aiLessonProgressionMode ||
+                      currentCoursePayload?.course?.progressionMode ||
                       appConfig.courseware_policy?.learning_progression_mode ||
                       "parallel"
                     }

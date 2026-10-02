@@ -45,6 +45,8 @@ const NEW_COURSE = {
   enableAiLesson: true,
   enableLiveLesson: true,
   progressionMode: "parallel",
+  listeningProgressionMode: "parallel",
+  aiLessonProgressionMode: "parallel",
 };
 const MODE_LABEL = {
   listening: "Listening",
@@ -379,7 +381,18 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
       .then((result) => {
         if (!active) return;
         setCourseData(result);
-        setCourseDraft({ ...NEW_COURSE, ...result.course });
+        setCourseDraft({
+          ...NEW_COURSE,
+          ...result.course,
+          listeningProgressionMode:
+            result.course?.listeningProgressionMode ||
+            result.course?.progressionMode ||
+            "parallel",
+          aiLessonProgressionMode:
+            result.course?.aiLessonProgressionMode ||
+            result.course?.progressionMode ||
+            "parallel",
+        });
         setModuleDrafts(result.modules || {});
         setSelectedUnitId("");
       })
@@ -1257,61 +1270,107 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
                       />
                     </label>
                   </div>
-                  <div className="course-mode-toggles">
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked={Boolean(courseDraft.enableListening)}
-                        onChange={(event) =>
-                          editCourse("enableListening", event.target.checked)
-                        }
-                      />{" "}
-                      Listening Lab
-                    </label>
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked={Boolean(courseDraft.enableAiLesson)}
-                        onChange={(event) =>
-                          editCourse("enableAiLesson", event.target.checked)
-                        }
-                      />{" "}
-                      AI Lesson
-                    </label>
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked={Boolean(courseDraft.enableLiveLesson)}
-                        onChange={(event) =>
-                          editCourse("enableLiveLesson", event.target.checked)
-                        }
-                      />{" "}
-                      Live Lesson
-                    </label>
-                  </div>
-                  <div className="course-progression-setting" style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid #ebe7f6" }}>
-                    <span style={{ display: "block", fontSize: 13, fontWeight: 700, color: "#302b58", marginBottom: 8 }}>
-                      Alur Progres Materi (Listening & AI Lesson)
-                    </span>
-                    <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-                      <label style={{ display: "inline-flex", alignItems: "center", gap: 7, cursor: "pointer", fontSize: 13, fontWeight: 600, color: "#443e62" }}>
+                  <div className="course-mode-toggles-container" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                    <div style={{ border: "1px solid #e7e2f7", borderRadius: 10, padding: "12px 16px", background: courseDraft.enableListening ? "#ffffff" : "#fbfafd" }}>
+                      <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 700, fontSize: 14, cursor: "pointer", color: "#2d2854" }}>
                         <input
-                          type="radio"
-                          name="course_progression_mode"
-                          checked={courseDraft.progressionMode !== "linear"}
-                          onChange={() => editCourse("progressionMode", "parallel")}
-                        />
-                        Belajar Paralel (bebas memilih materi tanpa harus menyelesaikan sebelumnya)
+                          type="checkbox"
+                          checked={Boolean(courseDraft.enableListening)}
+                          onChange={(event) =>
+                            editCourse("enableListening", event.target.checked)
+                          }
+                        />{" "}
+                        Listening Lab
                       </label>
-                      <label style={{ display: "inline-flex", alignItems: "center", gap: 7, cursor: "pointer", fontSize: 13, fontWeight: 600, color: "#443e62" }}>
+                      {courseDraft.enableListening && (
+                        <div style={{ marginTop: 10, paddingLeft: 26, display: "flex", flexDirection: "column", gap: 6 }}>
+                          <span style={{ fontSize: 12, fontWeight: 600, color: "#6e6796" }}>
+                            Alur Progres Listening Lab:
+                          </span>
+                          <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+                            <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer", color: "#443e62" }}>
+                              <input
+                                type="radio"
+                                name="course_listening_progression_mode"
+                                checked={courseDraft.listeningProgressionMode !== "linear"}
+                                onChange={() => editCourse("listeningProgressionMode", "parallel")}
+                              />
+                              Belajar Paralel (bebas memilih materi)
+                            </label>
+                            <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer", color: "#443e62" }}>
+                              <input
+                                type="radio"
+                                name="course_listening_progression_mode"
+                                checked={courseDraft.listeningProgressionMode === "linear"}
+                                onChange={() => editCourse("listeningProgressionMode", "linear")}
+                              />
+                              Belajar Linear (wajib bertahap / berurutan)
+                            </label>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={{ border: "1px solid #e7e2f7", borderRadius: 10, padding: "12px 16px", background: courseDraft.enableAiLesson ? "#ffffff" : "#fbfafd" }}>
+                      <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 700, fontSize: 14, cursor: "pointer", color: "#2d2854" }}>
                         <input
-                          type="radio"
-                          name="course_progression_mode"
-                          checked={courseDraft.progressionMode === "linear"}
-                          onChange={() => editCourse("progressionMode", "linear")}
-                        />
-                        Belajar Linear (wajib menyelesaikan materi bertahap / berurutan)
+                          type="checkbox"
+                          checked={Boolean(courseDraft.enableAiLesson)}
+                          onChange={(event) =>
+                            editCourse("enableAiLesson", event.target.checked)
+                          }
+                        />{" "}
+                        AI Lesson
                       </label>
+                      {courseDraft.enableAiLesson && (
+                        <div style={{ marginTop: 10, paddingLeft: 26, display: "flex", flexDirection: "column", gap: 6 }}>
+                          <span style={{ fontSize: 12, fontWeight: 600, color: "#6e6796" }}>
+                            Alur Progres AI Lesson:
+                          </span>
+                          <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+                            <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer", color: "#443e62" }}>
+                              <input
+                                type="radio"
+                                name="course_ai_lesson_progression_mode"
+                                checked={courseDraft.aiLessonProgressionMode !== "linear"}
+                                onChange={() => {
+                                  editCourse("aiLessonProgressionMode", "parallel");
+                                  editCourse("progressionMode", "parallel");
+                                }}
+                              />
+                              Belajar Paralel (bebas memilih materi)
+                            </label>
+                            <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer", color: "#443e62" }}>
+                              <input
+                                type="radio"
+                                name="course_ai_lesson_progression_mode"
+                                checked={courseDraft.aiLessonProgressionMode === "linear"}
+                                onChange={() => {
+                                  editCourse("aiLessonProgressionMode", "linear");
+                                  editCourse("progressionMode", "linear");
+                                }}
+                              />
+                              Belajar Linear (wajib bertahap / berurutan)
+                            </label>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={{ border: "1px solid #e7e2f7", borderRadius: 10, padding: "12px 16px", background: courseDraft.enableLiveLesson ? "#ffffff" : "#fbfafd" }}>
+                      <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 700, fontSize: 14, cursor: "pointer", color: "#2d2854" }}>
+                        <input
+                          type="checkbox"
+                          checked={Boolean(courseDraft.enableLiveLesson)}
+                          onChange={(event) =>
+                            editCourse("enableLiveLesson", event.target.checked)
+                          }
+                        />{" "}
+                        Live Lesson
+                      </label>
+                      <div style={{ marginTop: 6, paddingLeft: 26, fontSize: 12, color: "#777196" }}>
+                        Sesi tatap muka langsung sesuai jadwal kelas.
+                      </div>
                     </div>
                   </div>
                   <div className="course-studio-tip">
