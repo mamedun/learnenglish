@@ -12,6 +12,7 @@
     "format": "prettier --write \"src/**/*.{js,jsx,css}\" vite.config.js"
   },
   "dependencies": {
+    "@breezystack/lamejs": "^1.2.7",
     "canvas-confetti": "^1.9.4",
     "jszip": "^3.10.1",
     "lucide-react": "^0.468.0",

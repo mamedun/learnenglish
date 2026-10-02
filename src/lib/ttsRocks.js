@@ -1,3 +1,5 @@
+import { encodeMonoSamplesToMp3 } from "./audio.js";
+
 const TTS_ROCKS_ORIGIN = "https://tts.rocks";
 const MODEL_ID = "kokoro-82M-v1.0";
 const MODEL_URL =
@@ -688,7 +690,11 @@ export async function generateKokoroAudio(
   ) {
     throw new Error("Kokoro tidak menghasilkan waveform audio yang valid.");
   }
-  return wavFromFloat32(generated.samples, generated.sampleRate);
+  try {
+    return encodeMonoSamplesToMp3(generated.samples, generated.sampleRate, 128);
+  } catch {
+    return wavFromFloat32(generated.samples, generated.sampleRate);
+  }
 }
 
 export async function generateKokoroCompositeAudio(
@@ -765,7 +771,11 @@ export async function generateKokoroCompositeAudio(
       device,
       message: "Menggabungkan giliran dialog…",
     });
-    return wavFromFloat32(combined, sampleRate);
+    try {
+      return encodeMonoSamplesToMp3(combined, sampleRate, 128);
+    } catch {
+      return wavFromFloat32(combined, sampleRate);
+    }
   });
 }
 

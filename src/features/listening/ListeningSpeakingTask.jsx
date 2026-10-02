@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { apiFetch } from "../../api";
-import { convertRecordingToWav } from "../../lib/audio";
+import { convertRecordingToMp3, convertRecordingToWav } from "../../lib/audio";
 import {
   compareSpokenText,
   meetsSpeechThreshold,
@@ -291,23 +291,30 @@ export default function ListeningSpeakingTask({
     setProcessing(true);
     setProcessingMessage("Menyiapkan rekaman audio untuk dikirim ke AI…");
     try {
-      const audioForAI =
-        aiProvider === "free"
-          ? audioBlob
-          : await convertRecordingToWav(audioBlob);
+      let audioForAI;
+      try {
+        audioForAI = await convertRecordingToMp3(audioBlob, 128);
+      } catch {
+        audioForAI =
+          aiProvider === "free"
+            ? audioBlob
+            : await convertRecordingToWav(audioBlob);
+      }
       if (audioForAI.size > (Number(maxAiAudioBytes) || 12 * 1024 * 1024))
         throw new Error(
           `Audio melebihi batas ${(Number(maxAiAudioBytes) || 12 * 1024 * 1024) / (1024 * 1024)} MB.`,
         );
-      const audioMime = (audioForAI.type || "audio/webm").split(";")[0];
+      const audioMime = (audioForAI.type || "audio/mpeg").split(";")[0];
       const audioExtension =
-        audioMime === "audio/mp4"
-          ? "m4a"
-          : audioMime === "audio/ogg"
-            ? "ogg"
-            : audioMime === "audio/wav"
-              ? "wav"
-              : "webm";
+        audioMime === "audio/mpeg" || audioMime === "audio/mp3"
+          ? "mp3"
+          : audioMime === "audio/mp4"
+            ? "m4a"
+            : audioMime === "audio/ogg"
+              ? "ogg"
+              : audioMime === "audio/wav"
+                ? "wav"
+                : "webm";
       const form = new FormData();
       form.append("consent", "1");
       form.append("task_mode", "read_aloud_direct");

@@ -32,13 +32,27 @@ export async function saveSharedTtsAudio({
 }) {
   if (!item?.id || !item?.ttsRevision || !audio)
     throw new Error("Materi atau audio cache belum lengkap.");
+
+  let uploadBlob = audio;
+  if (!uploadBlob.type?.includes("mpeg") && !uploadBlob.type?.includes("mp3")) {
+    try {
+      const { convertRecordingToMp3 } = await import("./audio.js");
+      uploadBlob = await convertRecordingToMp3(audio, 128);
+    } catch {
+      uploadBlob = audio;
+    }
+  }
+  const isMp3 =
+    uploadBlob.type?.includes("mpeg") || uploadBlob.type?.includes("mp3");
+  const ext = isMp3 ? "mp3" : "wav";
+
   const form = new FormData();
   form.append("type", contentType);
   form.append("id", String(item.id));
   form.append("revision", String(item.ttsRevision));
   form.append("voice", voiceId);
   if (item.courseId) form.append("course_id", String(item.courseId));
-  form.append("audio", audio, `${item.id}-${voiceId}.wav`);
+  form.append("audio", uploadBlob, `${item.id}-${voiceId}.${ext}`);
   const response = await apiFetch("tts-cache", { method: "POST", body: form });
   if (!response.ok) throw await responseError(response);
   return response.json().catch(() => ({}));

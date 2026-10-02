@@ -57,7 +57,7 @@ import ModuleLoading from "../components/ModuleLoading";
 import ModuleErrorBoundary from "../components/ModuleErrorBoundary";
 import ProcessingStatus from "../components/ProcessingStatus";
 import MascotLoadingToast from "../components/MascotLoadingToast";
-import { convertRecordingToWav } from "../lib/audio";
+import { convertRecordingToMp3, convertRecordingToWav } from "../lib/audio";
 import {
   isTtsBusy,
   KOKORO_VOICES,
@@ -1457,10 +1457,15 @@ function App() {
       if (useServerAudio) {
         setProcessingMessage("Menyiapkan rekaman untuk dikirim…");
 
-        const audioForAI =
-          currentConfig.ai_provider === "free"
-            ? audioBlob
-            : await convertRecordingToWav(audioBlob);
+        let audioForAI;
+        try {
+          audioForAI = await convertRecordingToMp3(audioBlob, 128);
+        } catch {
+          audioForAI =
+            currentConfig.ai_provider === "free"
+              ? audioBlob
+              : await convertRecordingToWav(audioBlob);
+        }
         const maxAudioBytes =
           Number(appConfig.courseware_policy?.max_ai_audio_bytes) ||
           12 * 1024 * 1024;
@@ -1468,15 +1473,17 @@ function App() {
           throw new Error(
             `Audio melebihi batas ${(maxAudioBytes / 1024 / 1024).toFixed(0)} MB.`,
           );
-        const audioMime = (audioForAI.type || "audio/webm").split(";")[0];
+        const audioMime = (audioForAI.type || "audio/mpeg").split(";")[0];
         const audioExtension =
-          audioMime === "audio/mp4"
-            ? "m4a"
-            : audioMime === "audio/ogg"
-              ? "ogg"
-              : audioMime === "audio/wav"
-                ? "wav"
-                : "webm";
+          audioMime === "audio/mpeg" || audioMime === "audio/mp3"
+            ? "mp3"
+            : audioMime === "audio/mp4"
+              ? "m4a"
+              : audioMime === "audio/ogg"
+                ? "ogg"
+                : audioMime === "audio/wav"
+                  ? "wav"
+                  : "webm";
 
         if (
           currentConfig.ai_provider === "free" &&
@@ -1691,11 +1698,22 @@ function App() {
       let audioId = null;
       if (saveThisAudio && useServerAudio && audioBlob) {
         setProcessingMessage("Mengunggah rekaman untuk disimpan ke akun…");
+        let archiveBlob = audioBlob;
+        try {
+          archiveBlob = await convertRecordingToMp3(audioBlob, 128);
+        } catch {}
+        const isMp3 =
+          archiveBlob.type?.includes("mpeg") || archiveBlob.type?.includes("mp3");
+        const archiveExt = isMp3
+          ? "mp3"
+          : archiveBlob.type?.includes("mp4")
+            ? "m4a"
+            : "webm";
         const form = new FormData();
         form.append(
           "audio",
-          audioBlob,
-          `${crypto.randomUUID()}.${audioBlob.type.includes("mp4") ? "m4a" : "webm"}`,
+          archiveBlob,
+          `${crypto.randomUUID()}.${archiveExt}`,
         );
         const upload = await apiFetch("audio", { method: "POST", body: form });
         const result = await upload.json();

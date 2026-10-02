@@ -196,6 +196,13 @@ Setiap proses asinkron yang membutuhkan waktu (seperti pengiriman rekaman audio 
   - *Determinate Progress*: Menampilkan persentase unduhan/generasi audio real-time (0–100%) jika didukung.
   - *Indeterminate Progress*: Animasi *infinite candy-stripe shimmer* saat menunggu respons dari server AI eksternal.
 
+### Konversi Audio Client-Side ke MP3 128kbps Mono
+Untuk menghemat ruang penyimpanan server secara signifikan serta mempercepat waktu transfer jaringan di perangkat seluler pengguna:
+- **Encoding MP3 128kbps Mono di Browser**: Menggunakan pustaka murni JavaScript `@breezystack/lamejs` tanpa dependensi eksternal, seluruh audio vokal diproses secara lokal langsung pada browser pengguna (`src/lib/audio.js`).
+- **Penyimpanan Cache Kokoro TTS**: Hasil sintesis suara Kokoro (single speaker maupun multi-speaker composite dialog) dikonversi menjadi file MP3 mono 128kbps sebelum disimpan ke server cache shared (`POST api/tts-cache`). File yang tersimpan menyusut drastis dari ~1.5–5 MB (WAV uncompressed) menjadi hanya ~100–350 KB (MP3 128kbps).
+- **Pengiriman Rekaman ke AI & Arsip Akun**: Rekaman suara mikrofon pengguna yang dikirim ke AI untuk penilaian (`POST api/assess-audio`) atau disimpan ke arsip latihan akun (`POST api/audio`) secara otomatis dikonversi ke MP3 128kbps mono di sisi klien sebelum dikirim melalui jaringan.
+- **Dukungan Backend Terintegrasi**: Server PHP (`api/tts_cache.php` dan `api/index.php`) telah diperbarui untuk menerima tipe `audio/mpeg` dan `audio/mp3`, menyimpannya dengan format MP3 yang tepat, dan meneruskan format audio ke model AI upstream (Gemini / OpenRouter / Free AI key).
+
 ---
 
 ## 6. Referensi Endpoint REST API
@@ -239,7 +246,6 @@ Default root API: `https://domain.com/learnenglish/api/` (atau sesuai konfiguras
   - API Key provider AI eksternal (Gemini, OpenRouter, Clario) disimpan di database dalam bentuk terenkripsi menggunakan algoritma **AES-256-GCM** dengan kunci `APP_ENCRYPTION_KEY`.
 - **Proteksi Akses File**:
   - File `.htaccess` memblokir akses HTTP langsung ke direktori database SQLite, file upload privat, dan file konfigurasi.
-
 ---
 
 ## 8. Panduan Instalasi & Menjalankan Aplikasi
