@@ -1,14 +1,17 @@
 import {
   ArrowDownToLine,
   ArrowRight,
+  CheckCircle2,
   CircleHelp,
-  Download,
   Cpu,
   Database,
+  Download,
   FileAudio2,
   Play,
   Settings,
+  Share2,
   ShieldCheck,
+  Smartphone,
   Trash2,
   Upload,
   Volume2,
@@ -18,6 +21,7 @@ import { toast } from "sonner";
 import Swal from "sweetalert2";
 import { useEffect, useState } from "react";
 import useSmallViewport from "../../hooks/useSmallViewport";
+import { usePwaInstall } from "../../hooks/usePwaInstall";
 import {
   getKokoroCacheInfo,
   isTtsBusy,
@@ -44,6 +48,7 @@ export default function SettingsPage({
   const [cacheInfo, setCacheInfo] = useState(null);
   const [backupBusy, setBackupBusy] = useState(false);
   const isSmallViewport = useSmallViewport();
+  const { canInstall, isInstalled, isIos, installApp } = usePwaInstall();
   const activeTtsEngine = isSmallViewport
     ? "native"
     : data.settings.tts === "native"
@@ -399,6 +404,60 @@ export default function SettingsPage({
                 )}
               </button>
             </div>
+          </section>
+          <section className="settings-card pwa-card">
+            <div className="setting-title">
+              <div className="setting-icon emerald">
+                <Smartphone size={18} />
+              </div>
+              <div>
+                <b>Aplikasi Mobile (PWA)</b>
+                <small>Install SpeakUp ke layar utama smartphone atau desktop</small>
+              </div>
+            </div>
+            {isInstalled ? (
+              <div className="pwa-status-box installed">
+                <CheckCircle2 size={18} className="pwa-icon-success" />
+                <div>
+                  <strong>Aplikasi Sudah Terpasang</strong>
+                  <p>SpeakUp sedang aktif sebagai aplikasi mandiri di perangkat Anda.</p>
+                </div>
+              </div>
+            ) : canInstall ? (
+              <div className="pwa-install-action">
+                <p>
+                  Pasang SpeakUp ke layar utama untuk pengalaman latihan yang lebih cepat dan layar penuh tanpa bilah peramban.
+                </p>
+                <button
+                  type="button"
+                  className="primary-btn pwa-install-btn"
+                  onClick={async () => {
+                    const ok = await installApp();
+                    if (ok) toast.success("Aplikasi SpeakUp berhasil dipasang!");
+                  }}
+                >
+                  <Download size={16} /> Install Aplikasi Sekarang
+                </button>
+              </div>
+            ) : isIos ? (
+              <div className="pwa-ios-guide">
+                <div className="pwa-guide-header">
+                  <Share2 size={16} />
+                  <strong>Cara pasang di iPhone / iPad (Safari):</strong>
+                </div>
+                <ol className="pwa-steps-list">
+                  <li>Buka SpeakUp menggunakan peramban <b>Safari</b>.</li>
+                  <li>Ketuk tombol <b>Bagikan (Share ⎋)</b> pada bilah navigasi Safari.</li>
+                  <li>Pilih <b>"Tambahkan ke Layar Utama" (Add to Home Screen)</b>.</li>
+                </ol>
+              </div>
+            ) : (
+              <div className="pwa-generic-guide">
+                <p>
+                  Untuk memasang aplikasi ini di Android / Chrome: ketuk menu titik tiga (<b>⋮</b>) di pojok kanan atas browser Anda, lalu pilih <b>"Install aplikasi"</b> atau <b>"Tambahkan ke Layar Utama"</b>.
+                </p>
+              </div>
+            )}
           </section>
           <PasswordForm onChanged={onPasswordChanged} />
           <section className="settings-card account-card">

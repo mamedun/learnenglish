@@ -6,6 +6,7 @@ import {
   AudioLines,
   BookOpen,
   ChevronRight,
+  Download,
   Flame,
   Gem,
   Home,
@@ -34,6 +35,7 @@ import {
 } from "../features/speaking/lessonProgress";
 import { useAuthStore } from "../store/authStore";
 import { useLearningStore } from "../store/learningStore";
+import { usePwaInstall } from "../hooks/usePwaInstall";
 const greet = () => {
   const h = new Date().getHours();
   return h < 11
@@ -91,6 +93,7 @@ function App() {
   const navigate = useNavigate();
   const location = useLocation();
   const isSmallViewport = useSmallViewport();
+  const { canInstall, isInstalled, installApp } = usePwaInstall();
   const route = useMemo(
     () => parseAppRoute(location.pathname),
     [location.pathname],
@@ -3445,6 +3448,21 @@ Because this is live audio, comment on pronunciation or word stress only when a 
                 <Gem size={16} />
                 <span>Toko Diamond</span>
               </button>
+              {canInstall && !isInstalled && (
+                <button
+                  type="button"
+                  className="profile-menu-item pwa-menu-item"
+                  role="menuitem"
+                  onClick={async () => {
+                    setProfileMenuOpen(false);
+                    const ok = await installApp();
+                    if (ok) toast.success("Aplikasi SpeakUp berhasil dipasang!");
+                  }}
+                >
+                  <Download size={16} />
+                  <span>Install Aplikasi</span>
+                </button>
+              )}
               <div className="profile-menu-divider" />
               <button
                 type="button"
@@ -3521,6 +3539,20 @@ Because this is live audio, comment on pronunciation or word stress only when a 
             <span className="streak-pill">
               <Flame size={17} fill="currentColor" /> {data.streak || 0} hari
             </span>
+            {canInstall && !isInstalled && (
+              <button
+                type="button"
+                className="install-app-pill"
+                onClick={async () => {
+                  const ok = await installApp();
+                  if (ok) toast.success("Aplikasi SpeakUp berhasil dipasang!");
+                }}
+                title="Install SpeakUp ke layar utama perangkat"
+              >
+                <Download size={14} />
+                <span className="install-app-text">Install App</span>
+              </button>
+            )}
             <button
               className="icon-btn topbar-settings-btn"
               onClick={() => nav("settings")}

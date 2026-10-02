@@ -107,6 +107,23 @@ Akses khusus administrator untuk mengelola seluruh aspek aplikasi secara terpadu
 
 ---
 
+### F. Dukungan PWA (Progressive Web App) & Instalasi Mobile
+Aplikasi SpeakUp kini mendukung penuh standar **Progressive Web App (PWA)** sehingga dapat diinstall langsung di layar utama smartphone (Android & iOS) maupun desktop tanpa melalui toko aplikasi (App Store / Play Store):
+- **Web App Manifest (`public/manifest.webmanifest`)**:
+  - Mode tampilan `standalone` (tampilan aplikasi penuh tanpa address bar browser).
+  - Tema warna `#315c45` selaras dengan status bar perangkat.
+  - Ikon aplikasi beresolusi tinggi (192x192, 512x512, maskable 512x512, dan Apple Touch Icon 180x180).
+  - Shortcuts navigasi cepat langsung ke menu "Latihan Percakapan" dan "Listening Lab".
+- **Service Worker (`public/sw.js` & `src/registerServiceWorker.js`)**:
+  - Pre-caching aset inti aplikasi (*app shell*) untuk waktu pembukaan instan dan keandalan saat jaringan lambat.
+  - Strategi *Stale-While-Revalidate* untuk file statis dan *Network-First* untuk navigasi dengan fallback offline.
+  - Bypass otomatis untuk API requests (`/api/*`), WebSockets, dan streaming AI.
+- **Pemicu Instalasi Dalam Aplikasi (`src/hooks/usePwaInstall.js`)**:
+  - Menangkap event `beforeinstallprompt` browser secara otomatis.
+  - Tombol aksi **"Install App"** pada bilah atas (*topbar*) dan menu profil sidebar.
+  - Panduan instalasi interaktif di halaman **Pengaturan (Settings)** untuk Android Chrome dan iOS Safari (Share ⎋ -> *Add to Home Screen*).
+
+---
 ## 3. Arsitektur & Tech Stack
 
 | Lapisan | Teknologi | Deskripsi |

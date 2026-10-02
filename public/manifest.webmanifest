@@ -1,0 +1,50 @@
+{
+  "name": "SpeakUp — AI English Fluency Coach",
+  "short_name": "SpeakUp",
+  "description": "Latihan speaking, listening lab, shadowing, dan evaluasi suara AI interaktif.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0d1b14",
+  "theme_color": "#315c45",
+  "lang": "id",
+  "dir": "ltr",
+  "categories": ["education", "productivity"],
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Latihan Percakapan",
+      "short_name": "AI Lesson",
+      "description": "Mulai latihan percakapan speaking dengan tutor AI",
+      "url": "./#practice",
+      "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Listening Lab",
+      "short_name": "Listening",
+      "description": "Latihan listening dan shadowing audio",
+      "url": "./#listening",
+      "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}
