@@ -26,11 +26,11 @@ export default function KokoroDownloadModal({
     : null;
   const totalMB = status?.total
     ? (status.total / 1024 / 1024).toFixed(1)
-    : "82.0";
+    : "310.0";
 
   let statusTitle = "Mengunduh Model Kokoro Neural…";
   let statusDetail =
-    "Mengunduh file bobot suara neural ~82 MB ke penyimpanan perangkat.";
+    "Mengunduh file bobot suara neural Kokoro-82M (~310 MB) ke penyimpanan perangkat.";
 
   if (phase === "cache") {
     statusTitle = "Menyimpan ke IndexedDB…";
@@ -71,7 +71,7 @@ export default function KokoroDownloadModal({
 
         <p className="kokoro-modal-desc">
           Untuk menghasilkan suara pelafalan alami berkualitas studio, perangkatmu
-          sedang mengunduh modul suara neural (<strong>~82 MB</strong>).
+          sedang mengunduh modul suara neural Kokoro-82M (<strong>~310 MB</strong>).
           <br />
           <span className="kokoro-highlight-note">
             Unduhan ini <strong>hanya dilakukan 1 kali</strong> dan disimpan di

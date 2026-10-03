@@ -223,9 +223,10 @@ export default function SettingsPage({
                 <div className="info-box">
                   <CircleHelp size={15} />
                   <span>
-                    Download awal sekitar 82 MB. File model diproses lokal dan
-                    dicache pada browser/perangkat ini; browser dapat menghapus
-                    cache jika ruang penyimpanan terbatas.
+                    Ukuran model Kokoro-82M adalah ~310 MB (arsitektur 82 juta
+                    parameter neural FP32). File model diproses lokal dan
+                    disimpan di IndexedDB perangkat ini hanya 1 kali; sesi
+                    berikutnya akan instan tanpa perlu mengunduh ulang.
                   </span>
                 </div>
               </>
