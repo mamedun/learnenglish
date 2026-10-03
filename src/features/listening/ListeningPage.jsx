@@ -316,14 +316,6 @@ export default function ListeningPage({
             <h2>{active.title}</h2>
             <p>{active.objective}</p>
           </div>
-          {active.image && (
-            <CourseMedia
-              src={active.image}
-              alt={`Ilustrasi pelengkap untuk ${active.title}`}
-              className="listening-visual"
-              caption="Ilustrasi pelengkap · jawaban ada dalam naskah audio, bukan gambar."
-            />
-          )}
           <div className="audio-player-card">
             <span className="audio-disc">
               <Headphones size={26} />
@@ -361,6 +353,14 @@ export default function ListeningPage({
           {showScript && (
             <div className="listening-script">{active.script}</div>
           )}
+          {(active.image || active.mediaUrl) && (
+            <CourseMedia
+              src={active.image || active.mediaUrl}
+              alt={`Ilustrasi materi ${active.title}`}
+              className="listening-visual"
+              caption="Ilustrasi pelengkap · jawaban ada dalam naskah audio, bukan gambar."
+            />
+          )}
           <div className="listening-questions">
             <div className="question-section-heading">
               <span className="eyebrow">CHECK YOUR UNDERSTANDING</span>
@@ -377,6 +377,13 @@ export default function ListeningPage({
                     {String(i + 1).padStart(2, "0")}
                   </div>
                   <h3>{q.prompt}</h3>
+                  {(q.image || q.mediaUrl) && (
+                    <CourseMedia
+                      src={q.image || q.mediaUrl}
+                      alt={`Ilustrasi soal ${i + 1}`}
+                      className="question-visual"
+                    />
+                  )}
                   <div className="answer-options">
                     {q.options.map((option, j) => (
                       <button

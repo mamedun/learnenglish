@@ -6,11 +6,14 @@
   border-radius: 11px;
   overflow: hidden;
 }
-.visual-prompt img {
+.visual-prompt img,
+.visual-prompt video,
+.visual-prompt iframe {
   width: 100%;
-  aspect-ratio: 16/8.4;
+  aspect-ratio: 16/9;
   object-fit: cover;
   display: block;
+  border: 0;
 }
 .visual-prompt figcaption {
   font-size: 12px;
@@ -1006,14 +1009,24 @@
 .listening-visual {
   margin: 18px 0 8px;
 }
-.listening-visual img {
+.listening-visual img,
+.listening-visual video,
+.listening-visual iframe,
+.question-visual img,
+.question-visual video,
+.question-visual iframe {
   display: block;
   width: 100%;
   max-height: unset;
   object-fit: cover;
   border-radius: 13px;
+  border: 0;
 }
-.listening-visual figcaption {
+.question-visual {
+  margin: 10px 0 14px;
+}
+.listening-visual figcaption,
+.question-visual figcaption {
   font-size: 15px;
   color: #818b82;
   margin-top: 7px;

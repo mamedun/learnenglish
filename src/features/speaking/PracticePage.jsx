@@ -329,6 +329,7 @@ export default function PracticePage(p) {
   }
   const visual =
     unit.image ||
+    unit.mediaUrl ||
     (unit.part?.includes("Part 2")
       ? appAsset("images/speaking/speaking-cue-card-practice.jpg")
       : null);
