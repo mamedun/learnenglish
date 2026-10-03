@@ -297,9 +297,45 @@ function ListeningEditor({ content, onChange, disabled }) {
   );
 }
 
+function TutorPersonaFields({ content, onChange, disabled }) {
+  return (
+    <SchemaCard
+      title="Persona Tutor AI"
+      description="Nama dan gender tutor AI yang memandu percakapan dan mengevaluasi respon siswa."
+    >
+      <div className="course-schema-grid">
+        <Field
+          label="Nama Tutor"
+          value={content.tutorName ?? "Maya"}
+          disabled={disabled}
+          hint="Default: Maya. Nama ini akan dipakai dalam instruksi prompt AI dan dialog learner."
+          onChange={(tutorName) => onChange({ tutorName })}
+        />
+        <label className="course-schema-field">
+          <span>Gender Tutor</span>
+          <select
+            value={content.tutorGender || "female"}
+            disabled={disabled}
+            onChange={(event) => onChange({ tutorGender: event.target.value })}
+          >
+            <option value="female">Perempuan (Female)</option>
+            <option value="male">Laki-laki (Male)</option>
+          </select>
+          <small>Menentukan pilihan suara default AI dan persona tutor.</small>
+        </label>
+      </div>
+    </SchemaCard>
+  );
+}
+
 function AiLessonEditor({ content, onChange, disabled }) {
   return (
     <div className="course-schema-stack">
+      <TutorPersonaFields
+        content={content}
+        onChange={onChange}
+        disabled={disabled}
+      />
       <SchemaCard
         title="Cue card & tujuan"
         description="Instruksi utama yang dibaca learner saat memulai latihan AI Lesson."
@@ -422,6 +458,11 @@ function AiLessonEditor({ content, onChange, disabled }) {
 function LiveLessonEditor({ content, onChange, disabled }) {
   return (
     <div className="course-schema-stack">
+      <TutorPersonaFields
+        content={content}
+        onChange={onChange}
+        disabled={disabled}
+      />
       <SchemaCard
         title="Live role-play"
         description="Live Teacher membuka sesi sebagai teacher berdasarkan topik, peran, dan situasi di bawah."

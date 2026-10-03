@@ -1,11 +1,12 @@
 <?php
 declare(strict_types=1);
 
-// Access JWT: short-lived and kept in browser MEMORY only. Refresh token: random,
-// rotated on every use and stored only as a SHA-256 hash in SQLite. No JWT or
-// refresh token is ever stored in localStorage or returned in a public cookie.
-const ACCESS_TTL = 15 * 60;
-const REFRESH_TTL = 30 * 24 * 60 * 60;
+// Access JWT: long-lived access token with rotating refresh token.
+// Refresh token is stored as a SHA-256 hash in SQLite with a grace period
+// for concurrent tab/network races, and persists for 365 days (like Netflix / Duolingo).
+const ACCESS_TTL = 7 * 24 * 60 * 60;
+const REFRESH_TTL = 365 * 24 * 60 * 60;
+const ROTATION_GRACE_PERIOD = 120;
 
 function auth_install(PDO $pdo): void
 {
@@ -18,6 +19,13 @@ function auth_install(PDO $pdo): void
         revoked_at INTEGER
     )");
     $pdo->exec('CREATE INDEX IF NOT EXISTS auth_sessions_user ON auth_sessions(user_id)');
+    $cols = array_column($pdo->query('PRAGMA table_info(auth_sessions)')->fetchAll(), 'name');
+    if (!in_array('previous_refresh_hash', $cols, true)) {
+        $pdo->exec('ALTER TABLE auth_sessions ADD COLUMN previous_refresh_hash TEXT');
+    }
+    if (!in_array('rotated_at', $cols, true)) {
+        $pdo->exec('ALTER TABLE auth_sessions ADD COLUMN rotated_at INTEGER');
+    }
 }
 
 function auth_secure_request(): bool
@@ -158,10 +166,13 @@ function auth_refresh(): array
     // incorrectly report "no active transaction" right after exec('BEGIN ...').
     $pdo->exec('BEGIN IMMEDIATE'); // serialize rotation across simultaneous refresh requests
     try {
-        $q = $pdo->prepare('SELECT u.id,u.email,u.name,u.role,u.plan,u.created_at,u.must_change_password,s.sid
+        $hash = hash('sha256', $cookie);
+        $now = time();
+        $q = $pdo->prepare('SELECT u.id,u.email,u.name,u.role,u.plan,u.created_at,u.must_change_password,s.sid,s.refresh_hash
             FROM auth_sessions s JOIN users u ON u.id=s.user_id
-            WHERE s.refresh_hash=? AND s.revoked_at IS NULL AND s.expires_at>?');
-        $q->execute([hash('sha256', $cookie), time()]);
+            WHERE (s.refresh_hash=? OR (s.previous_refresh_hash=? AND s.rotated_at>?))
+              AND s.revoked_at IS NULL AND s.expires_at>?');
+        $q->execute([$hash, $hash, $now - ROTATION_GRACE_PERIOD, $now]);
         $row = $q->fetch();
         if (!$row) {
             try { $pdo->exec('ROLLBACK'); } catch (Throwable $ignored) {}
@@ -171,9 +182,14 @@ function auth_refresh(): array
             try { $pdo->exec('ROLLBACK'); } catch (Throwable $ignored) {}
             respond(['error' => 'Aplikasi sedang dikunci sementara oleh admin.', 'locked' => true], 423);
         }
+        // If matched within grace window by previous_refresh_hash, someone already rotated. Return fresh access token.
+        if ($row['refresh_hash'] !== $hash) {
+            $pdo->exec('COMMIT');
+            return ['user' => public_user($row), 'access_token' => auth_access_token((int) $row['id'], $row['sid']), 'expires_in' => ACCESS_TTL];
+        }
         $next = auth_b64(random_bytes(32));
-        $pdo->prepare('UPDATE auth_sessions SET refresh_hash=?,expires_at=? WHERE sid=?')
-            ->execute([hash('sha256', $next), time() + REFRESH_TTL, $row['sid']]);
+        $pdo->prepare('UPDATE auth_sessions SET previous_refresh_hash=refresh_hash, rotated_at=?, refresh_hash=?, expires_at=? WHERE sid=?')
+            ->execute([$now, hash('sha256', $next), $now + REFRESH_TTL, $row['sid']]);
         $pdo->exec('COMMIT');
         auth_set_refresh_cookie($next);
         return ['user' => public_user($row), 'access_token' => auth_access_token((int) $row['id'], $row['sid']), 'expires_in' => ACCESS_TTL];

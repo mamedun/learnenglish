@@ -2640,7 +2640,8 @@
 }
 
 .live-radar-card {
-  max-width: 460px;
+  width: 100%;
+  max-width: 100%;
   margin: 18px auto 6px;
   min-height: 80px;
   box-sizing: border-box;
@@ -3662,20 +3663,20 @@
 
 /* Yellow Theme for Practice Prompt Accordion */
 .practice-prompt-accordion {
-  margin: 14px 0 16px;
-  border-radius: 14px;
-  background: #fefce8;
-  border: 1.5px solid #fef08a;
-  padding: 10px 14px;
+  margin: 12px 0 16px;
+  border-radius: 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  padding: 9px 14px;
   transition: all 0.2s ease;
 }
 .practice-prompt-accordion:hover {
-  border-color: #fde047;
-  box-shadow: 0 3px 12px rgba(234, 179, 8, 0.12);
+  border-color: #cbd5e1;
+  background: #f1f5f9;
 }
 .practice-prompt-accordion .script-toggle {
-  color: #854d0e !important;
-  font-weight: 700;
+  color: #475569 !important;
+  font-weight: 600;
   font-size: 13px;
   display: inline-flex;
   align-items: center;
@@ -3686,24 +3687,24 @@
   padding: 0;
 }
 .practice-prompt-accordion .script-toggle:hover {
-  color: #713f12 !important;
+  color: #1e293b !important;
 }
 .practice-prompt-text-box {
   margin-top: 10px;
-  padding: 12px 14px;
+  padding: 11px 13px;
   background: #ffffff;
-  border: 1px dashed #fde047;
-  border-radius: 10px;
-  color: #713f12;
-  font-size: 14px;
-  line-height: 1.6;
-  font-weight: 500;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  color: #334155;
+  font-size: 13.5px;
+  line-height: 1.55;
+  font-weight: 450;
 }
 .practice-prompt-text-box small {
   display: block;
-  color: #a16207;
-  margin-bottom: 6px;
-  font-weight: 800;
+  color: #64748b;
+  margin-bottom: 5px;
+  font-weight: 700;
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -3728,8 +3729,8 @@
     gap: 7px;
     position: fixed;
     right: 18px;
-    bottom: 80px;
-    z-index: 1001;
+    bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+    z-index: 99;
     background: #ffffff;
     border: 2px solid #2e7d52;
     color: #1b633f;
@@ -3824,8 +3825,8 @@
   .practice-lesson-list-btn {
     position: fixed;
     right: 18px;
-    bottom: 24px;
-    z-index: 95;
+    bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+    z-index: 99;
     background: #ffffff;
     border: 2px solid #2e7d52;
     color: #1b633f;
@@ -3897,7 +3898,7 @@
   }
   .practice-response-modes-mobile {
     display: grid !important;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr 1fr 1fr;
     gap: 8px;
     margin: 14px 0 10px;
   }
@@ -3907,7 +3908,7 @@
     align-items: center;
     justify-content: center;
     gap: 4px;
-    padding: 11px 12px;
+    padding: 11px 8px;
     border-radius: 14px;
     border: 1.5px solid #dceae1;
     background: #ffffff;
@@ -3920,9 +3921,10 @@
     box-shadow: 0 2px 8px rgba(46, 125, 82, 0.15);
   }
   .mode-mobile-badge {
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 700;
     color: #1f3d2b;
+    white-space: nowrap;
   }
   .mode-mobile-cost {
     display: inline-flex;
@@ -3994,7 +3996,42 @@
     font-size: 14px;
   }
 
+  /* Stacked mic controls on mobile */
+  .mic-controls {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 10px !important;
+    width: 100% !important;
+  }
+  .mic-controls > * {
+    width: 100% !important;
+    box-sizing: border-box !important;
+    justify-content: center !important;
+  }
+  .mic-controls .custom-mic-picker-trigger {
+    width: 100% !important;
+    justify-content: space-between !important;
+  }
+
+  /* Full-width answer actions button on mobile */
+  .answer-actions {
+    width: 100% !important;
+    display: flex !important;
+    flex-direction: column !important;
+  }
+  .answer-actions .btn-primary {
+    width: 100% !important;
+    justify-content: center !important;
+  }
+
   /* Specific Elements to Hide on Mobile */
+  .practice-flow-bar {
+    display: none !important;
+  }
+  .roleplay-top .level-pill {
+    display: none !important;
+  }
   .ielts-task-meta {
     display: none !important;
   }
@@ -4005,6 +4042,19 @@
     display: none !important;
   }
   .practice-aside {
+    display: none !important;
+  }
+}
+
+/* Global Hiding for Removed/Redundant UI */
+.privacy-mini,
+.practice-wallet-hint,
+.audio-pending-note {
+  display: none !important;
+}
+
+@media (min-width: 601px) {
+  .practice-response-modes-mobile {
     display: none !important;
   }
 }

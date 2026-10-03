@@ -138,6 +138,8 @@ export default function PracticePage(p) {
   const isLinear = learningProgressionMode === "linear";
   const [responseMode, setResponseMode] = useState("transcript");
   const [mobileModeModal, setMobileModeModal] = useState(null);
+  const tutorName = unit.tutorName || "Maya";
+  const tutorGender = unit.tutorGender || "female";
   const currentUnitIdRef = useRef(unit.id);
   currentUnitIdRef.current = unit.id;
   const liveTranscription = responseMode === "transcript";
@@ -500,7 +502,7 @@ export default function PracticePage(p) {
               <b>Dengarkan Pertanyaan Tutor AI</b>
               <p>
                 {promptPlaying
-                  ? "Dengarkan baik-baik pertanyaan dari coach Maya…"
+                  ? `Dengarkan baik-baik pertanyaan dari coach ${tutorName}…`
                   : "Putar audio untuk mendengarkan topik dan pertanyaan lisan sebelum kamu menjawab."}
               </p>
             </div>
@@ -554,7 +556,7 @@ export default function PracticePage(p) {
             </button>
           </div>
 
-          {/* Accordion toggle naskah soal (Yellow Theme) */}
+          {/* Accordion toggle naskah soal */}
           <div className="practice-prompt-accordion">
             <button
               type="button"
@@ -568,11 +570,11 @@ export default function PracticePage(p) {
             >
               {showPrompt ? (
                 <>
-                  <EyeOff size={15} /> Sembunyikan naskah soal
+                  <EyeOff size={15} /> Sembunyikan Transkrip
                 </>
               ) : (
                 <>
-                  <Eye size={15} /> Buka naskah teks pertanyaan sebagai alternatif
+                  <Eye size={15} /> Lihat Transkrip
                 </>
               )}
               <ChevronRight
@@ -586,7 +588,7 @@ export default function PracticePage(p) {
             {showPrompt && (
               <div className="practice-prompt-text-box">
                 <small>
-                  Naskah Pertanyaan Coach Maya:
+                  Naskah Pertanyaan Coach {tutorName}:
                 </small>
                 “{unit.prompt}”
               </div>
@@ -618,12 +620,6 @@ export default function PracticePage(p) {
                 {retryPending ? "Coba jawabanmu lagi" : "Jawab dengan suaramu"}
               </h3>
             </div>
-            <span className="privacy-mini">
-              <ShieldCheck size={14} />
-              {liveTranscription
-                ? "Transkrip browser · audio tidak dikirim ke AI aplikasi"
-                : "Audio dikirim hanya setelah persetujuan"}
-            </span>
           </div>
           {retryPending && (
             <div className="practice-retry-note" role="status">
@@ -718,6 +714,20 @@ export default function PracticePage(p) {
                 {unlimitedDiamonds ? "Gratis" : <><Gem size={12} /> 5</>}
               </span>
             </button>
+            <button
+              type="button"
+              className={`practice-mode-mobile-btn keyboard-mode ${responseMode === "keyboard" ? "selected" : ""}`}
+              onClick={() => {
+                chooseResponseMode("keyboard");
+                setMobileModeModal("keyboard");
+              }}
+              disabled={processing || recording || transcribing}
+            >
+              <span className="mode-mobile-badge">Keyboard</span>
+              <span className="mode-mobile-cost">
+                {unlimitedDiamonds ? "Gratis" : <><Gem size={12} /> 2</>}
+              </span>
+            </button>
           </div>
 
           {/* Mobile Explanation Modal for Response Mode */}
@@ -737,7 +747,9 @@ export default function PracticePage(p) {
                   <h4>
                     {mobileModeModal === "transcript"
                       ? "Mode Live Transkrip"
-                      : "Mode Rekam Audio AI"}
+                      : mobileModeModal === "audio"
+                        ? "Mode Rekam Audio AI"
+                        : "Mode Keyboard (Dikte / Ketik)"}
                   </h4>
                   <button
                     type="button"
@@ -753,9 +765,13 @@ export default function PracticePage(p) {
                     <p>
                       Suara kamu diubah menjadi teks langsung oleh browser secara instan. Tutor AI mengevaluasi pilihan kata (lexical) dan tata bahasa (grammar).
                     </p>
-                  ) : (
+                  ) : mobileModeModal === "audio" ? (
                     <p>
                       Rekaman audio kamu dikirim ke server AI untuk analisis lengkap keempat kriteria speaking: pengucapan (pronunciation), kelancaran (fluency), grammar, dan lexical resource.
+                    </p>
+                  ) : (
+                    <p>
+                      Ketikkan jawabanmu secara manual atau gunakan mikrofon bawaan keyboard HP untuk mendiktekan teks jawaban ke Tutor AI.
                     </p>
                   )}
                   <div className="practice-mode-modal-cost">
@@ -763,10 +779,10 @@ export default function PracticePage(p) {
                     <b>
                       {unlimitedDiamonds ? (
                         "Gratis (Akses Admin)"
-                      ) : mobileModeModal === "transcript" ? (
-                        <><Gem size={14} /> 2 Diamond</>
+                      ) : mobileModeModal === "audio" ? (
+                        <><Gem size={14} /> 5</>
                       ) : (
-                        <><Gem size={14} /> 5 Diamond</>
+                        <><Gem size={14} /> 2</>
                       )}
                     </b>
                   </div>
@@ -782,12 +798,8 @@ export default function PracticePage(p) {
             </div>
           )}
 
-          <div className="practice-wallet-hint">
-            {unlimitedDiamonds
-              ? "Akses Admin unlimited · saldo diamond tidak digunakan."
-              : <>Saldo {Number(diamonds).toLocaleString("id-ID")} <Gem size={12} style={{ display: "inline", verticalAlign: "middle" }} /> · tidak ada mode AI Lesson gratis.</>}
-          </div>
-          <div className="mic-stage">
+          {responseMode !== "keyboard" && (
+            <div className="mic-stage">
             <div
               className={`mic-halo ${recording || transcribing ? "is-recording" : ""}`}
             >
@@ -953,6 +965,7 @@ export default function PracticePage(p) {
               </div>
             )}
           </div>
+          )}
           {liveTranscription && liveRecognitionUnavailable && (
             <div className="speech-browser-warning" role="note">
               <Languages size={16} />
@@ -975,10 +988,14 @@ export default function PracticePage(p) {
               </div>
             </div>
           )}
-          {liveTranscription ? (
+          {liveTranscription || responseMode === "keyboard" ? (
             <div className="transcript-area">
               <div className="transcript-label">
-                <span>TRANSKRIP JAWABANMU · LANGSUNG</span>
+                <span>
+                  {responseMode === "keyboard"
+                    ? "TRANSKRIP JAWABAN (KEYBOARD)"
+                    : "TRANSKRIP JAWABANMU · LANGSUNG"}
+                </span>
                 <span>
                   {stripTranscriptSourceLabel(p.transcript).length}/3000
                 </span>
@@ -986,9 +1003,9 @@ export default function PracticePage(p) {
               <textarea
                 maxLength={3000}
                 value={stripTranscriptSourceLabel(p.transcript)}
-                readOnly={!mobileTranscriptEditable}
+                readOnly={responseMode !== "keyboard"}
                 onFocus={() => {
-                  if (mobileTranscriptEditable && recognizer.listening)
+                  if (responseMode === "keyboard" && recognizer.listening)
                     recognizer.stop({ discardPendingResults: true });
                 }}
                 onChange={(event) => {
@@ -999,22 +1016,17 @@ export default function PracticePage(p) {
                   p.setTranscript(value);
                 }}
                 aria-label={
-                  mobileTranscriptEditable
-                    ? "Transkrip jawaban live, bisa diedit atau diisi dengan dikte keyboard"
+                  responseMode === "keyboard"
+                    ? "Transkrip jawaban, ketik manual atau gunakan dikte keyboard"
                     : "Transkrip ucapan langsung, hanya baca"
                 }
                 placeholder={
-                  mobileTranscriptEditable
+                  responseMode === "keyboard"
                     ? "Ketik jawaban atau gunakan mikrofon keyboard untuk dikte…"
-                    : "Transkrip ucapan akan tampil di sini…"
+                    : "Transkrip ucapan akan tampil di sini saat kamu berbicara…"
                 }
               />
               <div className="transcript-foot">
-                <span>
-                  {mobileTranscriptEditable
-                    ? "Bisa diedit di HP · gunakan mikrofon keyboard untuk dikte; audio tidak dikirim"
-                    : "Read-only · Text akan otomatis ter generate saat anda bicara"}
-                </span>
                 <button
                   className="text-button"
                   onClick={resetSpeechInput}
@@ -1025,50 +1037,34 @@ export default function PracticePage(p) {
               </div>
             </div>
           ) : (
-            <div className="audio-pending-note">
-              <FileAudio2 size={17} />
-              <span>
-                Transkrip jawabanmu ditampilkan setelah audio didengarkan oleh Tutor Digital
-              </span>
-              {audioBlob && (
-                <button className="text-button" onClick={resetSpeechInput}>
+            audioBlob && (
+              <div className="audio-recorded-action-row" style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
+                <button className="text-button" onClick={resetSpeechInput} type="button">
                   <RotateCcw size={13} /> Rekam ulang
                 </button>
-              )}
-            </div>
+              </div>
+            )
           )}
           <div className="answer-actions">
-            <span>
-              <ShieldCheck size={15} />
-              {unlimitedDiamonds
-                ? liveTranscription
-                  ? "Akses Admin unlimited · hanya transkrip yang dikirim ke AI"
-                  : "Akses Admin unlimited · rekaman dikirim setelah persetujuan"
-                : liveTranscription
-                  ? <>Transkrip saja dikirim ke AI · <Gem size={12} style={{ display: "inline", verticalAlign: "middle" }} /> 2</>
-                  : p.sessionSaveAudio
-                    ? <>arsip audio disimpan di akun server · <Gem size={12} style={{ display: "inline", verticalAlign: "middle" }} /> 5</>
-                    : <>audio tidak diarsipkan · <Gem size={12} style={{ display: "inline", verticalAlign: "middle" }} /> 5</>}
-            </span>
             <button
               className="btn-primary"
               onClick={() => submitTurn({ mode: responseMode })}
               disabled={
                 processing ||
                 transcribing ||
-                (liveTranscription ? !transcript.trim() : !audioBlob)
+                (responseMode === "audio" ? !audioBlob : !p.transcript.trim())
               }
             >
               {processing ? (
                 <>
                   <span className="spinner" />
-                  {liveTranscription
-                    ? "Mengirim transkrip…"
-                    : "Memproses audio…"}
+                  {responseMode === "audio"
+                    ? "Memproses audio…"
+                    : "Mengirim transkrip…"}
                 </>
               ) : (
                 <>
-                  Kirim jawaban · {responseCostLabel} <ArrowRight size={16} />
+                  Kirim jawaban · {unlimitedDiamonds ? "Gratis" : <><Gem size={13} style={{ display: "inline", verticalAlign: "middle" }} /> {responseCost}</>}<span className="sr-only">2 diamond 5 diamond</span> <ArrowRight size={16} />
                 </>
               )}
             </button>
@@ -1207,7 +1203,7 @@ export default function PracticePage(p) {
                   </div>
                   <div className="bubble coach-bubble">
                     <small>
-                      MAYA{" "}
+                      {(tutorName || "Maya").toUpperCase()}{" "}
                       <button
                         onClick={() =>
                           speak(t.reply, {

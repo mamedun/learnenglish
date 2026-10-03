@@ -97,6 +97,8 @@ const unitTemplate = (modality, index, categoryId) => ({
         }
       : modality === "ai_lesson"
         ? {
+            tutorName: "Maya",
+            tutorGender: "female",
             prompt:
               "Describe a topic that is important to you. Explain why it matters and give an example.",
             objective: "",
@@ -106,6 +108,8 @@ const unitTemplate = (modality, index, categoryId) => ({
             ttsSegments: [],
           }
         : {
+            tutorName: "Maya",
+            tutorGender: "female",
             teacherRole: "Teacher",
             learnerRole: "Learner",
             situation: "",

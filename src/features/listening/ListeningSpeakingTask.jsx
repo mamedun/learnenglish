@@ -3,6 +3,7 @@ import {
   AudioLines,
   Check,
   CheckCircle2,
+  Gem,
   Keyboard,
   Mic,
   Pause,
@@ -75,12 +76,11 @@ export default function ListeningSpeakingTask({
   const similarityThreshold = normalizeSpeechThreshold(speechSimilarityThreshold);
   const isSmallViewport = useSmallViewport();
   const isKeyboardMode = mode === "keyboard";
-  const mobileTranscriptEditable = isKeyboardMode || (mode === "system" && isSmallViewport);
 
   const diamondCost = aiAudioCost ?? 3;
   const costLabel = unlimitedDiamonds
     ? "Gratis · Admin unlimited"
-    : `${diamondCost} diamond`;
+    : <><Gem size={12} style={{ display: "inline", verticalAlign: "middle" }} /> {diamondCost}<span className="sr-only"> {diamondCost} diamond</span></>;
 
   const savedTranscriptText =
     typeof savedTranscript === "string"
@@ -479,14 +479,14 @@ export default function ListeningSpeakingTask({
               <AudioLines size={16} />
               <div>
                 <b>AI</b>
-                <small className="mode-tab-desc">Server · {costLabel}</small>
+                <small className="mode-tab-desc">Server · {unlimitedDiamonds ? "Gratis" : <><Gem size={11} style={{ display: "inline", verticalAlign: "middle" }} /> {diamondCost}</>}</small>
               </div>
             </button>
             <button
               type="button"
               role="tab"
               aria-selected={mode === "keyboard"}
-              className={`speaking-mode-tab ${mode === "keyboard" ? "active" : ""}`}
+              className={`speaking-mode-tab keyboard-tab ${mode === "keyboard" ? "active" : ""}`}
               onClick={() => {
                 switchMode("keyboard");
                 setActiveModal("keyboard");
@@ -626,40 +626,24 @@ export default function ListeningSpeakingTask({
                 />
               )}
 
-              {/* Transcript Textarea */}
+              {/* Transcript Textarea (System mode is read-only; editing is reserved for Keyboard mode) */}
               <div className="transcript-area shadowing-transcript">
                 <div className="transcript-label">
-                  <span>
-                    {mobileTranscriptEditable
-                      ? "TRANSKRIP LANGSUNG · BISA DIEDIT"
-                      : "TRANSKRIP LANGSUNG (BROWSER)"}
-                  </span>
+                  <span>TRANSKRIP LANGSUNG (BROWSER)</span>
                   <span>{recognition.transcript.length} karakter</span>
                 </div>
                 <textarea
                   value={recognition.transcript}
-                  readOnly={!mobileTranscriptEditable}
-                  onFocus={() => {
-                    if (mobileTranscriptEditable && recognition.listening)
-                      recognition.stop({ discardPendingResults: true });
-                  }}
-                  onChange={(event) => {
-                    setChecked(null);
-                    recognition.setTranscript(event.target.value);
-                  }}
+                  readOnly={true}
                   aria-label="Transkrip bicara"
                   placeholder={
-                    mobileTranscriptEditable
-                      ? "Ketik jawaban atau gunakan mikrofon keyboard untuk dikte…"
-                      : recognition.supported
-                        ? "Ketuk Mulai bicara, lalu bacakan paragraf di atas…"
-                        : "Browser tidak mendukung Web Speech API. Silakan pilih tab Penilaian AI."
+                    recognition.supported
+                      ? "Ketuk Mulai bicara, lalu bacakan paragraf di atas…"
+                      : "Browser tidak mendukung Web Speech API. Silakan pilih tab Penilaian AI atau Keyboard."
                   }
                 />
                 <div className="transcript-foot">
-                  {mobileTranscriptEditable
-                    ? "Di HP, gunakan mikrofon keyboard untuk dikte teks. Audio tidak diunggah."
-                    : "Tanda baca diabaikan saat menghitung persentase kecocokan kata."}
+                  Tanda baca diabaikan saat menghitung persentase kecocokan kata.
                 </div>
               </div>
 
@@ -764,7 +748,7 @@ export default function ListeningSpeakingTask({
                     </>
                   ) : (
                     <>
-                      <Check size={16} /> Nilai dengan AI ({costLabel})
+                      <Check size={16} /> Nilai dengan AI ({unlimitedDiamonds ? "Gratis" : <><Gem size={13} style={{ display: "inline", verticalAlign: "middle" }} /> {diamondCost}</>})
                     </>
                   )}
                 </button>
@@ -888,12 +872,12 @@ export default function ListeningSpeakingTask({
             <div className="speaking-mode-modal-body">
               {activeModal === "system" && (
                 <p>
-                  Suaramu diubah menjadi teks langsung oleh Web Speech API browser secara instan dan dinilai dengan pencocokan kata lokal. 100% gratis tanpa kuota diamond.
+                  Suaramu diubah menjadi teks langsung oleh Web Speech API browser secara instan dan dinilai dengan pencocokan kata lokal. 100% gratis.
                 </p>
               )}
               {activeModal === "ai" && (
                 <p>
-                  Rekaman suara kamu diunggah dan dianalisis langsung oleh AI cerdas untuk menilai akurasi pengucapan, artikulasi, dan kelancaran berbicara. Membutuhkan diamond ({costLabel}).
+                  Rekaman suara kamu diunggah dan dianalisis langsung oleh AI cerdas untuk menilai akurasi pengucapan, artikulasi, dan kelancaran berbicara. Biaya: {unlimitedDiamonds ? "Gratis (Akses Admin)" : <><Gem size={13} style={{ display: "inline", verticalAlign: "middle" }} /> {diamondCost}</>}.
                 </p>
               )}
               {activeModal === "keyboard" && (

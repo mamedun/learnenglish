@@ -566,14 +566,6 @@
   align-items: center;
   justify-content: space-between;
 }
-.course-activity-header > span {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: #7d8492;
-  font-size: 12px;
-  font-weight: 750;
-}
 .course-media-frame {
   position: relative;
   overflow: hidden;

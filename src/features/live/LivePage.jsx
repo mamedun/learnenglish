@@ -6,6 +6,7 @@ import {
   ChevronDown,
   ChevronUp,
   Clock3,
+  Gem,
   Headphones,
   MessageSquare,
   Pause,
@@ -51,7 +52,7 @@ export default function LivePage({
         ? "Mengamankan sesi…"
         : liveStatus.toLowerCase().includes("mikrofon")
           ? "Meminta mikrofon…"
-          : "Menghubungkan…";
+          : "Menghubungi Tutor…";
   const canRetryAssessment =
     liveAssessmentFailed &&
     !liveOn &&
@@ -59,6 +60,11 @@ export default function LivePage({
     liveLines.some((line) => line.who === "learner");
   const topicOptions = topics?.length ? topics : LIVE_TOPICS;
   const selectedTopicId = liveTopicId || liveTopic?.id || topicOptions[0]?.id;
+  const activeTopic =
+    topicOptions.find((t) => t.id === selectedTopicId) ||
+    liveTopic ||
+    topicOptions[0];
+  const tutorName = activeTopic?.tutorName || activeTopic?.coach || "Maya";
   const sessionLimit = Math.ceil(Number(liveMaxSeconds || 600) / 60);
   return (
     <div className="live-page" data-course-id={courseId}>
@@ -74,7 +80,7 @@ export default function LivePage({
       <div className="live-panel">
         <div className="live-panel-top">
           <span className="live-label">
-            <span className="live-pulse" /> GEMINI LIVE
+            <span className="live-pulse" /> LIVE TUTOR
           </span>
           <span className="timer-pill">
             <Clock3 size={14} />
@@ -108,14 +114,14 @@ export default function LivePage({
         </h2>
         <p className="live-conversation-description">
           {liveOn
-            ? "Speak naturally; Maya will guide the role-play and give a quick, helpful correction after each turn."
-            : "Pilih topik. Maya akan membuka percakapan dengan pertanyaan sesuai peran dan topik pilihanmu."}
+            ? `Speak naturally; ${tutorName} will guide the role-play and give a quick, helpful correction after each turn.`
+            : `Pilih topik. ${tutorName} akan membuka percakapan dengan pertanyaan sesuai peran dan topik pilihanmu.`}
         </p>
         {liveOn && (
           <AudioRadarWaveform
             stream={liveStream}
             theme="emerald"
-            label="Gemini Live Aktif · Maya Mendengarkan & Merespons"
+            label={`Live Tutor Aktif · ${tutorName} Mendengarkan & Merespons`}
             subLabel="Mikrofon aktif dua arah — bicaralah secara alami kapan saja"
             className="live-radar-card"
           />
@@ -165,9 +171,13 @@ export default function LivePage({
         </button>
         <div className="live-status">
           <span>
-            {unlimitedAccess
-              ? `Admin unlimited access · no diamonds used · max ${sessionLimit} min`
-              : `${Number(liveRate)} diamonds / minute · ${Number(liveBlockMinutes)}-minute reserve blocks · max ${sessionLimit} min · balance ${Number(diamonds).toLocaleString("id-ID")}`}
+            {unlimitedAccess ? (
+              `Admin unlimited access · saldo diamond tidak digunakan · maks ${sessionLimit} mnt`
+            ) : (
+              <>
+                {Number(liveRate)} <Gem size={12} style={{ display: "inline", verticalAlign: "middle" }} /> / menit · cadangan per {Number(liveBlockMinutes)} menit · maks {sessionLimit} mnt · saldo {Number(diamonds).toLocaleString("id-ID")}
+              </>
+            )}
           </span>
         </div>
       </div>
@@ -176,7 +186,7 @@ export default function LivePage({
           <div className="eyebrow">SESSION TRANSCRIPT</div>
           {liveLines.map((l, i) => (
             <p key={i}>
-              <b>{l.who === "coach" ? "Maya" : "You"}:</b> {l.text}
+              <b>{l.who === "coach" ? tutorName : "You"}:</b> {l.text}
             </p>
           ))}
         </div>

@@ -436,9 +436,6 @@ export function ActivityHeader({ course, mode, onBack }) {
       <button className="back-link" onClick={onBack}>
         <ArrowLeft size={16} /> {course?.name || "Course"}
       </button>
-      <span>
-        <ModeIcon mode={mode} size={15} /> {modeTitle(mode)}
-      </span>
     </div>
   );
 }

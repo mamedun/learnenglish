@@ -1599,6 +1599,8 @@ function App() {
         form.append("task", activeUnit.prompt);
         form.append("course_id", practiceCourseId);
         form.append("unit_id", activeUnit.id);
+        form.append("tutor_name", activeUnit.tutorName || "Maya");
+        form.append("tutor_gender", activeUnit.tutorGender || "female");
         form.append("duration_seconds", String(elapsed));
         form.append("recent_turns", JSON.stringify(recentTurns));
         form.append(
@@ -1658,6 +1660,8 @@ function App() {
           body: JSON.stringify({
             course_id: practiceCourseId,
             unit_id: activeUnit.id,
+            tutor_name: activeUnit.tutorName || "Maya",
+            tutor_gender: activeUnit.tutorGender || "female",
             transcript: submittedTranscript,
             task: activeUnit.prompt,
             lesson: {
@@ -2608,7 +2612,9 @@ function App() {
           .getVoices()
           .filter((v) => v.lang.toLowerCase().startsWith("en"))
       : [];
-  const liveInstruction = `You are Maya, a patient and encouraging English teacher. You are now role-playing as ${activeLiveTopic.teacherRole}. The learner is ${activeLiveTopic.learnerRole}. Stay in this role and keep the scenario focused on “${activeLiveTopic.label}”: ${activeLiveTopic.situation}
+  const liveTutorName = activeLiveTopic?.tutorName || "Maya";
+  const liveTutorGender = activeLiveTopic?.tutorGender || "female";
+  const liveInstruction = `You are ${liveTutorName}, a patient and encouraging English teacher. You are now role-playing as ${activeLiveTopic.teacherRole}. The learner is ${activeLiveTopic.learnerRole}. Stay in this role and keep the scenario focused on “${activeLiveTopic.label}”: ${activeLiveTopic.situation}
 
 Start the conversation yourself as soon as the session is ready. Do not wait for the learner to speak first and do not ask them to choose a topic. Open warmly with this natural first question: “${activeLiveTopic.opening}” Then let the learner answer and continue the role-play with one concise, relevant open question at a time.
 
@@ -2819,20 +2825,22 @@ Because this is live audio, comment on pronunciation or word stress only when a 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           billing_session_id: liveBillingSessionRef.current,
+          tutor_name: liveTutorName,
+          tutor_gender: liveTutorGender,
         }),
       });
       const tokenData = await tokenResp.json();
       assertLiveStartCurrent();
       if (!tokenResp.ok)
         throw new Error(
-          tokenData?.error || "Token Gemini Live tidak tersedia.",
+          tokenData?.error || "Token Live Tutor tidak tersedia.",
         );
       if (
         !tokenData ||
         typeof tokenData.token !== "string" ||
         !tokenData.token.trim()
       )
-        throw new Error("Server tidak mengembalikan token Gemini Live.");
+        throw new Error("Server tidak mengembalikan token Live Tutor.");
       const model = String(tokenData.model || "gemini-3.8-live").replace(
         /^models\//,
         "",
@@ -2842,19 +2850,23 @@ Because this is live audio, comment on pronunciation or word stress only when a 
       );
       ws.binaryType = "arraybuffer";
       liveWsRef.current = ws;
-      setLiveStatus("Menghubungkan ke Gemini Live…");
+      setLiveStatus("Menghubungi Tutor…");
       let setupCompleted = false;
       let currentTurnHasAudio = false;
       liveSetupTimerRef.current = window.setTimeout(() => {
         if (liveWsRef.current !== ws) return;
         failLiveConnection(
-          "Gemini Live tidak mengonfirmasi konfigurasi dalam 30 detik. Periksa model dan Gemini API key di Admin, lalu coba lagi.",
+          "Tutor tidak merespons dalam 30 detik. Periksa koneksi dan coba lagi.",
         );
       }, 30_000);
       ws.onopen = () => {
         if (liveWsRef.current !== ws) return;
-        setLiveStatus("Mengirim konfigurasi ke Gemini Live…");
+        setLiveStatus("Menyiapkan sesi percakapan…");
         try {
+          const liveVoiceName =
+            liveTutorGender === "male" || liveTutorGender === "masculine"
+              ? "Puck"
+              : "Kore"; // voiceName: "Kore" default
           ws.send(
             JSON.stringify({
               setup: {
@@ -2863,7 +2875,7 @@ Because this is live audio, comment on pronunciation or word stress only when a 
                   responseModalities: ["AUDIO"],
                   speechConfig: {
                     voiceConfig: {
-                      prebuiltVoiceConfig: { voiceName: "Kore" },
+                      prebuiltVoiceConfig: { voiceName: liveVoiceName },
                     },
                   },
                 },
@@ -2876,7 +2888,7 @@ Because this is live audio, comment on pronunciation or word stress only when a 
           );
         } catch (error) {
           failLiveConnection(
-            error?.message || "Gagal mengirim konfigurasi Gemini Live.",
+            error?.message || "Gagal mengirim konfigurasi Live.",
           );
         }
       };
@@ -3093,6 +3105,8 @@ Because this is live audio, comment on pronunciation or word stress only when a 
         body: JSON.stringify({
           course_id: assessmentCourseId,
           unit_id: assessmentUnitId,
+          tutor_name: liveTutorName,
+          tutor_gender: liveTutorGender,
           transcript,
           level:
             assessmentCourse?.level || activeLiveTopic?.level || "unspecified",
@@ -3433,7 +3447,7 @@ Because this is live audio, comment on pronunciation or word stress only when a 
     }
   } else if (liveLoading) {
     mascotToastType = "ai";
-    mascotToastTitle = "Menghubungkan ke Gemini Live…";
+    mascotToastTitle = "Menghubungi Tutor…";
     mascotToastMessage = liveStatus || "Menyiapkan sesi percakapan audio dua arah.";
     mascotToastProgress = null;
   } else if (loadingRecordingId) {
