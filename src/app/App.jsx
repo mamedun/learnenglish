@@ -1815,12 +1815,17 @@ function App() {
         userText: spokenText,
         transcriptionSource: useServerAudio ? "ai" : "live",
         reply: assistantReply,
+        replyTranslation: replyObj.tutor_reply?.translation || "",
         stars: practiceStars,
         pointsEarned,
         similarityPercent: null,
         feedback:
           toPlainText(assessment.one_focus || "") ||
           "Your answer communicated the main idea clearly.",
+        feedbackTranslation:
+          toPlainText(assessment.one_focus_id || "") || "",
+        oneFocusId:
+          toPlainText(assessment.one_focus_id || "") || "",
         createdAt: new Date().toISOString(),
         audioSaved: Boolean(audioId),
         audioId,

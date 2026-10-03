@@ -138,6 +138,7 @@ export default function PracticePage(p) {
   const isLinear = learningProgressionMode === "linear";
   const [responseMode, setResponseMode] = useState("transcript");
   const [mobileModeModal, setMobileModeModal] = useState(null);
+  const [langMode, setLangMode] = useState("EN");
   const tutorName = unit.tutorName || "Maya";
   const tutorGender = unit.tutorGender || "female";
   const currentUnitIdRef = useRef(unit.id);
@@ -465,12 +466,36 @@ export default function PracticePage(p) {
 
         <div className="roleplay-card">
           <div className="roleplay-top">
-            <span className="roleplay-tag">
-              <WandSparkles size={13} /> {unit.part || "Speaking Practice"}
-            </span>
-            <span className="level-pill">
-              {unit.level} · {unit.duration || "Self-paced"}
-            </span>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <span className="roleplay-tag">
+                <WandSparkles size={13} /> {unit.part || "Speaking Practice"}
+              </span>
+              <span className="level-pill">
+                {unit.level} · {unit.duration || "Self-paced"}
+              </span>
+            </div>
+            <div
+              className="bilingual-toggle-pill"
+              role="group"
+              aria-label="Pilihan bahasa materi"
+            >
+              <Languages size={14} className="bilingual-toggle-icon" />
+              <button
+                type="button"
+                className={`bilingual-btn ${langMode === "EN" ? "active" : ""}`}
+                onClick={() => setLangMode("EN")}
+              >
+                EN
+              </button>
+              <span className="bilingual-divider">/</span>
+              <button
+                type="button"
+                className={`bilingual-btn ${langMode === "ID" ? "active" : ""}`}
+                onClick={() => setLangMode("ID")}
+              >
+                ID
+              </button>
+            </div>
           </div>
           {unit.prepSeconds > 0 && <PrepTimer unit={unit} />}
           {visual && (
@@ -590,7 +615,18 @@ export default function PracticePage(p) {
                 <small>
                   Naskah Pertanyaan Coach {tutorName}:
                 </small>
-                “{unit.prompt}”
+                <div className="bilingual-primary-text">“{unit.prompt}”</div>
+                {langMode === "ID" && (
+                  <div className="bilingual-subtitle-text">
+                    {unit.promptTranslation ? (
+                      unit.promptTranslation
+                    ) : (
+                      <span className="bilingual-fallback-notice">
+                        Terjemahan belum tersedia untuk materi ini
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -1080,6 +1116,28 @@ export default function PracticePage(p) {
                 </h2>
               </div>
               <div className="feedback-heading-actions">
+                <div
+                  className="bilingual-toggle-pill"
+                  role="group"
+                  aria-label="Pilihan bahasa feedback"
+                >
+                  <Languages size={14} className="bilingual-toggle-icon" />
+                  <button
+                    type="button"
+                    className={`bilingual-btn ${langMode === "EN" ? "active" : ""}`}
+                    onClick={() => setLangMode("EN")}
+                  >
+                    EN
+                  </button>
+                  <span className="bilingual-divider">/</span>
+                  <button
+                    type="button"
+                    className={`bilingual-btn ${langMode === "ID" ? "active" : ""}`}
+                    onClick={() => setLangMode("ID")}
+                  >
+                    ID
+                  </button>
+                </div>
                 <span className="session-count">
                   {passedTurnCount} percakapan lulus · {goodPoints}/100 poin
                 </span>
@@ -1228,14 +1286,36 @@ export default function PracticePage(p) {
                         )}
                       </button>
                     </small>
-                    {t.reply}
+                    <div className="bilingual-primary-text">{t.reply}</div>
+                    {langMode === "ID" && (
+                      <div className="bilingual-subtitle-text coach-reply-subtitle">
+                        {t.replyTranslation ? (
+                          t.replyTranslation
+                        ) : (
+                          <span className="bilingual-fallback-notice">
+                            Terjemahan belum tersedia untuk materi ini
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div className="feedback-note">
                   <Sparkles size={15} />
                   <div>
                     <b>Catatan tutor</b>
-                    <p>{t.feedback}</p>
+                    <div className="bilingual-primary-text">{t.feedback}</div>
+                    {langMode === "ID" && (
+                      <div className="bilingual-subtitle-text feedback-note-subtitle">
+                        {(t.feedbackTranslation || t.oneFocusId) ? (
+                          t.feedbackTranslation || t.oneFocusId
+                        ) : (
+                          <span className="bilingual-fallback-notice">
+                            Terjemahan belum tersedia untuk materi ini
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div className="score-row practice-criteria-grid">
@@ -1249,9 +1329,32 @@ export default function PracticePage(p) {
                     const rating = Number(criterion.rating);
                     const isRated =
                       Number.isFinite(rating) && rating >= 1 && rating <= 5;
-                    const note = formatFeedbackText(
+                    const enNote = formatFeedbackText(
                       toPlainText(criterion.feedback_id || ""),
                     );
+                    const idNote = formatFeedbackText(
+                      toPlainText(
+                        criterion.feedback_id_id ||
+                          criterion.feedbackIdId ||
+                          "",
+                      ),
+                    );
+                    const displayNote =
+                      langMode === "ID"
+                        ? idNote || enNote || "Terjemahan belum tersedia untuk materi ini"
+                        : enNote;
+                    const statusText =
+                      langMode === "ID"
+                        ? criterion.status === "provisional"
+                          ? "Penilaian latihan berbasis teks"
+                          : criterion.status === "scored"
+                            ? "Penilaian latihan berbasis audio"
+                            : "Perlu rekaman audio · belum dinilai"
+                        : criterion.status === "provisional"
+                          ? "Text-based practice rating"
+                          : criterion.status === "scored"
+                            ? "Audio-based practice rating"
+                            : "Audio-dependent · not scored";
                     const evidence = (
                       Array.isArray(criterion.evidence)
                         ? criterion.evidence
@@ -1266,16 +1369,18 @@ export default function PracticePage(p) {
                         key={key}
                       >
                         <span>{label}</span>
-                        <b>{isRated ? `${rating} / 5` : "Not scored"}</b>
-                        <small>
-                          {criterion.status === "provisional"
-                            ? "Text-based practice rating"
-                            : criterion.status === "scored"
-                              ? "Audio-based practice rating"
-                              : "Audio-dependent · not scored"}
-                        </small>
-                        {note && (
-                          <small className="criteria-evidence">{note}</small>
+                        <b>
+                          {isRated
+                            ? `${rating} / 5`
+                            : langMode === "ID"
+                              ? "Belum dinilai"
+                              : "Not scored"}
+                        </b>
+                        <small>{statusText}</small>
+                        {displayNote && (
+                          <small className="criteria-evidence">
+                            {displayNote}
+                          </small>
                         )}
                         {evidence.map((item, evidenceIndex) => (
                           <small

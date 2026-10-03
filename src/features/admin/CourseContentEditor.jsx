@@ -131,59 +131,101 @@ function ListeningQuestions({ questions, onChange, disabled }) {
                 </button>
               </div>
               <Field
-                label="Pertanyaan"
+                label="Pertanyaan (Bahasa Inggris)"
                 value={question.prompt}
                 disabled={disabled}
                 onChange={(prompt) => updateQuestion(index, { prompt })}
               />
+              <Field
+                label="Terjemahan Pertanyaan (Bahasa Indonesia)"
+                value={question.promptTranslation || ""}
+                disabled={disabled}
+                hint="Ditampilkan saat murid mengaktifkan mode terjemahan Indonesia."
+                onChange={(promptTranslation) =>
+                  updateQuestion(index, { promptTranslation })
+                }
+              />
               <div className="course-question-options">
-                {options.map((option, optionIndex) => (
-                  <div className="course-question-option" key={optionIndex}>
-                    <Field
-                      label={`Pilihan ${String.fromCharCode(65 + optionIndex)}`}
-                      value={option}
-                      disabled={disabled}
-                      onChange={(value) =>
-                        updateQuestion(index, {
-                          options: options.map((item, itemIndex) =>
-                            itemIndex === optionIndex ? value : item,
-                          ),
-                        })
-                      }
-                    />
-                    <button
-                      type="button"
-                      className="course-schema-icon-button"
-                      aria-label={`Hapus pilihan ${String.fromCharCode(65 + optionIndex)} dari soal ${index + 1}`}
-                      title="Hapus pilihan"
-                      disabled={disabled || options.length <= 2}
-                      onClick={() => {
-                        const nextOptions = options.filter(
-                          (_, itemIndex) => itemIndex !== optionIndex,
-                        );
-                        const nextAnswer =
-                          answer === optionIndex
-                            ? 0
-                            : answer > optionIndex
-                              ? answer - 1
-                              : answer;
-                        updateQuestion(index, {
-                          options: nextOptions,
-                          answer: Math.min(nextAnswer, nextOptions.length - 1),
-                        });
-                      }}
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                ))}
+                {options.map((option, optionIndex) => {
+                  const optionsTranslation = Array.isArray(
+                    question.optionsTranslation,
+                  )
+                    ? question.optionsTranslation
+                    : [];
+                  return (
+                    <div className="course-question-option" key={optionIndex}>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, width: "100%" }}>
+                        <Field
+                          label={`Pilihan ${String.fromCharCode(65 + optionIndex)} (EN)`}
+                          value={option}
+                          disabled={disabled}
+                          onChange={(value) =>
+                            updateQuestion(index, {
+                              options: options.map((item, itemIndex) =>
+                                itemIndex === optionIndex ? value : item,
+                              ),
+                            })
+                          }
+                        />
+                        <Field
+                          label={`Terjemahan (${String.fromCharCode(65 + optionIndex)} - ID)`}
+                          value={optionsTranslation[optionIndex] || ""}
+                          disabled={disabled}
+                          onChange={(value) => {
+                            const nextTrans = [...optionsTranslation];
+                            nextTrans[optionIndex] = value;
+                            updateQuestion(index, {
+                              optionsTranslation: nextTrans,
+                            });
+                          }}
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        className="course-schema-icon-button"
+                        aria-label={`Hapus pilihan ${String.fromCharCode(65 + optionIndex)} dari soal ${index + 1}`}
+                        title="Hapus pilihan"
+                        disabled={disabled || options.length <= 2}
+                        onClick={() => {
+                          const nextOptions = options.filter(
+                            (_, itemIndex) => itemIndex !== optionIndex,
+                          );
+                          const nextTrans = optionsTranslation.filter(
+                            (_, itemIndex) => itemIndex !== optionIndex,
+                          );
+                          const nextAnswer =
+                            answer === optionIndex
+                              ? 0
+                              : answer > optionIndex
+                                ? answer - 1
+                                : answer;
+                          updateQuestion(index, {
+                            options: nextOptions,
+                            optionsTranslation: nextTrans,
+                            answer: Math.min(nextAnswer, nextOptions.length - 1),
+                          });
+                        }}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
               <button
                 type="button"
                 className="course-schema-text-button"
                 disabled={disabled || options.length >= 6}
                 onClick={() =>
-                  updateQuestion(index, { options: [...options, ""] })
+                  updateQuestion(index, {
+                    options: [...options, ""],
+                    optionsTranslation: [
+                      ...(Array.isArray(question.optionsTranslation)
+                        ? question.optionsTranslation
+                        : []),
+                      "",
+                    ],
+                  })
                 }
               >
                 <Plus size={14} /> Tambah pilihan
@@ -210,10 +252,19 @@ function ListeningQuestions({ questions, onChange, disabled }) {
                   </select>
                 </label>
                 <Field
-                  label="Penjelasan jawaban"
+                  label="Penjelasan jawaban (EN)"
                   value={question.explain}
                   disabled={disabled}
                   onChange={(explain) => updateQuestion(index, { explain })}
+                />
+                <Field
+                  label="Terjemahan penjelasan (ID)"
+                  value={question.explainTranslation || ""}
+                  disabled={disabled}
+                  hint="Penjelasan jawaban dalam bahasa Indonesia."
+                  onChange={(explainTranslation) =>
+                    updateQuestion(index, { explainTranslation })
+                  }
                 />
               </div>
             </article>
@@ -267,7 +318,7 @@ function ListeningEditor({ content, onChange, disabled }) {
     <div className="course-schema-stack">
       <SchemaCard
         title="Naskah listening"
-        description="Teks yang didengar learner dan tujuan pemahaman materi."
+        description="Teks yang didengar learner, terjemahan bahasa Indonesia, dan tujuan pemahaman materi."
       >
         <Field
           label="Tujuan"
@@ -278,13 +329,23 @@ function ListeningEditor({ content, onChange, disabled }) {
           onChange={(objective) => onChange({ objective })}
         />
         <Field
-          label="Naskah audio"
+          label="Naskah audio (Bahasa Inggris)"
           value={content.script}
           multiline
           rows={8}
           maxLength={30000}
           disabled={disabled}
           onChange={(script) => onChange({ script })}
+        />
+        <Field
+          label="Terjemahan naskah (Bahasa Indonesia)"
+          value={content.scriptTranslation || ""}
+          multiline
+          rows={7}
+          maxLength={30000}
+          disabled={disabled}
+          hint="Terjemahan yang akan tampil saat murid mengaktifkan toggle bahasa Indonesia."
+          onChange={(scriptTranslation) => onChange({ scriptTranslation })}
         />
       </SchemaCard>
       <ListeningQuestions
@@ -363,13 +424,23 @@ function AiLessonEditor({ content, onChange, disabled }) {
           onChange={(objective) => onChange({ objective })}
         />
         <Field
-          label="Cue card / prompt learner"
+          label="Cue card / prompt learner (Bahasa Inggris)"
           value={content.prompt}
           multiline
           rows={6}
           maxLength={6000}
           disabled={disabled}
           onChange={(prompt) => onChange({ prompt })}
+        />
+        <Field
+          label="Terjemahan cue card / prompt (Bahasa Indonesia)"
+          value={content.promptTranslation || ""}
+          multiline
+          rows={5}
+          maxLength={6000}
+          disabled={disabled}
+          hint="Terjemahan cue card yang akan tampil saat murid mengaktifkan toggle bahasa Indonesia."
+          onChange={(promptTranslation) => onChange({ promptTranslation })}
         />
         <Field
           label="Konteks visual (opsional)"

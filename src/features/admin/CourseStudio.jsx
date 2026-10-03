@@ -84,13 +84,17 @@ const unitTemplate = (modality, index, categoryId) => ({
       ? {
           objective: "",
           script: "",
+          scriptTranslation: "",
           defaultVoice: "af_heart",
           questions: [
             {
               prompt: "Pertanyaan baru",
+              promptTranslation: "",
               options: ["Pilihan A", "Pilihan B"],
+              optionsTranslation: ["", ""],
               answer: 0,
               explain: "Penjelasan jawaban",
+              explainTranslation: "",
             },
           ],
           ttsSegments: [],
@@ -101,6 +105,7 @@ const unitTemplate = (modality, index, categoryId) => ({
             tutorGender: "female",
             prompt:
               "Describe a topic that is important to you. Explain why it matters and give an example.",
+            promptTranslation: "",
             objective: "",
             part: "",
             imageContext: "",
@@ -365,6 +370,7 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
   const [mediaPickerCallback, setMediaPickerCallback] = useState(null);
   const [mediaPickerTitle, setMediaPickerTitle] = useState("Pilih Gambar");
   const importModalityRef = useRef(null);
+  const importCourseRef = useRef(null);
 
   function openMediaPicker(callback, title = "Pilih Gambar dari Media Library") {
     setMediaPickerCallback(() => callback);
@@ -903,6 +909,197 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
       toast.error(error.message || "Import JSON gagal.");
     }
   }
+
+  async function exportFullCourse() {
+    if (!selectedId || isNew) return;
+    try {
+      const data = await apiJson(
+        `admin/courses/${encodeURIComponent(selectedId)}`,
+      );
+      const exportBundle = {
+        schema_version: 2,
+        exported_at: new Date().toISOString(),
+        course: data.course,
+        modules: data.modules,
+      };
+      const blob = new Blob([JSON.stringify(exportBundle, null, 2)], {
+        type: "application/json",
+      });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `course-${selectedId}-bundle.json`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      toast.success(
+        `Kursus "${data.course?.name || selectedId}" berhasil diekspor.`,
+      );
+    } catch (error) {
+      toast.error(error.message || "Gagal mengekspor kursus.");
+    }
+  }
+
+  async function importFullCourse(event) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    try {
+      setBusy(true);
+      const rawText = await file.text();
+      let bundle;
+      try {
+        bundle = JSON.parse(rawText);
+      } catch {
+        throw new Error("File bukan format JSON yang valid.");
+      }
+      if (!bundle || typeof bundle !== "object") {
+        throw new Error("Struktur kursus JSON tidak valid.");
+      }
+
+      const courseInfo = bundle.course || bundle;
+      if (!courseInfo.name && !courseInfo.id) {
+        throw new Error("File JSON tidak memuat metadata course yang valid.");
+      }
+
+      const existingCourseIds = new Set(courses.map((c) => c.id));
+      let targetCourseId = safeSlug(courseInfo.id || "course");
+      let isDuplicate = existingCourseIds.has(targetCourseId);
+      if (isDuplicate) {
+        let suffix = 2;
+        while (
+          existingCourseIds.has(`${targetCourseId}-copy-${suffix}`) ||
+          existingCourseIds.has(`${targetCourseId}-${suffix}`)
+        ) {
+          suffix += 1;
+        }
+        targetCourseId = `${targetCourseId}-copy-${suffix}`;
+      }
+
+      const coursePayload = {
+        ...NEW_COURSE,
+        ...courseInfo,
+        id: targetCourseId,
+        name: isDuplicate
+          ? `${courseInfo.name || "Kursus"} (Salinan)`
+          : courseInfo.name || "Kursus Baru",
+      };
+
+      await apiJson("admin/courses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(coursePayload),
+      });
+
+      const modules = bundle.modules || {};
+      for (const mod of ["listening", "ai_lesson", "live_lesson"]) {
+        const modData = modules[mod] || {};
+        const rawCategories = Array.isArray(modData.categories)
+          ? modData.categories
+          : [];
+        const rawUnits = Array.isArray(modData.units) ? modData.units : [];
+
+        const catIdMap = {};
+        const safeCategories = rawCategories.map((cat, idx) => {
+          const rawId = String(cat.id || `${mod}-cat-${idx + 1}`);
+          const newId = `${targetCourseId}-${rawId}`;
+          catIdMap[rawId] = newId;
+          return {
+            ...cat,
+            id: newId,
+          };
+        });
+
+        let finalCategories = safeCategories;
+        const defaultCatId =
+          safeCategories[0]?.id || `${targetCourseId}-${mod}-default-cat`;
+        if (mod === "live_lesson" && !finalCategories.length) {
+          finalCategories = [
+            {
+              id: defaultCatId,
+              name: "Live Topics",
+              label: "",
+              guide: "",
+              color: "#315C45",
+              sortOrder: 0,
+            },
+          ];
+        } else if (!finalCategories.length && rawUnits.length) {
+          finalCategories = [
+            {
+              id: defaultCatId,
+              name: `${MODE_LABEL[mod]} 1`,
+              label: "",
+              guide: "",
+              color: "#315C45",
+              sortOrder: 0,
+            },
+          ];
+        }
+
+        const usedUnitIds = new Set();
+        const safeUnits = rawUnits.map((unit, idx) => {
+          const rawUnitId = String(unit.id || `${mod}-unit-${idx + 1}`);
+          let newUnitId = `${targetCourseId}-${rawUnitId}`;
+          if (usedUnitIds.has(newUnitId)) {
+            newUnitId = `${newUnitId}-${idx + 1}`;
+          }
+          usedUnitIds.add(newUnitId);
+
+          const mappedCatId =
+            catIdMap[unit.categoryId] ||
+            finalCategories[0]?.id ||
+            defaultCatId;
+
+          const content = unit.content || {};
+          if (mod === "listening") {
+            content.scriptTranslation = content.scriptTranslation ?? "";
+            if (Array.isArray(content.questions)) {
+              content.questions = content.questions.map((q) => ({
+                ...q,
+                promptTranslation: q.promptTranslation ?? "",
+                optionsTranslation: Array.isArray(q.optionsTranslation)
+                  ? q.optionsTranslation
+                  : (q.options || []).map(() => ""),
+                explainTranslation: q.explainTranslation ?? "",
+              }));
+            }
+          } else if (mod === "ai_lesson") {
+            content.promptTranslation = content.promptTranslation ?? "";
+          }
+
+          return {
+            ...unit,
+            id: newUnitId,
+            categoryId: mappedCatId,
+            sortOrder: unit.sortOrder ?? idx,
+            content,
+          };
+        });
+
+        if (finalCategories.length || safeUnits.length) {
+          await apiJson(
+            `admin/courses/${encodeURIComponent(targetCourseId)}/content/${mod}`,
+            {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                categories: finalCategories,
+                units: safeUnits,
+              }),
+            },
+          );
+        }
+      }
+
+      toast.success(`Kursus "${coursePayload.name}" berhasil diimpor!`);
+      await loadCourses(targetCourseId);
+      onCatalogChange?.();
+    } catch (error) {
+      toast.error(error.message || "Gagal mengimpor kursus.");
+    } finally {
+      setBusy(false);
+    }
+  }
   useEffect(() => {
     if (tab !== "users" || !selectedId || isNew) return;
     let active = true;
@@ -1000,9 +1197,26 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
         >
           <div className="course-studio-list-top">
             <b>Course</b>
-            <button className="course-add-btn" onClick={startNew}>
-              <Plus size={15} /> Baru
-            </button>
+            <div style={{ display: "flex", gap: 6 }}>
+              <button
+                type="button"
+                className="course-add-btn"
+                onClick={() => importCourseRef.current?.click()}
+                title="Import Course dari file JSON"
+              >
+                <FileUp size={14} /> Import
+              </button>
+              <button className="course-add-btn" onClick={startNew}>
+                <Plus size={15} /> Baru
+              </button>
+            </div>
+            <input
+              ref={importCourseRef}
+              type="file"
+              accept=".json,application/json"
+              hidden
+              onChange={importFullCourse}
+            />
           </div>
           <label className="course-studio-search">
             <Search size={15} />
@@ -1091,6 +1305,17 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
                   </small>
                 </div>
                 <div className="course-editor-actions">
+                  {!isNew && (
+                    <button
+                      type="button"
+                      className="outline-btn"
+                      onClick={exportFullCourse}
+                      disabled={busy}
+                      title="Export seluruh modul dan materi course ini ke file JSON"
+                    >
+                      <Download size={15} /> Export Course
+                    </button>
+                  )}
                   <button
                     className="btn-primary"
                     onClick={saveCourse}

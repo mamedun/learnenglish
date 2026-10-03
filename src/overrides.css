@@ -4059,4 +4059,121 @@
   }
 }
 
+/* ==========================================================================
+   Bilingual Subtitles & Pre-translate UI
+   ========================================================================== */
+.lesson-heading-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.bilingual-toggle-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: #f1f4f0;
+  border: 1px solid #d8dfd6;
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 12px;
+  user-select: none;
+}
+
+.bilingual-toggle-icon {
+  color: #55685a;
+  flex-shrink: 0;
+}
+
+.bilingual-btn {
+  background: transparent;
+  border: none;
+  font-size: 11px;
+  font-weight: 700;
+  color: #6d7b70;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 999px;
+  transition: all 0.15s ease;
+  line-height: 1.2;
+}
+
+.bilingual-btn:hover {
+  color: #213326;
+}
+
+.bilingual-btn.active {
+  background: #2e5941;
+  color: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.bilingual-divider {
+  color: #bcc6bd;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.bilingual-primary-text {
+  color: inherit;
+}
+
+.bilingual-subtitle-text {
+  margin-top: 6px;
+  font-size: 0.88em;
+  line-height: 1.45;
+  color: #3b5a45;
+  background: rgba(46, 89, 65, 0.05);
+  border-left: 2px solid #5d8a6b;
+  padding: 4px 8px;
+  border-radius: 0 4px 4px 0;
+  font-style: normal;
+  display: block;
+}
+
+.bilingual-fallback-notice {
+  color: #8c9b90;
+  font-style: italic;
+  font-size: 0.85em;
+}
+
+.bilingual-option-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  text-align: left;
+}
+
+.bilingual-subtitle-text.option-subtitle {
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 1.35;
+  background: rgba(0, 0, 0, 0.025);
+  border-left: 2px solid #8ba492;
+  padding: 2px 6px;
+}
+
+.bilingual-subtitle-text.explain-subtitle {
+  margin-top: 6px;
+  font-size: 14px;
+  background: rgba(255, 255, 255, 0.6);
+  border-left: 2px solid #2e5941;
+}
+
+.bilingual-subtitle-text.coach-reply-subtitle {
+  margin-top: 8px;
+  font-size: 13px;
+  border-left: 2px solid #356247;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.bilingual-subtitle-text.feedback-note-subtitle {
+  margin-top: 6px;
+  font-size: 13px;
+  border-left: 2px solid #8e7a3f;
+  background: rgba(255, 255, 255, 0.65);
+}
+
 

@@ -757,7 +757,12 @@ function courseware_check_answer(PDO $pdo, array $user, array $input): array
         $correct=(int)($question['answer']??-1);
         if($correct<0||$correct>=count((array)($question['options']??[])))respond(['error'=>'Kunci jawaban materi belum dikonfigurasi.'],500);
         if(($user['role']??'')!=='admin')courseware_mark_activity($pdo,(int)$user['id'],$courseId,'listening',$unitId);
-        return ['correct'=>$answer===$correct,'correct_index'=>$correct,'explain'=>(string)($question['explain']??'')];
+        return [
+            'correct'=>$answer===$correct,
+            'correct_index'=>$correct,
+            'explain'=>(string)($question['explain']??''),
+            'explainTranslation'=>(string)($question['explainTranslation']??'')
+        ];
     }
     respond(['error'=>'Pertanyaan tidak tersedia. Muat ulang materi.'],404);
 }

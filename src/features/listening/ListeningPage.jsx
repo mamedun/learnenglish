@@ -4,6 +4,7 @@ import {
   Check,
   CheckCircle2,
   Headphones,
+  Languages,
   List,
   Lock,
   Play,
@@ -64,6 +65,7 @@ export default function ListeningPage({
   );
   const [checking, setChecking] = useState(null);
   const [showScript, setShowScript] = useState(false);
+  const [langMode, setLangMode] = useState("EN");
   const lessons = useMemo(
     () => allLessons.filter((x) => level === "All" || x.level === level),
     [allLessons, level],
@@ -446,7 +448,31 @@ export default function ListeningPage({
         </aside>
         <article className="listening-lesson">
           <div className="lesson-heading">
-            <span className="level-pill">MISI {active.level} · LISTENING</span>
+            <div className="lesson-heading-top">
+              <span className="level-pill">MISI {active.level} · LISTENING</span>
+              <div
+                className="bilingual-toggle-pill"
+                role="group"
+                aria-label="Pilihan bahasa materi"
+              >
+                <Languages size={14} className="bilingual-toggle-icon" />
+                <button
+                  type="button"
+                  className={`bilingual-btn ${langMode === "EN" ? "active" : ""}`}
+                  onClick={() => setLangMode("EN")}
+                >
+                  EN
+                </button>
+                <span className="bilingual-divider">/</span>
+                <button
+                  type="button"
+                  className={`bilingual-btn ${langMode === "ID" ? "active" : ""}`}
+                  onClick={() => setLangMode("ID")}
+                >
+                  ID
+                </button>
+              </div>
+            </div>
             <h2>{active.title}</h2>
             <p>{active.objective}</p>
           </div>
@@ -485,7 +511,20 @@ export default function ListeningPage({
             <ArrowRight size={15} />
           </button>
           {showScript && (
-            <div className="listening-script">{active.script}</div>
+            <div className="listening-script">
+              <div className="bilingual-primary-text">{active.script}</div>
+              {langMode === "ID" && (
+                <div className="bilingual-subtitle-text">
+                  {active.scriptTranslation ? (
+                    active.scriptTranslation
+                  ) : (
+                    <span className="bilingual-fallback-notice">
+                      Terjemahan belum tersedia untuk materi ini
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
           )}
           {(active.image || active.mediaUrl) && (
             <CourseMedia
@@ -510,7 +549,20 @@ export default function ListeningPage({
                   <div className="question-number">
                     {String(i + 1).padStart(2, "0")}
                   </div>
-                  <h3>{q.prompt}</h3>
+                  <div className="question-prompt-wrap">
+                    <h3>{q.prompt}</h3>
+                    {langMode === "ID" && (
+                      <div className="bilingual-subtitle-text question-subtitle">
+                        {q.promptTranslation ? (
+                          q.promptTranslation
+                        ) : (
+                          <span className="bilingual-fallback-notice">
+                            Terjemahan belum tersedia untuk materi ini
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
                   {(q.image || q.mediaUrl) && (
                     <CourseMedia
                       src={q.image || q.mediaUrl}
@@ -519,29 +571,45 @@ export default function ListeningPage({
                     />
                   )}
                   <div className="answer-options">
-                    {q.options.map((option, j) => (
-                      <button
-                        key={j}
-                        type="button"
-                        disabled={!!result?.correct}
-                        className={`${answers[key] === j ? "chosen" : ""} ${result && j === result.correct_index ? "right" : ""} ${result && answers[key] === j && !result.correct ? "wrong" : ""}`}
-                        onClick={() => {
-                          saveAnswer(key, j);
-                          const updatedResults = { ...results };
-                          delete updatedResults[key];
-                          setResults(updatedResults);
-                          setData((previous) =>
-                            patchProgress(previous, {
-                              listeningAnswers: { ...answers, [key]: j },
-                              listeningResults: updatedResults,
-                            }),
-                          );
-                        }}
-                      >
-                        <span>{String.fromCharCode(65 + j)}</span>
-                        {option}
-                      </button>
-                    ))}
+                    {q.options.map((option, j) => {
+                      const optTrans = q.optionsTranslation?.[j];
+                      return (
+                        <button
+                          key={j}
+                          type="button"
+                          disabled={!!result?.correct}
+                          className={`${answers[key] === j ? "chosen" : ""} ${result && j === result.correct_index ? "right" : ""} ${result && answers[key] === j && !result.correct ? "wrong" : ""}`}
+                          onClick={() => {
+                            saveAnswer(key, j);
+                            const updatedResults = { ...results };
+                            delete updatedResults[key];
+                            setResults(updatedResults);
+                            setData((previous) =>
+                              patchProgress(previous, {
+                                listeningAnswers: { ...answers, [key]: j },
+                                listeningResults: updatedResults,
+                              }),
+                            );
+                          }}
+                        >
+                          <span>{String.fromCharCode(65 + j)}</span>
+                          <div className="bilingual-option-content">
+                            <div className="bilingual-primary-text">{option}</div>
+                            {langMode === "ID" && (
+                              <div className="bilingual-subtitle-text option-subtitle">
+                                {optTrans ? (
+                                  optTrans
+                                ) : (
+                                  <span className="bilingual-fallback-notice">
+                                    Terjemahan belum tersedia
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
                   </div>
                   {result && (
                     <div
@@ -552,7 +620,18 @@ export default function ListeningPage({
                           ? "Yes, nice work! ✨"
                           : "Hampir! Coba lagi."}
                       </b>
-                      <span>{result.explain}</span>
+                      <div className="bilingual-primary-text">{result.explain}</div>
+                      {langMode === "ID" && (
+                        <div className="bilingual-subtitle-text explain-subtitle">
+                          {(result.explainTranslation || q.explainTranslation) ? (
+                            result.explainTranslation || q.explainTranslation
+                          ) : (
+                            <span className="bilingual-fallback-notice">
+                              Terjemahan belum tersedia untuk materi ini
+                            </span>
+                          )}
+                        </div>
+                      )}
                       {!result.correct && (
                         <button
                           className="text-button"
