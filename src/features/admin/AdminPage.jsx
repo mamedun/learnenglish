@@ -351,7 +351,7 @@ export default function AdminPage({
       ) : adminTab === "ads" ? (
         <AdminAdsPanel />
       ) : adminTab === "media" ? (
-        <AdminImageGeneratorPanel activeProvider={provider} />
+        <AdminImageGeneratorPanel activeProvider={settings?.ai_provider || "clario"} />
       ) : adminTab === "purchases" ? (
         <AdminPurchasesHub />
       ) : adminTab === "usage" ? (

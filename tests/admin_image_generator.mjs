@@ -32,6 +32,8 @@ assert.match(apiCourseware, /api\/uploads\/media/);
 assert.match(adminPage, /AdminImageGeneratorPanel/);
 assert.match(adminPage, /Image Generator/);
 assert.match(adminPage, /adminTab === "media"/);
+assert.doesNotMatch(adminPage, /activeProvider=\{provider\}/);
+assert.match(adminPage, /activeProvider=\{settings\?\.ai_provider/);
 
 // 4. Verify AdminImageGeneratorPanel features
 assert.match(imageGenPanel, /ASPECT_RATIOS/);
