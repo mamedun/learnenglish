@@ -22,6 +22,10 @@ assert.match(apiIndex, /app_media_dir/);
 assert.match(apiIndex, /admin\/media/);
 assert.match(apiIndex, /DELETE/);
 assert.match(apiIndex, /api\/uploads\/media/);
+assert.match(apiIndex, /\/generate/);
+assert.match(apiIndex, /'instruction'\s*=>/);
+assert.match(apiIndex, /'aspectRatio'\s*=>/);
+assert.match(apiIndex, /imageUrl/);
 
 // 2. Verify bootstrap, catalog, and courseware allow media uploads
 assert.match(apiBootstrap, /\/uploads\/media\//);

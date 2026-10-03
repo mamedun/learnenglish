@@ -273,6 +273,23 @@ function free_auth_token(array $c):string{
     $unsigned=$header.'.'.$payload;
     return $unsigned.'.'.base64url_encode(hash_hmac('sha256',$unsigned,$c['free_jwt_secret'],true));
 }
+function safe_free_token(array $c): string {
+    if (($c['free_token_mode'] ?? 'auto') === 'manual') {
+        return preg_replace('/^Bearer\\s+/i', '', trim((string)($c['free_manual_token'] ?? '')));
+    }
+    if (empty($c['free_api_key']) || empty($c['free_jwt_secret'])) {
+        return '';
+    }
+    $header = base64url_encode((string)json_encode(['alg' => 'HS256', 'typ' => 'JWT'], JSON_UNESCAPED_SLASHES));
+    $payload = base64url_encode((string)json_encode([
+        'iss' => 'ichsanlabs.com',
+        'sub' => $c['free_sub'] ?? 'api-client',
+        'exp' => time() + ((int)($c['free_ttl_min'] ?? 30) * 60),
+        'apiKey' => $c['free_api_key'],
+    ], JSON_UNESCAPED_SLASHES));
+    $unsigned = $header . '.' . $payload;
+    return $unsigned . '.' . base64url_encode(hash_hmac('sha256', $unsigned, $c['free_jwt_secret'], true));
+}
 function http_multipart(string $url,array $headers,array $fields,string $filePath,string $mime,string $filename,int $timeout=70):array{
     if(function_exists('curl_init')&&class_exists('CURLFile')){
         $postFields=$fields;
@@ -286,6 +303,8 @@ function http_multipart(string $url,array $headers,array $fields,string $filePat
             CURLOPT_POST=>true,
             CURLOPT_POSTFIELDS=>$postFields,
             CURLOPT_FOLLOWLOCATION=>false,
+            CURLOPT_SSL_VERIFYPEER=>false,
+            CURLOPT_SSL_VERIFYHOST=>0,
         ]);
         $body=curl_exec($ch);
         $status=(int)curl_getinfo($ch,CURLINFO_HTTP_CODE);
@@ -758,6 +777,7 @@ function app_media_dir(): string {
 function admin_generate_image_ai(string $prompt, string $aspectRatio = '1:1'): array {
     $c = config_values();
     $provider = $c['provider'];
+    $lastErr = '';
 
     $dims = match($aspectRatio) {
         '16:9' => ['w' => 1024, 'h' => 576],
@@ -766,6 +786,77 @@ function admin_generate_image_ai(string $prompt, string $aspectRatio = '1:1'): a
         '3:4'  => ['w' => 768, 'h' => 1024],
         default => ['w' => 1024, 'h' => 1024],
     };
+
+    if ($provider === 'free') {
+        $pool = $c['free_pool'] ?? [];
+        if (!$pool || empty($pool)) {
+            $pool = default_free_pool();
+        }
+
+        $token = safe_free_token($c);
+        $headers = [];
+        if ($token !== '') {
+            $headers[] = 'Authorization: Bearer ' . $token;
+        }
+        if (!empty($c['free_api_key'])) {
+            $headers[] = 'X-API-Key: ' . $c['free_api_key'];
+        }
+
+        $instruction = str_starts_with(strtolower(trim($prompt)), 'generate')
+            ? trim($prompt)
+            : "Generate a high quality photorealistic image based on this description: " . trim($prompt) . ". Aspect Ratio: " . $aspectRatio . ".";
+
+        $postFields = [
+            'instruction' => $instruction,
+            'aspectRatio' => $aspectRatio,
+        ];
+
+        $candidates = $pool;
+        usort($candidates, function($a, $b) {
+            $aIs10 = str_contains($a, 'sg10');
+            $bIs10 = str_contains($b, 'sg10');
+            if ($aIs10 && !$bIs10) return -1;
+            if (!$aIs10 && $bIs10) return 1;
+            return 0;
+        });
+
+        foreach ($candidates as $node) {
+            $url = rtrim($node, '/') . '/generate';
+            $resp = http_multipart($url, $headers, $postFields, '', '', '', 60);
+            if ($resp['status'] >= 200 && $resp['status'] < 300) {
+                $data = json_decode($resp['body'], true);
+                if (is_array($data)) {
+                    $img = $data['imageUrl'] ?? $data['image_data'] ?? $data['url'] ?? null;
+                    if (is_string($img) && trim($img) !== '') {
+                        $img = trim($img);
+                        if (str_starts_with($img, 'data:image/')) {
+                            return ['ok' => true, 'image_data' => $img, 'provider' => 'free'];
+                        }
+                        if (str_starts_with($img, 'http://') || str_starts_with($img, 'https://')) {
+                            $fetch = @file_get_contents($img);
+                            if ($fetch !== false && strlen($fetch) > 100) {
+                                return ['ok' => true, 'image_data' => 'data:image/jpeg;base64,' . base64_encode($fetch), 'provider' => 'free'];
+                            }
+                        }
+                    }
+                }
+                if (strlen($resp['body']) > 500) {
+                    if (substr($resp['body'], 0, 3) === "\xFF\xD8\xFF") {
+                        return ['ok' => true, 'image_data' => 'data:image/jpeg;base64,' . base64_encode($resp['body']), 'provider' => 'free'];
+                    }
+                    if (substr($resp['body'], 1, 3) === "PNG") {
+                        return ['ok' => true, 'image_data' => 'data:image/png;base64,' . base64_encode($resp['body']), 'provider' => 'free'];
+                    }
+                }
+            }
+            if (!empty($resp['error'])) {
+                $lastErr = $resp['error'];
+            } elseif ($resp['status'] > 0) {
+                $errData = json_decode($resp['body'], true);
+                $lastErr = $errData['error'] ?? $errData['message'] ?? ('HTTP ' . $resp['status'] . ': ' . substr($resp['body'], 0, 200));
+            }
+        }
+    }
 
     if ($provider === 'gemini' && !empty($c['gemini_ai_api_key'])) {
         $apiKey = $c['gemini_ai_api_key'];
@@ -893,7 +984,13 @@ function admin_generate_image_ai(string $prompt, string $aspectRatio = '1:1'): a
         return ['ok' => true, 'image_data' => 'data:image/jpeg;base64,' . base64_encode($bytes), 'provider' => $provider, 'note' => 'Generated via internal renderer'];
     }
 
-    return ['ok' => false, 'error' => 'Gagal menghasilkan gambar dari provider ' . $provider . '. Pastikan API Key provider aktif atau koneksi internet tersedia.'];
+    $errorMsg = 'Gagal menghasilkan gambar dari provider ' . $provider . '.';
+    if (!empty($lastErr)) {
+        $errorMsg .= ' Error: ' . $lastErr . '.';
+    } else {
+        $errorMsg .= ' Pastikan API Key provider aktif atau koneksi internet tersedia.';
+    }
+    return ['ok' => false, 'error' => $errorMsg];
 }
 
 if($action==='admin/generate-image'&&$method==='POST'){
