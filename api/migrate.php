@@ -61,13 +61,19 @@ try {
     }
     $uploadsDir = (string) cfg('UPLOADS_DIR', __DIR__ . '/uploads');
     if (!is_dir($uploadsDir)) {
-        mkdir($uploadsDir, 0700, true);
+        mkdir($uploadsDir, 0755, true);
         log_msg('OK', "Membuat direktori uploads: {$uploadsDir}");
     }
     $ttsCacheDir = (string) cfg('TTS_CACHE_DIR', __DIR__ . '/uploads/tts-cache');
     if (!is_dir($ttsCacheDir)) {
         mkdir($ttsCacheDir, 0700, true);
         log_msg('OK', "Membuat direktori TTS cache: {$ttsCacheDir}");
+    }
+    $mediaDir = rtrim($uploadsDir, '/\\') . '/media';
+    if (!is_dir($mediaDir)) {
+        mkdir($mediaDir, 0755, true);
+        @file_put_contents($mediaDir . '/.htaccess', "<FilesMatch \"\\.(jpg|jpeg|png|webp)$\">\n    Require all granted\n</FilesMatch>\n");
+        log_msg('OK', "Membuat direktori media upload: {$mediaDir}");
     }
 
     log_msg('INFO', "Koneksi ke database SQLite: {$dbPath}");

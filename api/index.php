@@ -764,12 +764,25 @@ if(str_starts_with($action,'audio/')&&$method==='GET'){$u=require_user();$id=sub
 if(str_starts_with($action,'audio/')&&$method==='DELETE'){origin_check();$u=require_user();$id=substr($action,6);if(!preg_match('/^[a-f0-9]{32}$/',$id))respond(['error'=>'ID audio tidak valid.'],400);$q=db()->prepare('SELECT file_path FROM audio_assets WHERE id=? AND user_id=?');$q->execute([$id,(int)$u['id']]);$audio=$q->fetch();if(!$audio)respond(['ok'=>true,'deleted'=>false]);if(is_file($audio['file_path'])&&!@unlink($audio['file_path']))respond(['error'=>'File audio tidak dapat dihapus.'],500);db()->prepare('DELETE FROM audio_assets WHERE id=? AND user_id=?')->execute([$id,(int)$u['id']]);respond(['ok'=>true,'deleted'=>true]);}
 
 function app_media_dir(): string {
-    $c = config_values();
-    $base = rtrim((string)($c['uploads_dir'] ?? app_public_path('api/uploads')), '/');
-    $dir = $base . '/media';
+    $root = (string) cfg('UPLOADS_DIR', '');
+    if ($root === '') {
+        $root = __DIR__ . '/uploads';
+    } elseif (!str_starts_with($root, '/') && !preg_match('/^[a-zA-Z]:/', $root)) {
+        $root = __DIR__ . '/' . $root;
+    }
+    $dir = rtrim($root, '/\\') . '/media';
     if (!is_dir($dir)) {
-        @mkdir($dir, 0755, true);
-        @file_put_contents($dir . '/.htaccess', "<FilesMatch \"\\.(jpg|jpeg|png|webp)$\">\n    Require all granted\n</FilesMatch>\n");
+        if (!@mkdir($dir, 0755, true) && !is_dir($dir)) {
+            if (!is_dir($root)) @mkdir($root, 0755, true);
+            @mkdir($dir, 0755, true);
+        }
+    }
+    if (is_dir($dir)) {
+        @chmod($dir, 0755);
+        $htaccess = $dir . '/.htaccess';
+        if (!is_file($htaccess)) {
+            @file_put_contents($htaccess, "<FilesMatch \"\\.(jpg|jpeg|png|webp)$\">\n    Require all granted\n</FilesMatch>\n");
+        }
     }
     return $dir;
 }
@@ -1052,7 +1065,14 @@ if($action==='admin/media'&&$method==='POST'){
     if(strlen($raw)>15*1024*1024)respond(['error'=>'Gambar melebihi batas 15 MB.'],413);
     $filename='img_'.bin2hex(random_bytes(8)).'.'.$ext;
     $targetPath=$dir.'/'.$filename;
-    if(@file_put_contents($targetPath,$raw)===false)respond(['error'=>'Gagal menyimpan gambar ke api/uploads/media/.'],500);
+    if(!is_dir($dir)){
+        @mkdir($dir, 0755, true);
+    }
+    if(@file_put_contents($targetPath,$raw)===false){
+        $err=error_get_last();
+        $detail=!empty($err['message'])?': '.$err['message']:'';
+        respond(['error'=>'Gagal menyimpan gambar ke api/uploads/media/'.$detail],500);
+    }
     @chmod($targetPath,0644);
     $base=app_base_path();
     $relUrl=($base===''?'':$base).'/api/uploads/media/'.$filename;
