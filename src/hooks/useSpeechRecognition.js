@@ -64,8 +64,6 @@ export function useSpeechRecognition({ language = "en-US" } = {}) {
   const recognitionRef = useRef(null);
   const listeningRef = useRef(false);
   const prefixRef = useRef("");
-  const finalTranscriptRef = useRef("");
-  const lastFinalChunkRef = useRef("");
   const ignoreLateResultsRef = useRef(false);
 
   useEffect(() => {
