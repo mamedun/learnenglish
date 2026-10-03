@@ -9,6 +9,13 @@ export function isBraveBrowser() {
   return false;
 }
 
+export function isMobileBrowser() {
+  if (typeof navigator === "undefined") return false;
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+    navigator.userAgent || "",
+  );
+}
+
 export function speechRecognitionErrorMessage(code) {
   if (code === "not-allowed" || code === "service-not-allowed")
     return "Izin mikrofon/transkripsi ditolak. Izinkan penggunaan mikrofon di browser.";
@@ -144,15 +151,16 @@ export function useSpeechRecognition({ language = "en-US" } = {}) {
       if (!append) setTranscript("");
 
       try {
+        const isMobile = isMobileBrowser();
         const recognition = new Recognition();
         recognition.continuous = true;
-        recognition.interimResults = true;
+        recognition.interimResults = !isMobile;
         recognition.lang = language;
 
         recognition.onresult = (event) => {
           if (ignoreLateResultsRef.current) return;
 
-          const parts = [];
+          let recognized = "";
           for (let i = 0; i < event.results.length; i += 1) {
             const item = event.results[i];
             const text = (item?.[0]?.transcript || "").trim();
@@ -167,22 +175,10 @@ export function useSpeechRecognition({ language = "en-US" } = {}) {
               continue;
             }
 
-            // Prevent adjacent identical duplicate chunks
-            if (
-              parts.length > 0 &&
-              parts[parts.length - 1].toLowerCase() === text.toLowerCase()
-            ) {
-              continue;
-            }
-
-            parts.push(text);
+            recognized = mergeTranscripts(recognized, text);
           }
 
-          const recognized = parts.join(" ").replace(/\s+/g, " ").trim();
-          const combined = [prefixRef.current, recognized]
-            .filter(Boolean)
-            .join(" ");
-
+          const combined = mergeTranscripts(prefixRef.current, recognized);
           setTranscript(combined);
         };
 

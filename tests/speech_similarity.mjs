@@ -76,6 +76,20 @@ assert.equal(mergeTranscripts("screen yesterday", "yesterday and opened"), "scre
 assert.equal(mergeTranscripts("", "Hello world"), "Hello world");
 assert.equal(mergeTranscripts("Hello world", ""), "Hello world");
 
+// Test user scenario: Android Chrome cumulative interim chunks
+const userScenarioChunks = [
+  "hello",
+  "hello my",
+  "hello my name",
+  "hello my name is",
+  "hello my name is Maya",
+];
+let userResult = "";
+for (const chunk of userScenarioChunks) {
+  userResult = mergeTranscripts(userResult, chunk);
+}
+assert.equal(userResult, "hello my name is Maya");
+
 console.log(
   "PASS: punctuation-insensitive matching, contraction/number variants, and 90% threshold.",
 );
