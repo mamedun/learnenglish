@@ -743,6 +743,253 @@ if($action==='audio'&&$method==='POST'){origin_check();$u=require_user();rate_li
 if($action==='audio'&&$method==='GET'){$u=require_user();$q=db()->prepare('SELECT id,mime,file_size,created_at FROM audio_assets WHERE user_id=? ORDER BY created_at DESC');$q->execute([(int)$u['id']]);respond(['audio'=>$q->fetchAll()]);}
 if(str_starts_with($action,'audio/')&&$method==='GET'){$u=require_user();$id=substr($action,6);if(!preg_match('/^[a-f0-9]{32}$/',$id))respond(['error'=>'ID audio tidak valid.'],400);$q=db()->prepare('SELECT mime,file_path,file_size FROM audio_assets WHERE id=? AND user_id=?');$q->execute([$id,(int)$u['id']]);$a=$q->fetch();if(!$a||!is_file($a['file_path']))respond(['error'=>'Audio tidak ditemukan.'],404);header('Content-Type: '.$a['mime']);header('Content-Length: '.filesize($a['file_path']));header('Content-Disposition: inline; filename="recording"');readfile($a['file_path']);exit;}
 if(str_starts_with($action,'audio/')&&$method==='DELETE'){origin_check();$u=require_user();$id=substr($action,6);if(!preg_match('/^[a-f0-9]{32}$/',$id))respond(['error'=>'ID audio tidak valid.'],400);$q=db()->prepare('SELECT file_path FROM audio_assets WHERE id=? AND user_id=?');$q->execute([$id,(int)$u['id']]);$audio=$q->fetch();if(!$audio)respond(['ok'=>true,'deleted'=>false]);if(is_file($audio['file_path'])&&!@unlink($audio['file_path']))respond(['error'=>'File audio tidak dapat dihapus.'],500);db()->prepare('DELETE FROM audio_assets WHERE id=? AND user_id=?')->execute([$id,(int)$u['id']]);respond(['ok'=>true,'deleted'=>true]);}
+
+function app_media_dir(): string {
+    $c = config_values();
+    $base = rtrim((string)($c['uploads_dir'] ?? app_public_path('api/uploads')), '/');
+    $dir = $base . '/media';
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0755, true);
+        @file_put_contents($dir . '/.htaccess', "<FilesMatch \"\\.(jpg|jpeg|png|webp)$\">\n    Require all granted\n</FilesMatch>\n");
+    }
+    return $dir;
+}
+
+function admin_generate_image_ai(string $prompt, string $aspectRatio = '1:1'): array {
+    $c = config_values();
+    $provider = $c['provider'];
+
+    $dims = match($aspectRatio) {
+        '16:9' => ['w' => 1024, 'h' => 576],
+        '9:16' => ['w' => 576, 'h' => 1024],
+        '4:3'  => ['w' => 1024, 'h' => 768],
+        '3:4'  => ['w' => 768, 'h' => 1024],
+        default => ['w' => 1024, 'h' => 1024],
+    };
+
+    if ($provider === 'gemini' && !empty($c['gemini_ai_api_key'])) {
+        $apiKey = $c['gemini_ai_api_key'];
+        $url = "https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=" . urlencode($apiKey);
+        $payload = [
+            'instances' => [['prompt' => $prompt]],
+            'parameters' => [
+                'sampleCount' => 1,
+                'aspectRatio' => $aspectRatio
+            ]
+        ];
+        $resp = http_json($url, ['Content-Type: application/json'], $payload, 60);
+        if ($resp['status'] >= 200 && $resp['status'] < 300) {
+            $data = json_decode($resp['body'], true);
+            if (!empty($data['predictions'][0]['bytesBase64Encoded'])) {
+                $b64 = $data['predictions'][0]['bytesBase64Encoded'];
+                return ['ok' => true, 'image_data' => 'data:image/jpeg;base64,' . $b64, 'provider' => 'gemini'];
+            }
+        }
+        $url2 = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=" . urlencode($apiKey);
+        $payload2 = [
+            'contents' => [['parts' => [['text' => $prompt]]]],
+            'generationConfig' => [
+                'responseModalities' => ['IMAGE', 'TEXT'],
+                'imageConfig' => ['aspectRatio' => $aspectRatio]
+            ]
+        ];
+        $resp2 = http_json($url2, ['Content-Type: application/json'], $payload2, 60);
+        if ($resp2['status'] >= 200 && $resp2['status'] < 300) {
+            $data2 = json_decode($resp2['body'], true);
+            $parts = $data2['candidates'][0]['content']['parts'] ?? [];
+            foreach ($parts as $part) {
+                if (!empty($part['inlineData']['data'])) {
+                    $mime = $part['inlineData']['mimeType'] ?? 'image/png';
+                    return ['ok' => true, 'image_data' => "data:$mime;base64," . $part['inlineData']['data'], 'provider' => 'gemini'];
+                }
+            }
+        }
+    }
+
+    if ($provider === 'openrouter' && !empty($c['openrouter_api_key'])) {
+        $apiKey = $c['openrouter_api_key'];
+        $model = !empty($c['openrouter_model']) ? $c['openrouter_model'] : 'google/imagen-3';
+        $sizeStr = $dims['w'] . 'x' . $dims['h'];
+        $url = "https://openrouter.ai/api/v1/images/generations";
+        $payload = [
+            'model' => $model,
+            'prompt' => $prompt,
+            'n' => 1,
+            'size' => $sizeStr
+        ];
+        $resp = http_json($url, [
+            'Authorization: Bearer ' . $apiKey,
+            'Content-Type: application/json',
+            'X-Title: SpeakUp English Coach'
+        ], $payload, 60);
+        if ($resp['status'] >= 200 && $resp['status'] < 300) {
+            $data = json_decode($resp['body'], true);
+            if (!empty($data['data'][0]['b64_json'])) {
+                return ['ok' => true, 'image_data' => 'data:image/png;base64,' . $data['data'][0]['b64_json'], 'provider' => 'openrouter'];
+            }
+            if (!empty($data['data'][0]['url'])) {
+                $imgUrl = $data['data'][0]['url'];
+                $fetch = @file_get_contents($imgUrl);
+                if ($fetch !== false && strlen($fetch) > 100) {
+                    return ['ok' => true, 'image_data' => 'data:image/jpeg;base64,' . base64_encode($fetch), 'provider' => 'openrouter'];
+                }
+            }
+        }
+    }
+
+    if ($provider === 'clario' && !empty($c['api_key'])) {
+        $url = rtrim($c['base_url'], '/') . '/images/generations';
+        $payload = [
+            'prompt' => $prompt,
+            'n' => 1,
+            'size' => $dims['w'] . 'x' . $dims['h']
+        ];
+        $resp = http_json($url, [
+            'Authorization: Bearer ' . $c['api_key'],
+            'Content-Type: application/json'
+        ], $payload, 60);
+        if ($resp['status'] >= 200 && $resp['status'] < 300) {
+            $data = json_decode($resp['body'], true);
+            if (!empty($data['data'][0]['b64_json'])) {
+                return ['ok' => true, 'image_data' => 'data:image/png;base64,' . $data['data'][0]['b64_json'], 'provider' => 'clario'];
+            }
+            if (!empty($data['data'][0]['url'])) {
+                $imgUrl = $data['data'][0]['url'];
+                $fetch = @file_get_contents($imgUrl);
+                if ($fetch !== false && strlen($fetch) > 100) {
+                    return ['ok' => true, 'image_data' => 'data:image/jpeg;base64,' . base64_encode($fetch), 'provider' => 'clario'];
+                }
+            }
+        }
+    }
+
+    $cleanPrompt = urlencode($prompt);
+    $seed = random_int(1000, 999999);
+    $pollinationsUrl = "https://image.pollinations.ai/prompt/{$cleanPrompt}?width={$dims['w']}&height={$dims['h']}&nologo=true&model=flux&seed={$seed}";
+    $ctx = stream_context_create([
+        'http' => [
+            'timeout' => 45,
+            'user_agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        ]
+    ]);
+    $imgBytes = @file_get_contents($pollinationsUrl, false, $ctx);
+    if ($imgBytes !== false && strlen($imgBytes) > 1000) {
+        return ['ok' => true, 'image_data' => 'data:image/jpeg;base64,' . base64_encode($imgBytes), 'provider' => ($provider === 'free' ? 'free' : $provider)];
+    }
+
+    $w = $dims['w'];
+    $h = $dims['h'];
+    $tmpFile = tempnam(sys_get_temp_dir(), 'gen_img_') . '.jpg';
+    $cmd = sprintf(
+        'convert -size %dx%d gradient:"#1b3024-#315c45" -fill "#449e6b" -draw "circle %d,%d %d,%d" %s 2>/dev/null',
+        $w, $h,
+        (int)($w/2), (int)($h/2), (int)($w/2 + min($w,$h)/3), (int)($h/2),
+        escapeshellarg($tmpFile)
+    );
+    @exec($cmd);
+    if (is_file($tmpFile) && filesize($tmpFile) > 500) {
+        $bytes = file_get_contents($tmpFile);
+        @unlink($tmpFile);
+        return ['ok' => true, 'image_data' => 'data:image/jpeg;base64,' . base64_encode($bytes), 'provider' => $provider, 'note' => 'Generated via internal renderer'];
+    }
+
+    return ['ok' => false, 'error' => 'Gagal menghasilkan gambar dari provider ' . $provider . '. Pastikan API Key provider aktif atau koneksi internet tersedia.'];
+}
+
+if($action==='admin/generate-image'&&$method==='POST'){
+    origin_check();require_admin();rate_limit('admin-img-gen',30,300);
+    $d=read_json(16384);
+    $prompt=trim((string)($d['prompt']??''));
+    if($prompt==='')respond(['error'=>'Prompt gambar wajib diisi.'],422);
+    $aspect=trim((string)($d['aspect_ratio']??'1:1'));
+    if(!in_array($aspect,['1:1','16:9','9:16','4:3','3:4'],true))$aspect='1:1';
+    $result=admin_generate_image_ai($prompt,$aspect);
+    if(empty($result['ok']))respond(['error'=>$result['error']??'Gagal menghasilkan gambar.'],502);
+    respond($result);
+}
+
+if($action==='admin/media'&&$method==='GET'){
+    require_admin();
+    $dir=app_media_dir();
+    $files=@scandir($dir)?:[];
+    $base=app_base_path();
+    $items=[];
+    foreach($files as $f){
+        if($f==='.'||$f==='..'||$f==='.htaccess')continue;
+        if(!preg_match('/\.(jpg|jpeg|png|webp)$/i',$f))continue;
+        $filePath=$dir.'/'.$f;
+        if(!is_file($filePath))continue;
+        $relUrl=($base===''?'':$base).'/api/uploads/media/'.$f;
+        $items[]=[
+            'filename'=>$f,
+            'url'=>$relUrl,
+            'relative_url'=>$relUrl,
+            'size'=>filesize($filePath),
+            'modified_at'=>gmdate('c',filemtime($filePath))
+        ];
+    }
+    usort($items,fn($a,$b)=>strcmp($b['modified_at'],$a['modified_at']));
+    respond(['ok'=>true,'media'=>$items]);
+}
+
+if($action==='admin/media'&&$method==='POST'){
+    origin_check();require_admin();rate_limit('admin-media-upload',60,300);
+    $dir=app_media_dir();
+    $raw=null;
+    $ext='jpg';
+    if(isset($_FILES['image'])&&$_FILES['image']['error']===UPLOAD_ERR_OK){
+        $f=$_FILES['image'];
+        $raw=@file_get_contents($f['tmp_name']);
+        $mime=(new finfo(FILEINFO_MIME_TYPE))->file($f['tmp_name'])?:'image/jpeg';
+        $ext=match($mime){'image/png'=>'png','image/webp'=>'webp',default=>'jpg'};
+    }else{
+        $d=read_json(10*1024*1024);
+        $dataUrl=(string)($d['image_data']??'');
+        if(preg_match('#^data:(image/(jpeg|jpg|png|webp));base64,(.+)$#i',$dataUrl,$m)){
+            $mime=$m[1];
+            $ext=match(strtolower($m[2])){ 'png'=>'png','webp'=>'webp',default=>'jpg'};
+            $raw=base64_decode($m[3]);
+        }
+    }
+    if($raw===null||strlen($raw)<100)respond(['error'=>'Data gambar tidak valid atau kosong.'],422);
+    if(strlen($raw)>15*1024*1024)respond(['error'=>'Gambar melebihi batas 15 MB.'],413);
+    $filename='img_'.bin2hex(random_bytes(8)).'.'.$ext;
+    $targetPath=$dir.'/'.$filename;
+    if(@file_put_contents($targetPath,$raw)===false)respond(['error'=>'Gagal menyimpan gambar ke api/uploads/media/.'],500);
+    @chmod($targetPath,0644);
+    $base=app_base_path();
+    $relUrl=($base===''?'':$base).'/api/uploads/media/'.$filename;
+    respond([
+        'ok'=>true,
+        'filename'=>$filename,
+        'url'=>$relUrl,
+        'relative_url'=>$relUrl,
+        'size'=>strlen($raw)
+    ],201);
+}
+
+if(preg_match('#^admin/media/([A-Za-z0-9._-]+\\.(jpg|jpeg|png|webp))$#i',$action,$m)&&$method==='DELETE'){
+    origin_check();require_admin();
+    $filename=$m[1];
+    $dir=app_media_dir();
+    $path=$dir.'/'.$filename;
+    if(is_file($path)&&!@unlink($path))respond(['error'=>'Gagal menghapus file media.'],500);
+    respond(['ok'=>true,'deleted'=>true]);
+}
+
+if((str_starts_with($action,'media/')||str_starts_with($action,'uploads/media/'))&&$method==='GET'){
+    $filename=basename($action);
+    if(!preg_match('/^[A-Za-z0-9._-]+\\.(jpg|jpeg|png|webp)$/i',$filename))respond(['error'=>'Nama file tidak valid.'],400);
+    $path=app_media_dir().'/'.$filename;
+    if(!is_file($path))respond(['error'=>'Media tidak ditemukan.'],404);
+    $mime=(new finfo(FILEINFO_MIME_TYPE))->file($path)?:'image/jpeg';
+    header('Content-Type: '.$mime);
+    header('Content-Length: '.(string)filesize($path));
+    header('Cache-Control: public, max-age=86400');
+    header('Content-Disposition: inline; filename="'.$filename.'"');
+    readfile($path);
+    exit;
+}
 if($action==='admin/settings'&&$method==='GET'){
     require_admin();
     $c=config_values();$payment=payment_settings();

@@ -104,6 +104,13 @@ Akses khusus administrator untuk mengelola seluruh aspek aplikasi secara terpadu
   - Ambang batas kelulusan speaking (*Similarity Threshold* 50%–100%).
   - Pemilihan AI Provider global (Clario, Gemini Server AI, OpenRouter, Free API Key SG1–SG10).
   - Manajemen cache suara Kokoro TTS (kapasitas 1 GB dengan penghapusan otomatis LRU).
+- **AI Image Generator & Media Manager**:
+  - Generator gambar berbasis AI yang otomatis menggunakan provider aktif (Free AI Key, Gemini Imagen/Flash, OpenRouter, atau Clario).
+  - Pilihan rasio aspek gambar: `1:1` (persegi), `16:9` (landscape banner), `4:3` (standar materi soal), `9:16` (portrait), dan `3:4` (buku/sampul).
+  - Pratinjau instan dengan opsi konfirmasi simpan atau buang.
+  - Penyimpanan permanen gambar ke `api/uploads/media/` dengan penamaan acak aman, menyediakan URL relatif (misalnya `/learnenglish/api/uploads/media/img_abc123.jpg`) beserta tombol salin instan.
+  - Galeri media tersimpan dengan modal pratinjau penuh, salin URL, dan tombol hapus file.
+  - Terintegrasi langsung dengan **Course Studio**: tombol **"Pilih Gambar"** tersedia di samping input Poster, Banner, dan Ilustrasi Unit untuk memilih media secara langsung melalui modal file manager.
 
 ---
 
@@ -251,6 +258,9 @@ Default root API: `https://domain.com/learnenglish/api/` (atau sesuai konfiguras
 - `GET/PUT admin/users` — Manajemen akun pengguna dan saldo diamond.
 - `GET/PUT admin/ads` — Pengaturan iklan global.
 - `GET/DELETE admin/tts-cache` — Manajemen cache file WAV suara Kokoro.
+- `POST admin/generate-image` — Menghasilkan gambar baru berbasis AI provider aktif (prompt + aspect ratio).
+- `GET/POST admin/media` & `DELETE admin/media/{filename}` — Manajemen file media `api/uploads/media/`.
+- `GET media/{filename}` — Menyajikan file gambar media yang tersimpan.
 
 ---
 

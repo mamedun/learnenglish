@@ -15,6 +15,7 @@ import {
   Users,
   ShoppingBag,
   Megaphone,
+  Image as ImageIcon,
 } from "lucide-react";
 import { apiFetch, apiJson } from "../../api";
 import ModuleLoading from "../../components/ModuleLoading";
@@ -23,6 +24,7 @@ import AdminUsersPanel from "./AdminUsersPanel";
 import AdminPurchasesHub from "./AdminPurchasesHub";
 import AdminCourseUsagePanel from "./AdminCourseUsagePanel";
 import AdminAdsPanel from "./AdminAdsPanel";
+import AdminImageGeneratorPanel from "./AdminImageGeneratorPanel";
 import CourseStudio from "./CourseStudio";
 import { toast } from "sonner";
 
@@ -309,6 +311,14 @@ export default function AdminPage({
         </button>
         <button
           role="tab"
+          aria-selected={adminTab === "media"}
+          className={adminTab === "media" ? "active" : ""}
+          onClick={() => setAdminTab("media")}
+        >
+          <ImageIcon size={17} /> Image Generator
+        </button>
+        <button
+          role="tab"
           aria-selected={adminTab === "purchases"}
           className={adminTab === "purchases" ? "active" : ""}
           onClick={() => setAdminTab("purchases")}
@@ -340,6 +350,8 @@ export default function AdminPage({
         <AdminUsersPanel />
       ) : adminTab === "ads" ? (
         <AdminAdsPanel />
+      ) : adminTab === "media" ? (
+        <AdminImageGeneratorPanel activeProvider={provider} />
       ) : adminTab === "purchases" ? (
         <AdminPurchasesHub />
       ) : adminTab === "usage" ? (

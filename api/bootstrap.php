@@ -55,6 +55,17 @@ function app_rebase_local_image_path(mixed $value): ?string
         || isset($parts['user']) || isset($parts['pass'])) return null;
     $path = (string) ($parts['path'] ?? '');
     if ($path === '' || $path[0] !== '/') return null;
+
+    $mediaOffset = strpos($path, '/uploads/media/');
+    if ($mediaOffset !== false) {
+        $relative = substr($path, $mediaOffset + strlen('/uploads/media/'));
+        if ($relative === '' || !preg_match('#^[A-Za-z0-9._/-]+$#D', $relative)) return null;
+        foreach (explode('/', $relative) as $segment) {
+            if ($segment === '' || $segment === '.' || $segment === '..') return null;
+        }
+        return app_public_path('api/uploads/media/' . $relative);
+    }
+
     $imageOffset = strpos($path, '/images/');
     if ($imageOffset === false) return null;
     $relative = substr($path, $imageOffset + strlen('/images/'));
@@ -67,6 +78,8 @@ function app_rebase_local_image_path(mixed $value): ?string
 
 function app_public_asset_url(mixed $value): string
 {
-    if (!is_string($value)) return '';
-    return app_rebase_local_image_path($value) ?? $value;
+    if (!is_string($value) || trim($value) === '') return '';
+    $val = trim($value);
+    if (filter_var($val, FILTER_VALIDATE_URL)) return $val;
+    return app_rebase_local_image_path($val) ?? $val;
 }

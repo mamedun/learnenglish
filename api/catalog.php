@@ -255,15 +255,20 @@ function catalog_level_id(PDO $pdo, array $input): string
 }
 function catalog_image(array $input): ?string
 {
-    $image = catalog_text($input, 'image', 220, false);
+    $image = catalog_text($input, 'image', 255, false);
     if ($image === '') return null;
-    $image = app_rebase_local_image_path($image);
-    $root = rtrim(app_public_path('images'), '/') . '/';
-    if ($image === null || !str_starts_with($image, $root)
-        || !preg_match('/^[A-Za-z0-9/_-]+\\.(jpg|jpeg|png|webp)$/iD', substr($image, strlen($root)))) {
-        respond(['error' => 'Gunakan gambar lokal dari public/images (jpg/png/webp).'], 422);
+    $rebased = app_rebase_local_image_path($image);
+    $rootImages = rtrim(app_public_path('images'), '/') . '/';
+    $rootMedia = rtrim(app_public_path('api/uploads/media'), '/') . '/';
+    if ($rebased !== null && str_starts_with($rebased, $rootMedia)
+        && preg_match('/^[A-Za-z0-9/_-]+\.(jpg|jpeg|png|webp)$/iD', substr($rebased, strlen($rootMedia)))) {
+        return $rebased;
     }
-    return $image;
+    if ($rebased !== null && str_starts_with($rebased, $rootImages)
+        && preg_match('/^[A-Za-z0-9/_-]+\.(jpg|jpeg|png|webp)$/iD', substr($rebased, strlen($rootImages)))) {
+        return $rebased;
+    }
+    respond(['error' => 'Gunakan gambar lokal dari public/images atau api/uploads/media (jpg/png/webp).'], 422);
 }
 function catalog_save_level(PDO $pdo, string $id, array $d): void
 {

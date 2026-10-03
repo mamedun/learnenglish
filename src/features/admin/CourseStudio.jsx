@@ -21,12 +21,14 @@ import {
   Trash2,
   Users,
   X,
+  Image as ImageIcon,
 } from "lucide-react";
 import { apiJson } from "../../api";
 import { getSharedTtsAudio } from "../../lib/ttsCache";
 import { toast } from "sonner";
 import CourseContentEditor from "./CourseContentEditor";
 import SharedTtsCacheGenerator from "./SharedTtsCacheGenerator";
+import MediaLibraryModal from "../../components/MediaLibraryModal";
 import "./CourseStudio.css";
 
 const NEW_COURSE = {
@@ -355,7 +357,16 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
   const [userSort, setUserSort] = useState("name");
   const [courseUsers, setCourseUsers] = useState([]);
   const [usersLoading, setUsersLoading] = useState(false);
+  const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
+  const [mediaPickerCallback, setMediaPickerCallback] = useState(null);
+  const [mediaPickerTitle, setMediaPickerTitle] = useState("Pilih Gambar");
   const importModalityRef = useRef(null);
+
+  function openMediaPicker(callback, title = "Pilih Gambar dari Media Library") {
+    setMediaPickerCallback(() => callback);
+    setMediaPickerTitle(title);
+    setMediaPickerOpen(true);
+  }
   async function loadCourses(chooseId = undefined) {
     try {
       const response = await apiJson("admin/courses");
@@ -1153,25 +1164,55 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
                     </label>
                     <label>
                       Poster URL · 16:9
-                      <input
-                        className="text-field"
-                        value={courseDraft.posterUrl || ""}
-                        onChange={(event) =>
-                          editCourse("posterUrl", event.target.value)
-                        }
-                        placeholder="https://…/poster.jpg"
-                      />
+                      <div className="input-with-action-btn">
+                        <input
+                          className="text-field"
+                          value={courseDraft.posterUrl || ""}
+                          onChange={(event) =>
+                            editCourse("posterUrl", event.target.value)
+                          }
+                          placeholder="https://…/poster.jpg atau /api/uploads/media/…"
+                        />
+                        <button
+                          type="button"
+                          className="secondary-btn pick-media-btn"
+                          onClick={() =>
+                            openMediaPicker(
+                              (url) => editCourse("posterUrl", url),
+                              "Pilih Gambar Poster Kursus",
+                            )
+                          }
+                          title="Pilih gambar dari Media Library"
+                        >
+                          <ImageIcon size={15} /> Pilih Gambar
+                        </button>
+                      </div>
                     </label>
                     <label>
                       Banner URL · 16:9
-                      <input
-                        className="text-field"
-                        value={courseDraft.bannerUrl || ""}
-                        onChange={(event) =>
-                          editCourse("bannerUrl", event.target.value)
-                        }
-                        placeholder="https://…/banner.jpg"
-                      />
+                      <div className="input-with-action-btn">
+                        <input
+                          className="text-field"
+                          value={courseDraft.bannerUrl || ""}
+                          onChange={(event) =>
+                            editCourse("bannerUrl", event.target.value)
+                          }
+                          placeholder="https://…/banner.jpg atau /api/uploads/media/…"
+                        />
+                        <button
+                          type="button"
+                          className="secondary-btn pick-media-btn"
+                          onClick={() =>
+                            openMediaPicker(
+                              (url) => editCourse("bannerUrl", url),
+                              "Pilih Gambar Banner Kursus",
+                            )
+                          }
+                          title="Pilih gambar dari Media Library"
+                        >
+                          <ImageIcon size={15} /> Pilih Gambar
+                        </button>
+                      </div>
                     </label>
                     <div className="course-media-preview">
                       <div className="course-media-preview-title">
@@ -1779,14 +1820,29 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
                               <>
                                 <label className="span-2">
                                   Ilustrasi / video / YouTube / URL eksternal
-                                  <input
-                                    className="text-field"
-                                    value={selectedUnit.mediaUrl || ""}
-                                    onChange={(event) =>
-                                      patchUnit("mediaUrl", event.target.value)
-                                    }
-                                    placeholder="https://… (YouTube, MP4, gambar)"
-                                  />
+                                  <div className="input-with-action-btn">
+                                    <input
+                                      className="text-field"
+                                      value={selectedUnit.mediaUrl || ""}
+                                      onChange={(event) =>
+                                        patchUnit("mediaUrl", event.target.value)
+                                      }
+                                      placeholder="https://… (YouTube, MP4, gambar) atau /api/uploads/media/…"
+                                    />
+                                    <button
+                                      type="button"
+                                      className="secondary-btn pick-media-btn"
+                                      onClick={() =>
+                                        openMediaPicker(
+                                          (url) => patchUnit("mediaUrl", url),
+                                          "Pilih Gambar Ilustrasi Materi",
+                                        )
+                                      }
+                                      title="Pilih gambar dari Media Library"
+                                    >
+                                      <ImageIcon size={15} /> Pilih Gambar
+                                    </button>
+                                  </div>
                                 </label>
                                 <div className="course-media-preview span-2">
                                   <div className="course-media-preview-title">
@@ -2158,6 +2214,14 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
           )}
         </main>
       </div>
+      <MediaLibraryModal
+        isOpen={mediaPickerOpen}
+        onClose={() => setMediaPickerOpen(false)}
+        onSelect={(url) => {
+          if (mediaPickerCallback) mediaPickerCallback(url);
+        }}
+        title={mediaPickerTitle}
+      />
     </div>
   );
 }

@@ -400,7 +400,7 @@ function courseware_safe_media_url($value, string $label = 'Media'): string
     if ($localImage !== null) return $localImage;
     $parts = parse_url($value);
     if (!is_array($parts) || strtolower((string) ($parts['scheme'] ?? '')) !== 'https' || empty($parts['host']) || isset($parts['user']) || isset($parts['pass']))
-        respond(['error' => "$label harus memakai URL HTTPS atau gambar lokal dari public/images/."], 422);
+        respond(['error' => "$label harus memakai URL HTTPS atau gambar lokal dari public/images/ atau api/uploads/media/."], 422);
     return $value;
 }
 
