@@ -286,7 +286,7 @@ export default function LivePage({
               Belum ada riwayat percakapan live
             </p>
             <small style={{ fontSize: 12, color: "#7a8c80" }}>
-              Transkrip sesi akan otomatis tersimpan di sini setelah kamu menyelesaikan sesi percakapan dengan Maya.
+              Transkrip sesi akan otomatis tersimpan di sini setelah kamu menyelesaikan sesi percakapan dengan {tutorName}.
             </small>
           </div>
         ) : (
@@ -350,7 +350,7 @@ export default function LivePage({
                             key={idx}
                             className={`live-hist-bubble ${line.who === "coach" ? "coach" : "learner"}`}
                           >
-                            <b>{line.who === "coach" ? "Maya" : "You"}:</b>
+                            <b>{line.who === "coach" ? (item.tutorName || tutorName || "Tutor") : "You"}:</b>
                             <p>{line.text}</p>
                           </div>
                         ))}

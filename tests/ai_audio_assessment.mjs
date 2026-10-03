@@ -58,8 +58,8 @@ assert.doesNotMatch(app, /hasPremiumAccess/);
 assert.match(practice, /setResponseMode\("transcript"\)/);
 assert.match(practice, /chooseResponseMode\("audio"\)/);
 assert.match(practice, /submitTurn\(\{ mode: responseMode \}\)/);
-assert.match(practice, /2 diamond/);
-assert.match(practice, /5 diamond/);
+assert.match(practice, /<Gem size=\{14\} \/> 2|<Gem size=\{14\} \/>\s*2|2 diamond/);
+assert.match(practice, /<Gem size=\{14\} \/> 5|<Gem size=\{14\} \/>\s*5|5 diamond/);
 assert.match(practice, /clearHistory\?\.\(unit\.id\)/);
 assert.match(practice, /\[\.\.\.turns\]\.reverse\(\)/);
 assert.match(practice, /criterion\.rating/);
@@ -148,7 +148,7 @@ assert.match(
   /compareSpokenText\(\s*lesson\.script,\s*transcript|expected_text:\s*lesson\.script,\s*transcript/,
 );
 assert.match(audioTask, /read_aloud_direct/);
-assert.match(audioTask, /diamondCost.*diamond|3 diamond/);
+assert.match(audioTask, /diamondCost/);
 assert.match(audioTask, /Browser tidak membuat transkrip terlebih dahulu/);
 assert.match(audioTask, /Penilaian AI/);
 assert.match(audioTask, /unlimitedDiamonds/);

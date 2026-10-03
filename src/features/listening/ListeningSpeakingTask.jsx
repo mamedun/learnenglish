@@ -80,7 +80,7 @@ export default function ListeningSpeakingTask({
   const diamondCost = aiAudioCost ?? 3;
   const costLabel = unlimitedDiamonds
     ? "Gratis · Admin unlimited"
-    : <><Gem size={12} style={{ display: "inline", verticalAlign: "middle" }} /> {diamondCost}<span className="sr-only"> {diamondCost} diamond</span></>;
+    : <><Gem size={12} style={{ display: "inline", verticalAlign: "middle" }} /> {diamondCost}</>;
 
   const savedTranscriptText =
     typeof savedTranscript === "string"
@@ -748,7 +748,7 @@ export default function ListeningSpeakingTask({
                     </>
                   ) : (
                     <>
-                      <Check size={16} /> Nilai dengan AI ({unlimitedDiamonds ? "Gratis" : <><Gem size={13} style={{ display: "inline", verticalAlign: "middle" }} /> {diamondCost}</>})
+                      <Check size={16} /> Nilai dengan AI · {unlimitedDiamonds ? "Gratis" : <><Gem size={13} style={{ display: "inline", verticalAlign: "middle", marginLeft: 2, marginRight: 2 }} /> {diamondCost}</>}
                     </>
                   )}
                 </button>

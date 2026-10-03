@@ -653,7 +653,7 @@ export default function PracticePage(p) {
                   </>
                 ) : (
                   <>
-                    <Gem size={14} /> 2<span className="sr-only">2 diamond</span>
+                    <Gem size={14} /> 2
                   </>
                 )}
               </strong>
@@ -677,7 +677,7 @@ export default function PracticePage(p) {
                   </>
                 ) : (
                   <>
-                    <Gem size={14} /> 5<span className="sr-only">5 diamond</span>
+                    <Gem size={14} /> 5
                   </>
                 )}
               </strong>
@@ -1064,7 +1064,7 @@ export default function PracticePage(p) {
                 </>
               ) : (
                 <>
-                  Kirim jawaban · {unlimitedDiamonds ? "Gratis" : <><Gem size={13} style={{ display: "inline", verticalAlign: "middle" }} /> {responseCost}</>}<span className="sr-only">2 diamond 5 diamond</span> <ArrowRight size={16} />
+                  Kirim jawaban · {unlimitedDiamonds ? "Gratis" : <><Gem size={13} style={{ display: "inline", verticalAlign: "middle" }} /> {responseCost}</>} <ArrowRight size={16} />
                 </>
               )}
             </button>

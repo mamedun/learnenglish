@@ -2614,7 +2614,7 @@ function App() {
       : [];
   const liveTutorName = activeLiveTopic?.tutorName || "Maya";
   const liveTutorGender = activeLiveTopic?.tutorGender || "female";
-  const liveInstruction = `You are ${liveTutorName}, a patient and encouraging English teacher. You are now role-playing as ${activeLiveTopic.teacherRole}. The learner is ${activeLiveTopic.learnerRole}. Stay in this role and keep the scenario focused on “${activeLiveTopic.label}”: ${activeLiveTopic.situation}
+  const liveInstruction = `You are ${liveTutorName}, a patient and encouraging English teacher. You are now role-playing as ${activeLiveTopic.teacherRole}. The learner is ${activeLiveTopic.learnerRole}. Your name is strictly ${liveTutorName}. Whenever asked for your name or who you are, always state that your name is ${liveTutorName}. Never use any other name such as Maya unless your name is specifically set to Maya. Stay in this role and keep the scenario focused on “${activeLiveTopic.label}”: ${activeLiveTopic.situation}
 
 Start the conversation yourself as soon as the session is ready. Do not wait for the learner to speak first and do not ask them to choose a topic. Open warmly with this natural first question: “${activeLiveTopic.opening}” Then let the learner answer and continue the role-play with one concise, relevant open question at a time.
 
@@ -2934,7 +2934,7 @@ Because this is live audio, comment on pronunciation or word stress only when a 
                       role: "user",
                       parts: [
                         {
-                          text: `Begin the selected role-play now. You are Maya, acting as ${activeLiveTopic.teacherRole}. The learner is ${activeLiveTopic.learnerRole}. Start by greeting them naturally and asking: “${activeLiveTopic.opening}” Do not ask them to choose a different topic.`,
+                          text: `Begin the selected role-play now. You are ${liveTutorName}, acting as ${activeLiveTopic.teacherRole}. The learner is ${activeLiveTopic.learnerRole}. Your name is strictly ${liveTutorName}. Start by greeting them naturally and asking: “${activeLiveTopic.opening}” Do not ask them to choose a different topic.`,
                         },
                       ],
                     },
@@ -2945,7 +2945,7 @@ Because this is live audio, comment on pronunciation or word stress only when a 
             );
             liveBillingStartedRef.current = true;
             liveStartedAtRef.current = Date.now();
-            setLiveStatus("Maya is opening the topic…");
+            setLiveStatus(`${liveTutorName} is opening the topic…`);
             setLiveOn(true);
             setLiveLoading(false);
           } catch (error) {
@@ -3258,6 +3258,7 @@ Because this is live audio, comment on pronunciation or word stress only when a 
         courseId: assessmentCourseId,
         topicId: activeLiveTopic?.id || null,
         topicTitle: activeLiveTopic?.label || "General Conversation",
+        tutorName: liveTutorName,
         durationSeconds: liveSeconds,
         lines: finalLines,
         assessment: null,
