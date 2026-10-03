@@ -3728,8 +3728,8 @@
     gap: 7px;
     position: fixed;
     right: 18px;
-    bottom: 24px;
-    z-index: 95;
+    bottom: 80px;
+    z-index: 1001;
     background: #ffffff;
     border: 2px solid #2e7d52;
     color: #1b633f;
