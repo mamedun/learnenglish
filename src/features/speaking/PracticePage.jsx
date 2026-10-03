@@ -1,15 +1,19 @@
 import { useState, useEffect, useRef } from "react";
+import confetti from "canvas-confetti";
 import {
   ArrowLeft,
   ArrowRight,
+  Award,
   BookOpen,
   Check,
   CheckCircle2,
+  Lock,
   ChevronDown,
   ChevronRight,
   FileAudio2,
   Eye,
   EyeOff,
+  Headphones,
   Languages,
   Mic,
   MoreHorizontal,
@@ -18,6 +22,7 @@ import {
   ShieldCheck,
   Sparkles,
   Star,
+  Trophy,
   Volume2,
   WandSparkles,
   RotateCcw,
@@ -38,11 +43,13 @@ import {
 } from "./lessonProgress";
 import { isTtsBusy } from "../../lib/ttsRocks";
 import { stripTranscriptSourceLabel, toPlainText } from "../../lib/plainText";
+import { formatFeedbackText } from "../../lib/formatFeedback";
 import {
   speechRecognitionErrorMessage,
   useSpeechRecognition,
 } from "../../hooks/useSpeechRecognition";
 import CourseMedia from "../courses/CourseMedia";
+import AudioRadarWaveform from "../../components/AudioRadarWaveform";
 import useSmallViewport from "../../hooks/useSmallViewport";
 
 function PrepTimer({ unit }) {
@@ -124,7 +131,9 @@ export default function PracticePage(p) {
     unlimitedDiamonds = false,
     similarityThreshold = 90,
     resetRecording,
+    learningProgressionMode = "parallel",
   } = p;
+  const isLinear = learningProgressionMode === "linear";
   const [responseMode, setResponseMode] = useState("transcript");
   const currentUnitIdRef = useRef(unit.id);
   currentUnitIdRef.current = unit.id;
@@ -138,16 +147,24 @@ export default function PracticePage(p) {
   );
   const transcribing = liveTranscription && recognizer.listening;
   const liveRecognitionUnavailable =
-    liveTranscription && (!recognizer.supported || recognizer.braveDetected);
+    liveTranscription && !recognizer.supported;
   const responseCaptured = liveTranscription
     ? Boolean(stripTranscriptSourceLabel(transcript)) && !transcribing
     : Boolean(audioBlob);
+  const targetTurns = Math.max(
+    1,
+    Number(unit.targetTurns || unit.target_turns) || 4,
+  );
+  const minScore = Math.max(
+    10,
+    Math.min(100, Number(unit.minScore || unit.min_score) || 80),
+  );
   const passedTurnCount = passedPracticeTurnCount(turns, similarityThreshold);
   const lastTurn = turns.at(-1);
   const retryPending = Boolean(
     lastTurn && !isPracticeTurnPassed(lastTurn, similarityThreshold),
   );
-  const goodPoints = practicePoints(turns, similarityThreshold);
+  const goodPoints = practicePoints(turns, similarityThreshold, targetTurns);
   const responseCost = responseMode === "audio" ? 5 : 2;
   const responseCostLabel = unlimitedDiamonds
     ? "Gratis · Admin unlimited"
@@ -156,6 +173,8 @@ export default function PracticePage(p) {
   const canFinishLesson = canCompletePracticeLesson(
     passedTurnCount,
     goodPoints,
+    targetTurns,
+    minScore,
   );
   const lessonProgress = getPracticeLessonProgress({
     scenarioComplete,
@@ -163,11 +182,69 @@ export default function PracticePage(p) {
     feedbackCount: passedTurnCount,
     goodPoints,
     completed: Boolean(completed?.has?.(unit.id)),
+    targetTurns,
+    minScore,
   });
   const ttsBusy = isTtsBusy(ttsStatus);
+  const [promptPlaying, setPromptPlaying] = useState(false);
+  const [showCongratsModal, setShowCongratsModal] = useState(false);
+  const celebratedUnitRef = useRef(new Set());
+  const pendingCelebrationRef = useRef(false);
+
+  useEffect(() => {
+    if (!ttsBusy) {
+      setPromptPlaying(false);
+    }
+  }, [ttsBusy]);
+
+  useEffect(() => {
+    if (canFinishLesson && !celebratedUnitRef.current.has(unit.id)) {
+      if (ttsBusy) {
+        // Tutor is still speaking the reply; wait until playback finishes
+        pendingCelebrationRef.current = true;
+      } else {
+        celebratedUnitRef.current.add(unit.id);
+        pendingCelebrationRef.current = false;
+        setShowCongratsModal(true);
+        try {
+          confetti({
+            particleCount: 100,
+            spread: 70,
+            origin: { y: 0.6 },
+            zIndex: 99999,
+          });
+        } catch (_) {}
+      }
+    }
+  }, [canFinishLesson, unit.id, ttsBusy]);
+
+  useEffect(() => {
+    if (
+      !ttsBusy &&
+      pendingCelebrationRef.current &&
+      canFinishLesson &&
+      !celebratedUnitRef.current.has(unit.id)
+    ) {
+      celebratedUnitRef.current.add(unit.id);
+      pendingCelebrationRef.current = false;
+      setShowCongratsModal(true);
+      try {
+        confetti({
+          particleCount: 100,
+          spread: 70,
+          origin: { y: 0.6 },
+          zIndex: 99999,
+        });
+      } catch (_) {}
+    }
+  }, [ttsBusy, canFinishLesson, unit.id]);
+
   useEffect(() => {
     setShowPrompt(false);
     setResponseMode("transcript");
+    setPromptPlaying(false);
+    setShowCongratsModal(false);
+    pendingCelebrationRef.current = false;
     recognizer.reset();
     p.setTranscript("");
     p.resetRecording?.();
@@ -252,6 +329,7 @@ export default function PracticePage(p) {
   }
   const visual =
     unit.image ||
+    unit.mediaUrl ||
     (unit.part?.includes("Part 2")
       ? appAsset("images/speaking/speaking-cue-card-practice.jpg")
       : null);
@@ -282,34 +360,91 @@ export default function PracticePage(p) {
           </div>
           {showLessonList && (
             <div className="lesson-dropdown">
-              {allUnits
-                .filter((u) => u.level === unit.level)
-                .map((u) => (
-                  <button key={u.id} onClick={() => startUnit(u)}>
-                    <span>{u.emoji}</span>
-                    <span>
-                      <b>{u.title}</b>
-                      <small>
-                        {completed.has(u.id) ? "Selesai" : "Belum selesai"}
-                      </small>
-                    </span>
-                    {completed.has(u.id) ? (
-                      <CheckCircle2 size={16} />
-                    ) : (
-                      <ChevronRight size={15} />
-                    )}
-                  </button>
-                ))}
+              {(() => {
+                const firstIncompleteIdx = isLinear
+                  ? allUnits.findIndex((item) => !completed.has(item.id))
+                  : -1;
+                return allUnits
+                  .filter((u) => u.level === unit.level)
+                  .map((u) => {
+                    const unitIdx = allUnits.findIndex(
+                      (item) => item.id === u.id,
+                    );
+                    const isLocked =
+                      isLinear &&
+                      firstIncompleteIdx >= 0 &&
+                      unitIdx > firstIncompleteIdx;
+                    return (
+                      <button
+                        key={u.id}
+                        className={isLocked ? "locked" : ""}
+                        onClick={() => {
+                          if (isLocked) {
+                            toast.info(
+                              "Mode Linear: Selesaikan lesson sebelumnya untuk membuka materi ini.",
+                            );
+                            return;
+                          }
+                          startUnit(u);
+                        }}
+                      >
+                        <span>{u.emoji}</span>
+                        <span>
+                          <b>{u.title}</b>
+                          <small>
+                            {completed.has(u.id)
+                              ? "Selesai"
+                              : isLocked
+                                ? "Terkunci · Selesaikan sebelumnya"
+                                : "Belum selesai"}
+                          </small>
+                        </span>
+                        {completed.has(u.id) ? (
+                          <CheckCircle2 size={16} />
+                        ) : isLocked ? (
+                          <Lock size={15} />
+                        ) : (
+                          <ChevronRight size={15} />
+                        )}
+                      </button>
+                    );
+                  });
+              })()}
             </div>
           )}
         </div>
+
+        {/* Alur Belajar Gamified Step Roadmap */}
+        <div className="practice-flow-bar" role="navigation" aria-label="Alur Latihan">
+          <div className={`practice-flow-step ${scenarioComplete ? "done" : "active"}`}>
+            <span className="flow-step-num">1</span>
+            <Headphones size={13} />
+            <span>Dengarkan Soal</span>
+            {scenarioComplete && <Check size={12} />}
+          </div>
+          <span className="practice-flow-arrow">➔</span>
+          <div className={`practice-flow-step ${turns.length > 0 ? "done" : scenarioComplete ? "active" : ""}`}>
+            <span className="flow-step-num">2</span>
+            <Mic size={13} />
+            <span>Bicara & Jawab</span>
+            {turns.length > 0 && <Check size={12} />}
+          </div>
+          <span className="practice-flow-arrow">➔</span>
+          <div className={`practice-flow-step ${canFinishLesson ? "done" : turns.length > 0 ? "active" : ""}`}>
+            <span className="flow-step-num">3</span>
+            <Sparkles size={13} />
+            <span>Evaluasi Tutor ({passedTurnCount}/{targetTurns})</span>
+            {canFinishLesson && <Check size={12} />}
+          </div>
+        </div>
+
         <div className="roleplay-card">
           <div className="roleplay-top">
             <span className="roleplay-tag">
-              <WandSparkles size={13} /> {unit.part}
+              <WandSparkles size={13} /> {unit.part || "Speaking Practice"}
             </span>
             <span className="level-pill">
-              {unit.level} · {unit.duration}
+              {unit.level} · {unit.duration || "Self-paced"}
             </span>
           </div>
           {unit.prepSeconds > 0 && <PrepTimer unit={unit} />}
@@ -321,83 +456,123 @@ export default function PracticePage(p) {
               caption={unit.image ? "Visual conversation enrichment · bukan format resmi IELTS Speaking" : "Supplementary speaking illustration · bukan format resmi IELTS Speaking"}
             />
           )}
-          <div className="character-row">
-            <div className="character-avatar">
-              <Mic size={24} />
-            </div>
-            <div>
-              <b>
-                Maya <span>· English coach</span>
-              </b>
-              {showPrompt ? (
-                <p className="visible-practice-prompt">“{unit.prompt}”</p>
+
+          {/* Catchy Hero Audio Card for Speaking */}
+          <div className="practice-audio-hero-card">
+            <div className={`practice-audio-disc ${promptPlaying ? "playing" : ""}`}>
+              {promptPlaying ? (
+                <div className="soundwave-bars" aria-label="Audio pertanyaan sedang diputar">
+                  <span className="soundwave-bar" />
+                  <span className="soundwave-bar" />
+                  <span className="soundwave-bar" />
+                  <span className="soundwave-bar" />
+                </div>
               ) : (
-                <p className="prompt-hidden-note">
-                  Pertanyaan disembunyikan agar kamu fokus mendengarkan.
-                </p>
+                <Headphones size={24} />
               )}
-              <button
-                className="text-button question-reveal"
-                onClick={() => {
-                  const nextVisible = !showPrompt;
-                  setShowPrompt(nextVisible);
-                  if (nextVisible) setScenarioComplete(true);
-                }}
-                aria-expanded={showPrompt}
-              >
-                {showPrompt ? (
-                  <>
-                    <EyeOff size={14} /> Sembunyikan soal
-                  </>
-                ) : (
-                  <>
-                    <Eye size={14} /> Tampilkan soal
-                  </>
-                )}
-              </button>
+            </div>
+            <div className="practice-audio-info">
+              <div className="practice-step-tag">
+                <Sparkles size={12} /> LANGKAH 1 · DENGARKAN SOAL TERLEBIH DAHULU
+              </div>
+              <b>Dengarkan Pertanyaan Tutor AI</b>
+              <p>
+                {promptPlaying
+                  ? "Dengarkan baik-baik pertanyaan dari coach Maya…"
+                  : "Putar audio untuk mendengarkan topik dan pertanyaan lisan sebelum kamu menjawab."}
+              </p>
             </div>
             <button
-              className="round-play"
-              onClick={() =>
+              className={`practice-play-cta ${!scenarioComplete && !promptPlaying && !ttsBusy ? "idle-pulse" : ""}`}
+              onClick={() => {
+                setPromptPlaying(true);
                 speak(unit.prompt, {
                   type: "speaking",
                   item: unit,
                   onPlaybackComplete: () => {
+                    setPromptPlaying(false);
                     if (currentUnitIdRef.current === unit.id)
                       setScenarioComplete(true);
                   },
-                })
-              }
+                });
+              }}
+              disabled={ttsBusy}
               aria-label={
-                ttsBusy ? "Menyiapkan audio pertanyaan" : "Dengarkan pertanyaan"
+                ttsBusy ? "Menyiapkan audio pertanyaan" : "Putar pertanyaan lisan"
               }
               title={
                 ttsBusy ? "Audio sedang disiapkan" : "Putar pertanyaan lisan"
               }
-              disabled={ttsBusy}
             >
               {ttsBusy ? (
-                <span className="spinner round-play-spinner" />
+                <>
+                  <span className="spinner round-play-spinner" />
+                  <span>
+                    {ttsStatus?.phase === "speaking"
+                      ? "Sedang Membaca…"
+                      : "Menyiapkan Audio…"}
+                  </span>
+                </>
+              ) : promptPlaying ? (
+                <>
+                  <Volume2 size={18} />
+                  <span>Sedang Berbicara…</span>
+                </>
               ) : (
-                <Volume2 size={17} />
+                <>
+                  <Play size={18} fill="currentColor" />
+                  <span>Dengarkan Soal</span>
+                </>
               )}
-              <span>
-                {ttsBusy
-                  ? ttsStatus?.phase === "speaking"
-                    ? "Sedang dibaca…"
-                    : "Menyiapkan audio…"
-                  : "Dengarkan soal"}
-              </span>
             </button>
           </div>
+
+          {/* Accordion toggle naskah soal */}
+          <div className="practice-prompt-accordion">
+            <button
+              type="button"
+              className="text-button script-toggle"
+              onClick={() => {
+                const nextVisible = !showPrompt;
+                setShowPrompt(nextVisible);
+                if (nextVisible) setScenarioComplete(true);
+              }}
+              aria-expanded={showPrompt}
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "#5444b0", fontWeight: 600, fontSize: 13 }}
+            >
+              {showPrompt ? (
+                <>
+                  <EyeOff size={15} /> Sembunyikan naskah soal
+                </>
+              ) : (
+                <>
+                  <Eye size={15} /> Buka naskah teks pertanyaan sebagai alternatif
+                </>
+              )}
+              <ChevronRight size={14} style={{ transform: showPrompt ? "rotate(90deg)" : "none", transition: "transform 0.2s ease" }} />
+            </button>
+            {showPrompt && (
+              <div className="practice-prompt-text-box">
+                <small style={{ display: "block", color: "#6e678e", marginBottom: 5, fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  Naskah Pertanyaan Coach Maya:
+                </small>
+                “{unit.prompt}”
+              </div>
+            )}
+          </div>
+
           <div className="ielts-task-meta">
             <div>
               <small>FORMAT LATIHAN</small>
-              <b>{unit.questionType}</b>
+              <b>{unit.questionType || "Part 1 · Speaking"}</b>
             </div>
             <div>
               <small>TARGET</small>
-              <b>{unit.bandTarget}</b>
+              <b>{unit.bandTarget || "Band 6.5+"}</b>
+            </div>
+            <div>
+              <small>TARGET LULUS</small>
+              <b>{targetTurns} Giliran ({minScore} Poin)</b>
             </div>
           </div>
           <div className="roleplay-hint">
@@ -412,7 +587,7 @@ export default function PracticePage(p) {
           <div className="answer-head">
             <div>
               <div className="eyebrow">
-                {retryPending ? "ULANGI TOPIK YANG SAMA" : "GILIRANMU"}
+                {retryPending ? "ULANGI TOPIK YANG SAMA" : "LANGKAH 2 · GILIRANMU BICARA"}
               </div>
               <h3>
                 {retryPending ? "Coba jawabanmu lagi" : "Jawab dengan suaramu"}
@@ -495,6 +670,13 @@ export default function PracticePage(p) {
             <div
               className={`mic-halo ${recording || transcribing ? "is-recording" : ""}`}
             >
+              {(recording || transcribing) && (
+                <div className="mic-radar-pulse" aria-hidden="true">
+                  <span className="radar-ring rr1" />
+                  <span className="radar-ring rr2" />
+                  <span className="radar-ring rr3" />
+                </div>
+              )}
               <button
                 className="mic-main"
                 onClick={() => {
@@ -548,19 +730,22 @@ export default function PracticePage(p) {
                   {liveTranscription ? "LIVE · EN-US" : formatTime(elapsed)}{" "}
                   <i className="live-dot" />
                 </span>
-                {!liveTranscription && (
-                  <div className="waveform">
-                    {Array.from({ length: 32 }, (_, i) => (
-                      <i
-                        key={i}
-                        style={{
-                          height: `${12 + Math.random() * 27}px`,
-                          animationDelay: `${i * 0.03}s`,
-                        }}
-                      />
-                    ))}
-                  </div>
-                )}
+                <AudioRadarWaveform
+                  compact
+                  stream={recording ? p.audioStream : null}
+                  theme={liveTranscription ? "emerald" : "coral"}
+                  label={
+                    liveTranscription
+                      ? "Mendengarkan ucapanmu secara live…"
+                      : `Merekam audio langsung (${formatTime(elapsed)})`
+                  }
+                  subLabel={
+                    liveTranscription
+                      ? "Bicaralah dalam bahasa Inggris untuk menjawab tantangan soal"
+                      : "Tekan 'Selesai bicara' jika telah selesai menjawab"
+                  }
+                  className="practice-audio-radar"
+                />
                 <button
                   className="stop-button"
                   onClick={liveTranscription ? recognizer.stop : stopRecording}
@@ -587,11 +772,9 @@ export default function PracticePage(p) {
                     : !scenarioComplete
                       ? "Putar audio atau tampilkan teks soal untuk membuka mikrofon"
                       : liveTranscription
-                        ? recognizer.braveDetected
-                          ? "Live transcription tidak tersedia di Brave; gunakan rekaman AI atau Google Chrome"
-                          : recognizer.supported
-                            ? "Transkrip muncul langsung dan tidak dapat diedit"
-                            : "Transkripsi langsung tidak didukung browser ini"
+                        ? recognizer.supported
+                          ? "Transkrip muncul langsung dan tidak dapat diedit"
+                          : "Transkripsi langsung tidak didukung browser ini"
                         : "Audio baru dikirim setelah kamu menyetujui proses AI"}
                 </span>
               </>
@@ -599,14 +782,12 @@ export default function PracticePage(p) {
             {liveTranscription ? (
               <div className="mic-controls">
                 <span
-                  className={`mic-control ${recognizer.supported && !recognizer.braveDetected ? "granted" : ""}`}
+                  className={`mic-control ${recognizer.supported ? "granted" : ""}`}
                 >
                   <Mic size={14} />
-                  {recognizer.braveDetected
-                    ? "Google Chrome diperlukan"
-                    : recognizer.supported
-                      ? "Live transcription siap"
-                      : "Browser tidak didukung"}
+                  {recognizer.supported
+                    ? "Live transcription siap"
+                    : "Browser tidak didukung"}
                 </span>
               </div>
             ) : (
@@ -659,9 +840,7 @@ export default function PracticePage(p) {
               <Languages size={16} />
               <div className="speech-browser-warning-content">
                 <span>
-                  {recognizer.braveDetected
-                    ? "Brave tidak mendukung layanan transkripsi live ini. Pilih evaluasi rekaman AI atau gunakan Google Chrome."
-                    : "Browser ini tidak mendukung transkripsi live. Pilih evaluasi rekaman AI atau gunakan Google Chrome."}
+                  Browser ini tidak mendukung Web Speech API live. Gunakan browser Chromium (Chrome, Brave, Edge) atau pilih mode evaluasi rekaman AI.
                 </span>
                 <button
                   className="text-button"
@@ -716,7 +895,7 @@ export default function PracticePage(p) {
                 <span>
                   {mobileTranscriptEditable
                     ? "Bisa diedit di HP · gunakan mikrofon keyboard untuk dikte; audio tidak dikirim"
-                    : "Read-only · transkrip dikirim ke tutor AI; audio tidak dikirim"}
+                    : "Read-only · Text akan otomatis ter generate saat anda bicara"}
                 </span>
                 <button
                   className="text-button"
@@ -731,8 +910,7 @@ export default function PracticePage(p) {
             <div className="audio-pending-note">
               <FileAudio2 size={17} />
               <span>
-                Transkrip jawabanmu ditampilkan setelah audio diproses oleh AI.
-                Rekaman tidak diunggah sebelum kamu menyetujui pengiriman.
+                Transkrip jawabanmu ditampilkan setelah audio didengarkan oleh Tutor Digital
               </span>
               {audioBlob && (
                 <button className="text-button" onClick={resetSpeechInput}>
@@ -750,11 +928,9 @@ export default function PracticePage(p) {
                   : "Akses Admin unlimited · rekaman dikirim setelah persetujuan"
                 : liveTranscription
                   ? "Transkrip saja dikirim ke AI · 2 diamond"
-                  : p.sessionSaveAudio === null
-                    ? "arsip audio ditanyakan terpisah · 5 diamond"
-                    : p.sessionSaveAudio
-                      ? "arsip audio disimpan di akun server · 5 diamond"
-                      : "audio tidak diarsipkan · 5 diamond"}
+                  : p.sessionSaveAudio
+                    ? "arsip audio disimpan di akun server · 5 diamond"
+                    : "audio tidak diarsipkan · 5 diamond"}
             </span>
             <button
               className="btn-primary"
@@ -804,16 +980,19 @@ export default function PracticePage(p) {
             </div>
             <div className="lesson-points-banner">
               <div>
-                <b>{goodPoints} / 100 poin</b>
+                <b>{goodPoints} / {minScore} poin minimum</b>
                 <small>
-                  Setiap percakapan lulus memberi 25 poin. Skor AI minimal 4/5
-                  dihitung lulus.
+                  Target {targetTurns} percakapan. Skor AI minimal 4/5 dihitung lulus.
                 </small>
               </div>
               <div className="lesson-points-meter">
-                <i style={{ width: `${Math.min(100, goodPoints)}%` }} />
+                <i
+                  style={{
+                    width: `${Math.min(100, Math.round((goodPoints / minScore) * 100))}%`,
+                  }}
+                />
               </div>
-              <span>{passedTurnCount} / 4 percakapan lulus</span>
+              <span>{passedTurnCount} / {targetTurns} percakapan lulus</span>
             </div>
             <div className="finish-row finish-row-top">
               <div>
@@ -825,16 +1004,29 @@ export default function PracticePage(p) {
                     : "Lanjutkan percakapan untuk menyelesaikan"}
                 </b>
                 <small>
-                  Perlu minimal 4 percakapan lulus dan 100 poin. Kamu tetap bisa
-                  terus berlatih setelah mencapai target.
+                  Perlu minimal {targetTurns} percakapan lulus dan {minScore} poin. Kamu tetap bisa terus berbicara setelah mencapai target.
                 </small>
               </div>
               <button
                 className="btn-primary"
-                onClick={finishUnit}
+                onClick={() => {
+                  if (canFinishLesson) {
+                    setShowCongratsModal(true);
+                    try {
+                      confetti({
+                        particleCount: 100,
+                        spread: 70,
+                        origin: { y: 0.6 },
+                        zIndex: 99999,
+                      });
+                    } catch (_) {}
+                  } else {
+                    finishUnit();
+                  }
+                }}
                 disabled={!canFinishLesson}
               >
-                {nextLesson ? "Next Lesson" : "Selesaikan Lesson"}{" "}
+                {nextLesson ? "Lanjut Soal / Materi Berikutnya" : "Selesaikan Lesson"}{" "}
                 {nextLesson ? <ArrowRight size={16} /> : <Check size={16} />}
               </button>
             </div>
@@ -933,7 +1125,9 @@ export default function PracticePage(p) {
                     const rating = Number(criterion.rating);
                     const isRated =
                       Number.isFinite(rating) && rating >= 1 && rating <= 5;
-                    const note = toPlainText(criterion.feedback_id || "");
+                    const note = formatFeedbackText(
+                      toPlainText(criterion.feedback_id || ""),
+                    );
                     const evidence = (
                       Array.isArray(criterion.evidence)
                         ? criterion.evidence
@@ -1042,18 +1236,147 @@ export default function PracticePage(p) {
             <span>“I’m from Bandung, and I...”</span>
           </div>
         </div>
-        <div className="privacy-card">
-          <ShieldCheck size={18} />
-          <div>
-            <b>Privasi & audio</b>
-            <p>
-              {liveTranscription
-                ? "Live transcription memakai layanan SpeechRecognition browser; transkrip hanya-baca dan audio tidak dikirim ke provider AI aplikasi."
-                : "Rekaman dikirim untuk transkripsi dan feedback AI hanya setelah persetujuan. Arsip audio memerlukan persetujuan terpisah."}
+      </aside>
+
+      {/* Gamified Congratulations Modal */}
+      {showCongratsModal && (
+        <div
+          className="congrats-modal-backdrop"
+          onClick={() => setShowCongratsModal(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="congrats-modal-title"
+        >
+          <div
+            className="congrats-modal-card"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="congrats-trophy-wrap">
+              <Trophy size={42} />
+            </div>
+            <div
+              className="eyebrow"
+              style={{
+                color: "#b07502",
+                fontWeight: 800,
+                letterSpacing: "0.8px",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 5,
+              }}
+            >
+              <Sparkles size={14} /> LESSON ACCOMPLISHED!
+            </div>
+            <h2
+              id="congrats-modal-title"
+              style={{ fontSize: 24, margin: "6px 0 8px", color: "#231a4c" }}
+            >
+              Selamat! Lesson Selesai!
+            </h2>
+            <p
+              style={{
+                fontSize: 14,
+                color: "#6b648c",
+                margin: "0 0 16px",
+                lineHeight: 1.5,
+              }}
+            >
+              Target percakapan tercapai dengan luar biasa. Kamu telah menyelesaikan materi{" "}
+              <b>{unit.title}</b>!
             </p>
+
+            <div className="congrats-stats-grid">
+              <div className="congrats-stat-box">
+                <small>Percakapan Lulus</small>
+                <b>
+                  {passedTurnCount} / {targetTurns} Selesai
+                </b>
+              </div>
+              <div className="congrats-stat-box">
+                <small>Poin / Skor</small>
+                <b>{goodPoints} / 100 XP</b>
+              </div>
+            </div>
+
+            <div
+              style={{
+                background: "#eef9f0",
+                border: "1px solid #ccebd1",
+                borderRadius: 12,
+                padding: "10px 14px",
+                marginBottom: 20,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 8,
+                color: "#286835",
+                fontWeight: 700,
+                fontSize: 13,
+              }}
+            >
+              <Sparkles size={16} /> +25 Bonus XP Ditambahkan ke Akunmu!
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {nextLesson ? (
+                <button
+                  className="btn-primary"
+                  style={{
+                    padding: "14px 20px",
+                    fontSize: 15,
+                    fontWeight: 800,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 8,
+                    borderRadius: 14,
+                    boxShadow: "0 6px 18px rgba(88, 70, 200, 0.28)",
+                  }}
+                  onClick={() => {
+                    setShowCongratsModal(false);
+                    finishUnit();
+                  }}
+                >
+                  Lanjut Soal / Materi Berikutnya <ArrowRight size={18} />
+                </button>
+              ) : (
+                <button
+                  className="btn-primary"
+                  style={{
+                    padding: "14px 20px",
+                    fontSize: 15,
+                    fontWeight: 800,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 8,
+                    borderRadius: 14,
+                  }}
+                  onClick={() => {
+                    setShowCongratsModal(false);
+                    finishUnit();
+                  }}
+                >
+                  Selesai · Buka Daftar Pelajaran <Check size={18} />
+                </button>
+              )}
+              <button
+                className="outline-btn"
+                style={{
+                  padding: "12px 18px",
+                  fontSize: 14,
+                  fontWeight: 600,
+                  borderRadius: 14,
+                  color: "#544e73",
+                }}
+                onClick={() => setShowCongratsModal(false)}
+              >
+                Tetap Bicara & Lanjut Percakapan
+              </button>
+            </div>
           </div>
         </div>
-      </aside>
+      )}
     </div>
   );
 }

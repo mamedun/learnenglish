@@ -6,9 +6,11 @@ import {
   AudioLines,
   BookOpen,
   ChevronRight,
+  Download,
   Flame,
   Gem,
   Home,
+  LogOut,
   MoreHorizontal,
   RotateCcw,
   Settings,
@@ -29,9 +31,11 @@ import {
   isPracticeTurnPassed,
   passedPracticeTurnCount,
   practicePoints,
+  practiceTurnPoints,
 } from "../features/speaking/lessonProgress";
 import { useAuthStore } from "../store/authStore";
 import { useLearningStore } from "../store/learningStore";
+import { usePwaInstall } from "../hooks/usePwaInstall";
 const greet = () => {
   const h = new Date().getHours();
   return h < 11
@@ -54,11 +58,13 @@ import CoursePurchaseDialog from "../features/courses/CoursePurchaseDialog";
 import ModuleLoading from "../components/ModuleLoading";
 import ModuleErrorBoundary from "../components/ModuleErrorBoundary";
 import ProcessingStatus from "../components/ProcessingStatus";
-import { convertRecordingToWav } from "../lib/audio";
+import MascotLoadingToast from "../components/MascotLoadingToast";
+import { convertRecordingToMp3, convertRecordingToWav } from "../lib/audio";
 import {
   isTtsBusy,
   KOKORO_VOICES,
   preloadKokoro,
+  selectBestVoice,
   speakKokoro,
 } from "../lib/ttsRocks";
 import { getSharedTtsAudio } from "../lib/ttsCache";
@@ -87,6 +93,7 @@ function App() {
   const navigate = useNavigate();
   const location = useLocation();
   const isSmallViewport = useSmallViewport();
+  const { canInstall, isInstalled, installApp } = usePwaInstall();
   const route = useMemo(
     () => parseAppRoute(location.pathname),
     [location.pathname],
@@ -157,6 +164,8 @@ function App() {
   const [deviceId, setDeviceId] = useState("");
   const [audioBlob, setAudioBlob] = useState(null);
   const [sessionSaveAudio, setSessionSaveAudio] = useState(null);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const profileMenuRef = useRef(null);
   const [elapsed, setElapsed] = useState(0);
   const [showLessonList, setShowLessonList] = useState(false);
   const [liveOn, setLiveOn] = useState(false);
@@ -172,6 +181,8 @@ function App() {
   const liveSetupTimerRef = useRef(null);
   const ttsRequestIdRef = useRef(0);
   const ttsAudioRef = useRef(null);
+  const currentUtteranceRef = useRef(null);
+  const slowRenderTimerRef = useRef(null);
   const liveInputContextRef = useRef(null);
   const liveOutputContextRef = useRef(null);
   const liveStreamRef = useRef(null);
@@ -189,6 +200,7 @@ function App() {
   const liveBillingReserveLockRef = useRef(false);
   const liveBillingStartedRef = useRef(false);
   const liveEndingRef = useRef(false);
+  const liveHistorySessionIdRef = useRef(null);
   const recorder = useRef(null);
   const streamRef = useRef(null);
   const chunks = useRef([]);
@@ -552,6 +564,23 @@ function App() {
     };
   }, []);
   useEffect(() => {
+    if (!profileMenuOpen) return;
+    function handleClickOutside(event) {
+      if (profileMenuRef.current && !profileMenuRef.current.contains(event.target)) {
+        setProfileMenuOpen(false);
+      }
+    }
+    function handleKeyDown(event) {
+      if (event.key === "Escape") setProfileMenuOpen(false);
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [profileMenuOpen]);
+  useEffect(() => {
     if (!user || !dataReady) return;
     const id = user.id;
     const timer = window.setTimeout(
@@ -827,7 +856,15 @@ function App() {
         );
         return;
       }
-      if (routeCourseId === "ielts") {
+      const practiceCourse =
+        courseCache[routeCourseId]?.course ||
+        (currentCourseId === routeCourseId ? currentCoursePayload?.course : null) ||
+        courses.find((c) => c.id === routeCourseId);
+      const isLinear =
+        (practiceCourse?.aiLessonProgressionMode ||
+          practiceCourse?.progressionMode ||
+          appConfig.courseware_policy?.learning_progression_mode) === "linear";
+      if (isLinear) {
         const firstIncompleteIndex = allUnits.findIndex(
           (item) => !completed.has(item.id),
         );
@@ -838,10 +875,13 @@ function App() {
           firstIncompleteIndex >= 0 &&
           routeUnitIndex > firstIncompleteIndex
         ) {
-          toast.info("Selesaikan lesson sebelumnya untuk membuka materi ini.");
+          toast.info(
+            "Mode Linear: Selesaikan lesson sebelumnya untuk membuka materi ini.",
+          );
           navigate(
             appRouteFor("practice", {
               unitId: allUnits[firstIncompleteIndex].id,
+              courseId: routeCourseId !== "ielts" ? routeCourseId : undefined,
             }),
             { replace: true },
           );
@@ -882,6 +922,42 @@ function App() {
           { replace: true },
         );
         return;
+      }
+      const listeningCourse =
+        courseCache[routeCourseId]?.course ||
+        (currentCourseId === routeCourseId ? currentCoursePayload?.course : null) ||
+        courses.find((c) => c.id === routeCourseId);
+      const isLinear =
+        (listeningCourse?.listeningProgressionMode ||
+          listeningCourse?.progressionMode ||
+          appConfig.courseware_policy?.learning_progression_mode) === "linear";
+      if (isLinear && route.listeningId) {
+        const scopedListeningData =
+          routeCourseId === "ielts"
+            ? data
+            : (data.courseProgress || {})[routeCourseId] || {};
+        const completedListening = new Set(
+          scopedListeningData.listeningCompleted || [],
+        );
+        const firstIncompleteIdx = listeningLessons.findIndex(
+          (l) => !completedListening.has(l.id),
+        );
+        const currentIdx = listeningLessons.findIndex(
+          (l) => l.id === route.listeningId,
+        );
+        if (firstIncompleteIdx >= 0 && currentIdx > firstIncompleteIdx) {
+          toast.info(
+            "Mode Linear: Selesaikan lesson sebelumnya untuk membuka materi ini.",
+          );
+          navigate(
+            appRouteFor("listening", {
+              listeningId: listeningLessons[firstIncompleteIdx].id,
+              courseId: routeCourseId !== "ielts" ? routeCourseId : undefined,
+            }),
+            { replace: true },
+          );
+          return;
+        }
       }
       setSelectedListeningId(route.listeningId || null);
       noteActivity("listening", route.listeningId || null);
@@ -945,6 +1021,41 @@ function App() {
     navigate(targetPath);
   };
   const startListening = (id, courseId = currentCourseId) => {
+    if (id) {
+      const listeningCourse =
+        courseCache[courseId]?.course ||
+        (currentCourseId === courseId ? currentCoursePayload?.course : null) ||
+        courses.find((c) => c.id === courseId);
+      const isLinear =
+        (listeningCourse?.listeningProgressionMode ||
+          listeningCourse?.progressionMode ||
+          appConfig.courseware_policy?.learning_progression_mode) === "linear";
+      if (isLinear) {
+        const scopedListeningData =
+          courseId === "ielts"
+            ? data
+            : (data.courseProgress || {})[courseId] || {};
+        const completedListening = new Set(
+          scopedListeningData.listeningCompleted || [],
+        );
+        const lessons =
+          courseId === currentCourseId
+            ? listeningLessons
+            : (courseCache[courseId]?.catalog?.listeningCategories || []).flatMap(
+                (cat) => cat.lessons || [],
+              );
+        const firstIncompleteIdx = lessons.findIndex(
+          (l) => !completedListening.has(l.id),
+        );
+        const currentIdx = lessons.findIndex((l) => l.id === id);
+        if (firstIncompleteIdx >= 0 && currentIdx > firstIncompleteIdx) {
+          toast.info(
+            "Mode Linear: Selesaikan lesson sebelumnya untuk membuka materi ini.",
+          );
+          return;
+        }
+      }
+    }
     setSelectedListeningId(id || null);
     setPage("listening");
     const targetPath = appRouteFor("listening", { listeningId: id, courseId });
@@ -952,7 +1063,15 @@ function App() {
   };
   const startUnit = (unit, courseId = unit?.courseId || currentCourseId) => {
     if (!unit) return toast.info("Belum ada unit di level ini.");
-    if (courseId === "ielts") {
+    const aiLessonCourse =
+      courseCache[courseId]?.course ||
+      (currentCourseId === courseId ? currentCoursePayload?.course : null) ||
+      courses.find((c) => c.id === courseId);
+    const isLinear =
+      (aiLessonCourse?.aiLessonProgressionMode ||
+        aiLessonCourse?.progressionMode ||
+        appConfig.courseware_policy?.learning_progression_mode) === "linear";
+    if (isLinear) {
       const units =
         courseId === currentCourseId
           ? allUnits
@@ -969,7 +1088,9 @@ function App() {
         (item) => !courseCompleted.has(item.id),
       );
       if (nextIndex >= 0 && index > nextIndex) {
-        toast.info("Selesaikan lesson sebelumnya untuk membuka materi ini.");
+        toast.info(
+          "Mode Linear: Selesaikan lesson sebelumnya untuk membuka materi ini.",
+        );
         return;
       }
     }
@@ -1328,35 +1449,26 @@ function App() {
 
     setProcessingMessage(
       useServerAudio
-        ? "Menunggu persetujuan pengiriman audio…"
+        ? "Menyiapkan rekaman untuk dikirim ke AI…"
         : "Mengirim transkrip ke tutor AI…",
     );
     let replyObj = null;
     let audioResult = null;
-    let saveThisAudio = Boolean(sessionSaveAudio);
+    let saveThisAudio = Boolean(data.settings?.saveAudio);
+    setSessionSaveAudio(saveThisAudio);
     try {
       if (useServerAudio) {
-        const consent = await Swal.fire({
-          title: "Kirim audio untuk diproses AI?",
-          text:
-            currentConfig.ai_provider === "free" &&
-            currentConfig.free_browser_debug &&
-            user?.role === "admin"
-              ? "Rekaman akan dikirim satu kali langsung dari browser Admin ke node Free untuk diagnosis. Debug ini tidak menyimpan hasil maupun arsip audio ke akun atau server PHP."
-              : "Rekaman akan dikirim satu kali ke server AI yang dipilih admin untuk transkripsi dan feedback. Audio tidak disimpan oleh endpoint ini. Penyimpanan arsip audio (jika dipilih) adalah persetujuan terpisah.",
-          icon: "info",
-          showCancelButton: true,
-          confirmButtonText: "Setuju & kirim audio",
-          cancelButtonText: "Batal",
-          confirmButtonColor: "#315c45",
-        });
-        if (!consent.isConfirmed) return;
         setProcessingMessage("Menyiapkan rekaman untuk dikirim…");
 
-        const audioForAI =
-          currentConfig.ai_provider === "free"
-            ? audioBlob
-            : await convertRecordingToWav(audioBlob);
+        let audioForAI;
+        try {
+          audioForAI = await convertRecordingToMp3(audioBlob, 128);
+        } catch {
+          audioForAI =
+            currentConfig.ai_provider === "free"
+              ? audioBlob
+              : await convertRecordingToWav(audioBlob);
+        }
         const maxAudioBytes =
           Number(appConfig.courseware_policy?.max_ai_audio_bytes) ||
           12 * 1024 * 1024;
@@ -1364,15 +1476,17 @@ function App() {
           throw new Error(
             `Audio melebihi batas ${(maxAudioBytes / 1024 / 1024).toFixed(0)} MB.`,
           );
-        const audioMime = (audioForAI.type || "audio/webm").split(";")[0];
+        const audioMime = (audioForAI.type || "audio/mpeg").split(";")[0];
         const audioExtension =
-          audioMime === "audio/mp4"
-            ? "m4a"
-            : audioMime === "audio/ogg"
-              ? "ogg"
-              : audioMime === "audio/wav"
-                ? "wav"
-                : "webm";
+          audioMime === "audio/mpeg" || audioMime === "audio/mp3"
+            ? "mp3"
+            : audioMime === "audio/mp4"
+              ? "m4a"
+              : audioMime === "audio/ogg"
+                ? "ogg"
+                : audioMime === "audio/wav"
+                  ? "wav"
+                  : "webm";
 
         if (
           currentConfig.ai_provider === "free" &&
@@ -1465,6 +1579,16 @@ function App() {
           return;
         }
 
+        const unitTurns =
+          turns.length > 0
+            ? turns
+            : currentUnitSessions.flatMap((s) => s.turns || []);
+        const recentTurns = unitTurns.slice(-6).map((turn) => ({
+          user: stripTranscriptSourceLabel(turn.userText),
+          assistant: toPlainText(turn.reply),
+          passed: turn.stars ? turn.stars >= 4 : turn.passed !== false,
+        }));
+
         const form = new FormData();
         form.append("consent", "1");
         form.append("task_mode", "response");
@@ -1473,6 +1597,14 @@ function App() {
         form.append("course_id", practiceCourseId);
         form.append("unit_id", activeUnit.id);
         form.append("duration_seconds", String(elapsed));
+        form.append("recent_turns", JSON.stringify(recentTurns));
+        form.append(
+          "memory_summary",
+          currentUnitSessions
+            .map((session) => session.summary)
+            .filter(Boolean)
+            .slice(-1)[0] || "",
+        );
         form.append(
           "audio",
           audioForAI,
@@ -1566,35 +1698,25 @@ function App() {
         );
       }
 
-      if (useServerAudio && sessionSaveAudio === null) {
-        const choice = await Swal.fire({
-          title: "Simpan rekaman ke akun?",
-          text: "Ini terpisah dari pengiriman audio untuk evaluasi AI. Rekaman arsip tidak akan dikirim ulang otomatis.",
-          input: "radio",
-          inputOptions: {
-            save: "Simpan audio ke akun server",
-            discard: "Jangan simpan audio",
-          },
-          inputValue: data.settings.saveAudio ? "save" : "discard",
-          showCancelButton: true,
-          confirmButtonText: "Lanjutkan",
-          cancelButtonText: "Lewati",
-          confirmButtonColor: "#315c45",
-          inputValidator: (value) =>
-            !value ? "Pilih salah satu opsi." : undefined,
-        });
-        saveThisAudio = Boolean(choice.isConfirmed && choice.value === "save");
-        setSessionSaveAudio(saveThisAudio);
-      }
-
       let audioId = null;
       if (saveThisAudio && useServerAudio && audioBlob) {
         setProcessingMessage("Mengunggah rekaman untuk disimpan ke akun…");
+        let archiveBlob = audioBlob;
+        try {
+          archiveBlob = await convertRecordingToMp3(audioBlob, 128);
+        } catch {}
+        const isMp3 =
+          archiveBlob.type?.includes("mpeg") || archiveBlob.type?.includes("mp3");
+        const archiveExt = isMp3
+          ? "mp3"
+          : archiveBlob.type?.includes("mp4")
+            ? "m4a"
+            : "webm";
         const form = new FormData();
         form.append(
           "audio",
-          audioBlob,
-          `${crypto.randomUUID()}.${audioBlob.type.includes("mp4") ? "m4a" : "webm"}`,
+          archiveBlob,
+          `${crypto.randomUUID()}.${archiveExt}`,
         );
         const upload = await apiFetch("audio", { method: "POST", body: form });
         const result = await upload.json();
@@ -1604,18 +1726,20 @@ function App() {
 
       const assessment = replyObj.assessment || {};
       const criteria = assessment.criteria || {};
-      const assistantReply =
-        toPlainText(replyObj.tutor_reply?.text || "") ||
-        "Good job! Tell me more.";
-      const assistantSpeech =
-        toPlainText(replyObj.tutor_reply?.speech_text || assistantReply, {
-          forSpeech: true,
-        }) || toPlainText(assistantReply, { forSpeech: true });
+      const targetTurns = Math.max(
+        1,
+        Number(activeUnit.targetTurns || activeUnit.target_turns) || 4,
+      );
+      const minScore = Math.max(
+        10,
+        Math.min(100, Number(activeUnit.minScore || activeUnit.min_score) || 80),
+      );
       const practiceStars = Math.max(
         1,
         Math.min(5, Number(assessment.practice_stars ?? 3)),
       );
-      const pointsEarned = practiceStars >= 4 ? 25 : 0;
+      const pointsEarned =
+        practiceStars >= 4 ? practiceTurnPoints(practiceStars, targetTurns) : 0;
       const failedTurnToRetry = turns.at(-1);
       const replacingFailedTurn = Boolean(
         failedTurnToRetry &&
@@ -1624,6 +1748,47 @@ function App() {
           currentConfig.speech_similarity_threshold,
         ),
       );
+
+      const completionNotice =
+        "You can continue to the next lesson, but we can continue to talk if you wish.";
+      const alreadyNotified = turns.some((t) =>
+        (t.reply || "").includes("You can continue to the next lesson"),
+      );
+
+      const prevPoints = practicePoints(
+        replacingFailedTurn ? turns.slice(0, -1) : turns,
+        currentConfig.speech_similarity_threshold,
+        targetTurns,
+      );
+      const newPoints = Math.min(100, prevPoints + pointsEarned);
+      const prevPassedCount = passedPracticeTurnCount(
+        replacingFailedTurn ? turns.slice(0, -1) : turns,
+        currentConfig.speech_similarity_threshold,
+      );
+      const newPassedCount = prevPassedCount + (practiceStars >= 4 ? 1 : 0);
+      const isEligibleNow = canCompletePracticeLesson(
+        newPassedCount,
+        newPoints,
+        targetTurns,
+        minScore,
+      );
+
+      let assistantReply =
+        toPlainText(replyObj.tutor_reply?.text || "") ||
+        "Good job! Tell me more.";
+      if (isEligibleNow && !alreadyNotified) {
+        assistantReply = `${assistantReply.trim()} ${completionNotice}`;
+      }
+      const rawSpeechText = replyObj.tutor_reply?.speech_text;
+      const baseSpeechText = rawSpeechText
+        ? (isEligibleNow && !alreadyNotified
+            ? `${rawSpeechText.trim()} ${completionNotice}`
+            : rawSpeechText)
+        : assistantReply;
+      const assistantSpeech =
+        toPlainText(baseSpeechText, {
+          forSpeech: true,
+        }) || toPlainText(assistantReply, { forSpeech: true });
       const retrySlot = replacingFailedTurn ? failedTurnToRetry : null;
       const slot = retrySlot
         ? Number(retrySlot.slot) ||
@@ -1713,8 +1878,32 @@ function App() {
           item.pointsEarned > 0
             ? awardXP(previous, item.pointsEarned)
             : previous;
-        return { ...earned, sessions };
+        let finalData = { ...earned, sessions };
+        if (isEligibleNow && !completed.has(activeUnit.id)) {
+          finalData = awardXP(finalData, 25);
+          if (practiceCourseId === "ielts") {
+            finalData.completed = Array.from(
+              new Set([...(finalData.completed || []), activeUnit.id]),
+            );
+          } else {
+            const courseProgress = finalData.courseProgress || {};
+            const current = courseProgress[practiceCourseId] || {};
+            finalData.courseProgress = {
+              ...courseProgress,
+              [practiceCourseId]: {
+                ...current,
+                completed: Array.from(
+                  new Set([...(current.completed || []), activeUnit.id]),
+                ),
+              },
+            };
+          }
+        }
+        return finalData;
       });
+      if (isEligibleNow && !completed.has(activeUnit.id)) {
+        incrementCourseProgress(practiceCourseId);
+      }
       setAudioBlob(null);
       setTranscript("");
       if (assistantSpeech) void speak(assistantSpeech);
@@ -1728,18 +1917,20 @@ function App() {
   }
   async function clearPracticeHistory(unitId = activeUnit?.id) {
     if (!unitId) return;
+    const practiceCourseId = activeUnit?.courseId || currentCourseId;
     const archivedAudioIds = new Set(
       [
         ...turns,
         ...(data.sessions || [])
           .filter(
             (session) =>
-              (session.courseId || "ielts") === currentCourseId &&
+              (session.courseId || "ielts") === practiceCourseId &&
               session.unitId === unitId,
           )
           .flatMap((session) => session.turns || []),
+        ...(data.recordings || []).filter((r) => r.unitId === unitId),
       ]
-        .map((turn) => turn.audioId)
+        .map((turn) => turn.audioId || turn.id)
         .filter(Boolean),
     );
     const deletions = await Promise.allSettled(
@@ -1755,8 +1946,11 @@ function App() {
       ...previous,
       sessions: (previous.sessions || []).filter(
         (session) =>
-          (session.courseId || "ielts") !== currentCourseId ||
+          (session.courseId || "ielts") !== practiceCourseId ||
           session.unitId !== unitId,
+      ),
+      recordings: (previous.recordings || []).filter(
+        (rec) => rec.unitId !== unitId,
       ),
     }));
     setAudioBlob(null);
@@ -1770,16 +1964,28 @@ function App() {
       toast.success("Riwayat lesson dan arsip audio tersimpan telah dihapus.");
   }
   function finishUnit() {
+    const targetTurns = Math.max(
+      1,
+      Number(activeUnit?.targetTurns || activeUnit?.target_turns) || 4,
+    );
+    const minScore = Math.max(
+      10,
+      Math.min(100, Number(activeUnit?.minScore || activeUnit?.min_score) || 80),
+    );
     const passedCount = passedPracticeTurnCount(
       turns,
       appConfig.speech_similarity_threshold,
     );
-    const points = practicePoints(turns, appConfig.speech_similarity_threshold);
-    if (!canCompletePracticeLesson(passedCount, points)) {
-      const remainingTurns = Math.max(0, 4 - passedCount);
-      const remainingPoints = Math.max(0, 100 - points);
+    const points = practicePoints(
+      turns,
+      appConfig.speech_similarity_threshold,
+      targetTurns,
+    );
+    if (!canCompletePracticeLesson(passedCount, points, targetTurns, minScore)) {
+      const remainingTurns = Math.max(0, targetTurns - passedCount);
+      const remainingPoints = Math.max(0, minScore - points);
       toast.info(
-        `Butuh minimal 4 percakapan lulus dan 100 poin untuk selesai. Saat ini ${passedCount} percakapan lulus · ${points}/100 poin${remainingTurns ? ` · ${remainingTurns} percakapan lulus lagi` : ""}${remainingPoints ? ` · ${remainingPoints} poin lagi` : ""}.`,
+        `Butuh minimal ${targetTurns} percakapan lulus dan ${minScore} poin untuk selesai. Saat ini ${passedCount} percakapan lulus · ${points}/${minScore} poin${remainingTurns ? ` · ${remainingTurns} percakapan lulus lagi` : ""}${remainingPoints ? ` · ${remainingPoints} poin lagi` : ""}.`,
       );
       return;
     }
@@ -1838,6 +2044,20 @@ function App() {
     );
   }
   function stopCurrentSpeech() {
+    if (slowRenderTimerRef.current) {
+      clearTimeout(slowRenderTimerRef.current);
+      slowRenderTimerRef.current = null;
+    }
+    currentUtteranceRef.current = null;
+    if (typeof window !== "undefined") {
+      window.__activeUtterance = null;
+      if (window.TTS?.audio) {
+        try {
+          window.TTS.audio.pause();
+          window.TTS.audio.currentTime = 0;
+        } catch {}
+      }
+    }
     window.speechSynthesis?.cancel();
     const active = ttsAudioRef.current;
     if (!active) return;
@@ -1863,10 +2083,15 @@ function App() {
         if (requestId === ttsRequestIdRef.current) {
           setTtsStatus(
             error
-              ? { phase: "error", message: "Audio cache gagal diputar." }
+              ? {
+                  phase: "error",
+                  engine: "cache",
+                  message: "Audio cache gagal diputar.",
+                }
               : {
                   phase: "ready",
-                  message: "Audio Kokoro cache selesai diputar.",
+                  engine: "cache",
+                  message: "Audio cache selesai diputar.",
                 },
           );
         }
@@ -1879,7 +2104,8 @@ function App() {
         finish(new Error("File audio bersama tidak dapat diputar."));
       setTtsStatus({
         phase: "speaking",
-        message: "Memutar audio Kokoro dari shared cache…",
+        engine: "cache",
+        message: "Tutor sedang berbicara…",
       });
       try {
         const playback = audio.play();
@@ -1900,45 +2126,71 @@ function App() {
     if (!cleanText) return;
     const synth = window.speechSynthesis;
     if (!synth) throw new Error("Text-to-speech tidak didukung browser ini.");
-    synth.cancel();
-    const voice =
-      synth
-        .getVoices()
-        .find((item) => item.name === data.settings.nativeVoice) ||
-      synth
-        .getVoices()
-        .find((item) => item.lang.toLowerCase().startsWith("en"));
+    if (synth.speaking || synth.pending) {
+      synth.cancel();
+    }
+    const availableVoices = synth.getVoices();
+    const voice = selectBestVoice(availableVoices, data.settings.nativeVoice);
     const utterance = new SpeechSynthesisUtterance(cleanText);
-    utterance.lang = voice?.lang || "en-US";
+    utterance.lang = voice?.lang || "en-GB";
     utterance.rate = 0.88;
     if (voice) utterance.voice = voice;
+    currentUtteranceRef.current = utterance;
+    if (typeof window !== "undefined") {
+      window.__activeUtterance = utterance;
+    }
+
     setTtsStatus({
       phase: "speaking",
-      message: fallbackReason || "Menyiapkan suara Browser Native…",
+      engine: "native",
+      message:
+        fallbackReason || "Tutor sedang berbicara (Browser Native)…",
     });
     utterance.onstart = () => {
       if (requestId === ttsRequestIdRef.current)
         setTtsStatus({
           phase: "speaking",
-          message: fallbackReason || "Membacakan dengan Browser Native…",
+          engine: "native",
+          message:
+            fallbackReason || "Tutor sedang berbicara (Browser Native)…",
         });
     };
     utterance.onend = () => {
       if (requestId !== ttsRequestIdRef.current) return;
-      setTtsStatus({ phase: "ready", message: "Browser Native siap." });
+      currentUtteranceRef.current = null;
+      if (typeof window !== "undefined" && window.__activeUtterance === utterance) {
+        window.__activeUtterance = null;
+      }
+      setTtsStatus({
+        phase: "ready",
+        engine: "native",
+        message: "Audio selesai diputar.",
+      });
       onPlaybackComplete?.();
     };
     utterance.onerror = (event) => {
-      if (requestId !== ttsRequestIdRef.current) return;
       if (event.error === "canceled" || event.error === "interrupted") {
+        if (synth.speaking || synth.pending) return;
+        if (requestId !== ttsRequestIdRef.current) return;
+        currentUtteranceRef.current = null;
+        if (typeof window !== "undefined" && window.__activeUtterance === utterance) {
+          window.__activeUtterance = null;
+        }
         setTtsStatus({
           phase: "ready",
+          engine: "native",
           message: "Pemutaran suara dihentikan.",
         });
         return;
       }
+      if (requestId !== ttsRequestIdRef.current) return;
+      currentUtteranceRef.current = null;
+      if (typeof window !== "undefined" && window.__activeUtterance === utterance) {
+        window.__activeUtterance = null;
+      }
       setTtsStatus({
         phase: "error",
+        engine: "native",
         message: "Browser Native gagal membacakan teks.",
       });
       toast.error("Browser Native gagal membacakan teks.");
@@ -1952,7 +2204,7 @@ function App() {
       return true;
     } catch (error) {
       if (requestId === ttsRequestIdRef.current)
-        setTtsStatus({ phase: "error", message: error.message });
+        setTtsStatus({ phase: "error", engine: "native", message: error.message });
       toast.error(error.message || "Browser TTS gagal diputar.");
       return false;
     }
@@ -1999,6 +2251,7 @@ function App() {
     if (context) {
       setTtsStatus({
         phase: "cache-lookup",
+        engine: "cache",
         message: "Memeriksa audio bersama…",
       });
       let cachedAudio = null;
@@ -2041,27 +2294,90 @@ function App() {
       try {
         speakWithBrowser(sourceText, requestId, "", notifyPlaybackComplete);
       } catch (error) {
-        setTtsStatus({ phase: "error", message: error.message });
+        setTtsStatus({ phase: "error", engine: "native", message: error.message });
         toast.error(error.message || "Browser TTS gagal diputar.");
       }
       return;
     }
 
-    setTtsStatus({ phase: "initialize", message: "Menyiapkan Kokoro…" });
+    setTtsStatus({
+      phase: "initialize",
+      engine: "kokoro",
+      message: "Audio sedang dipersiapkan dengan WASM / GPU…",
+    });
+
+    let fallbackDialogShown = false;
+    slowRenderTimerRef.current = setTimeout(async () => {
+      if (requestId !== ttsRequestIdRef.current) return;
+      fallbackDialogShown = true;
+      const res = await Swal.fire({
+        title: "Perangkat Membutuhkan Waktu Lama",
+        text: "Sepertinya perangkat Anda membutuhkan waktu yang sangat lama untuk merender suara, ganti ke suara cepat (Browser Voice) agar pengalaman belajar lebih menyenangkan?",
+        icon: "question",
+        showCancelButton: true,
+        confirmButtonText: "Ya, Ganti",
+        cancelButtonText: "Tidak",
+        confirmButtonColor: "#315c45",
+        cancelButtonColor: "#6b7280",
+      });
+      if (requestId !== ttsRequestIdRef.current) return;
+      if (res.isConfirmed) {
+        stopCurrentSpeech();
+        const synth =
+          typeof window !== "undefined" ? window.speechSynthesis : null;
+        const availableVoices = synth ? synth.getVoices() : [];
+        const bestVoice = selectBestVoice(availableVoices);
+        const voiceName = bestVoice?.name || "";
+        setData((d) => ({
+          ...d,
+          settings: {
+            ...d.settings,
+            tts: "native",
+            ...(voiceName ? { nativeVoice: voiceName } : {}),
+          },
+        }));
+        toast.info(
+          `Pengaturan suara diganti ke Browser Voice (${voiceName || "Default"}).`,
+        );
+        speakWithBrowser(
+          sourceText,
+          requestId,
+          "Beralih ke suara cepat Browser Voice…",
+          notifyPlaybackComplete,
+        );
+      }
+    }, 60000);
+
     try {
       await speakKokoro(sourceText, {
         voice: userVoice,
         compute: data.settings.ttsCompute || "auto",
         speed: 0.88,
         onStatus: (status) => {
-          if (requestId === ttsRequestIdRef.current) setTtsStatus(status);
+          if (requestId === ttsRequestIdRef.current) {
+            setTtsStatus({ ...status, engine: "kokoro" });
+            if (status.phase === "speaking" && slowRenderTimerRef.current) {
+              clearTimeout(slowRenderTimerRef.current);
+              slowRenderTimerRef.current = null;
+            }
+          }
         },
       });
+      if (slowRenderTimerRef.current) {
+        clearTimeout(slowRenderTimerRef.current);
+        slowRenderTimerRef.current = null;
+      }
       notifyPlaybackComplete();
     } catch (error) {
+      if (slowRenderTimerRef.current) {
+        clearTimeout(slowRenderTimerRef.current);
+        slowRenderTimerRef.current = null;
+      }
+      if (fallbackDialogShown) return;
       if (requestId !== ttsRequestIdRef.current) return;
       setTtsStatus({
         phase: "error",
+        engine: "kokoro",
         message: error.message || "Kokoro gagal dimuat.",
       });
       if ("speechSynthesis" in window) {
@@ -2346,20 +2662,6 @@ Because this is live audio, comment on pronunciation or word stress only when a 
   async function beginLive() {
     if (liveBillingSessionRef.current || liveOn || liveLoading) return;
     try {
-      const consent = await Swal.fire({
-        title: "Izinkan Live Lesson?",
-        text:
-          user?.role === "admin"
-            ? `Audio mikrofon dikirim langsung dari browser ke Gemini dan tidak diarsipkan oleh SpeakUp. Setelah sesi, hanya transkrip dikirim ke provider global Admin untuk feedback. Akun Admin tidak memakai diamond; sesi dibatasi ${Math.ceil(liveMaxSeconds / 60)} menit.`
-            : `Audio mikrofon dikirim langsung dari browser ke Gemini dan tidak diarsipkan oleh SpeakUp. Setelah sesi, hanya transkrip dikirim ke provider global Admin untuk feedback. Biaya ${liveCostPerMinute} diamond per menit; cadangan per blok ${liveBlockMinutes} menit. Batas sesi ${Math.ceil(liveMaxSeconds / 60)} menit.`,
-        icon: "info",
-        showCancelButton: true,
-        confirmButtonText: "Setuju & lanjutkan",
-        cancelButtonText: "Batal",
-        confirmButtonColor: "#315c45",
-      });
-      if (!consent.isConfirmed || useLearningStore.getState().page !== "live")
-        return;
       setLiveLoading(true);
       liveEndingRef.current = false;
       const billing = await apiJson("live-billing/start", {
@@ -2575,6 +2877,9 @@ Because this is live audio, comment on pronunciation or word stress only when a 
             }, 5000);
             proc.onaudioprocess = (e) => {
               if (ws.readyState !== WebSocket.OPEN) return;
+              if (inputContext.state === "suspended") {
+                void inputContext.resume().catch(() => {});
+              }
               const samples = e.inputBuffer.getChannelData(0);
               const data2 = encodePcm16Base64(samples, inputContext.sampleRate);
               try {
@@ -2618,7 +2923,9 @@ Because this is live audio, comment on pronunciation or word stress only when a 
         const c = msg.serverContent;
         if (c) {
           const inputText =
-            c.inputTranscription?.text || c.interimInputTranscription?.text;
+            c.inputTranscription?.text ||
+            c.interimInputTranscription?.text ||
+            c.inputAudioTranscription?.text;
           if (inputText) {
             appendLiveTranscriptChunk("learner", inputText);
             setLiveStatus("Live · learner speech received");
@@ -2735,6 +3042,15 @@ Because this is live audio, comment on pronunciation or word stress only when a 
           "Feedback server returned an invalid assessment. You can retry.",
         );
       setLiveAssessment(payload.assessment);
+      if (liveHistorySessionIdRef.current) {
+        const histId = liveHistorySessionIdRef.current;
+        setData((prev) => ({
+          ...prev,
+          liveHistory: (prev.liveHistory || []).map((h) =>
+            h.id === histId ? { ...h, assessment: payload.assessment } : h,
+          ),
+        }));
+      }
       setLiveStatus("Feedback ready");
       toast.success("Feedback sesi Live siap.");
     } catch (error) {
@@ -2766,6 +3082,23 @@ Because this is live audio, comment on pronunciation or word stress only when a 
     const completed =
       (data.courseProgress || {})[courseId]?.liveCompleted || [];
     if (!completed.includes(topicId)) incrementCourseProgress(courseId);
+  }
+
+  function deleteLiveHistoryItem(id) {
+    setData((prev) => ({
+      ...prev,
+      liveHistory: (prev.liveHistory || []).filter((item) => item.id !== id),
+    }));
+    toast.success("Riwayat percakapan berhasil dihapus.");
+  }
+
+  function clearAllLiveHistory() {
+    if (!window.confirm("Hapus semua riwayat percakapan live?")) return;
+    setData((prev) => ({
+      ...prev,
+      liveHistory: [],
+    }));
+    toast.success("Semua riwayat percakapan live telah dihapus.");
   }
   async function retryLiveAssessment() {
     const transcript = buildLearnerAssessmentTranscript(
@@ -2812,6 +3145,30 @@ Because this is live audio, comment on pronunciation or word stress only when a 
     setLiveOn(false);
     await settleLiveBilling(false);
     liveEndingRef.current = false;
+
+    // Save live session to history for user self-review
+    const finalLines = [...liveTranscriptLinesRef.current];
+    if (finalLines.length > 0) {
+      const createdHistoryId = crypto.randomUUID();
+      liveHistorySessionIdRef.current = createdHistoryId;
+      const liveContext = liveCourseContextRef.current || {};
+      const assessmentCourseId = liveContext.courseId || currentCourseId;
+      const historyItem = {
+        id: createdHistoryId,
+        date: new Date().toISOString(),
+        courseId: assessmentCourseId,
+        topicId: activeLiveTopic?.id || null,
+        topicTitle: activeLiveTopic?.label || "General Conversation",
+        durationSeconds: liveSeconds,
+        lines: finalLines,
+        assessment: null,
+      };
+      setData((prev) => ({
+        ...prev,
+        liveHistory: [historyItem, ...(prev.liveHistory || [])],
+      }));
+    }
+
     const transcript = buildLearnerAssessmentTranscript(
       liveTranscriptLinesRef.current,
       maxTranscriptChars,
@@ -2940,6 +3297,77 @@ Because this is live audio, comment on pronunciation or word stress only when a 
             : page === "shop"
               ? "Toko Diamond"
               : menu.find((item) => item.id === page)?.label || "SpeakUp";
+
+  const isGlobalLoading = Boolean(
+    processing ||
+    ttsBusy ||
+    liveLoading ||
+    loadingRecordingId ||
+    permission === "requesting" ||
+    operationStatus
+  );
+
+  let mascotToastType = "ai";
+  let mascotToastTitle = "Memproses…";
+  let mascotToastMessage = "Mohon tunggu sebentar…";
+  let mascotToastProgress = null;
+
+  if (processing) {
+    mascotToastType = "ai";
+    mascotToastTitle = processingMessage || "AI Sedang Menganalisis Jawaban…";
+    mascotToastMessage = "Jawabanmu sedang diproses oleh tutor digital.";
+    mascotToastProgress = null;
+  } else if (ttsBusy) {
+    mascotToastType = "tts";
+    const isSpeakingPhase = ttsStatus.phase === "speaking";
+    const isNativeEngine =
+      ttsStatus.engine === "native" ||
+      data.settings?.tts === "native" ||
+      (typeof ttsStatus.message === "string" &&
+        ttsStatus.message.toLowerCase().includes("native"));
+
+    if (isSpeakingPhase) {
+      mascotToastTitle = "Tutor sedang berbicara…";
+      mascotToastMessage = isNativeEngine
+        ? "Audio menggunakan native browser dan dapat terdengar kurang natural."
+        : "Dengarkan pelafalan dan intonasi tutor secara seksama.";
+      mascotToastProgress = null;
+    } else if (ttsStatus.phase === "download") {
+      mascotToastTitle = "Mengunduh Model Suara Kokoro…";
+      mascotToastMessage = "Unduhan awal model ~82 MB ke memori perangkat.";
+      mascotToastProgress = ttsStatus.progress ?? null;
+    } else {
+      mascotToastTitle = "Audio sedang dipersiapkan dengan WASM / GPU…";
+      mascotToastMessage =
+        ttsStatus.message &&
+        ttsStatus.message !== "Tutor sedang berbicara…" &&
+        !ttsStatus.message.toLowerCase().includes("tutor sedang berbicara")
+          ? ttsStatus.message
+          : "Engine Kokoro sedang merender gelombang suara.";
+      mascotToastProgress = ttsStatus.progress ?? null;
+    }
+  } else if (liveLoading) {
+    mascotToastType = "ai";
+    mascotToastTitle = "Menghubungkan ke Gemini Live…";
+    mascotToastMessage = liveStatus || "Menyiapkan sesi percakapan audio dua arah.";
+    mascotToastProgress = null;
+  } else if (loadingRecordingId) {
+    mascotToastType = "audio";
+    mascotToastTitle = "Memuat Rekaman Audio…";
+    mascotToastMessage = "Audio sedang diambil dari akunmu.";
+    mascotToastProgress = null;
+  } else if (permission === "requesting") {
+    mascotToastType = "audio";
+    mascotToastTitle = "Meminta Izin Mikrofon…";
+    mascotToastMessage = "Ketuk 'Izinkan' pada dialog browser jika diminta.";
+    mascotToastProgress = null;
+  } else if (operationStatus) {
+    mascotToastType = "ai";
+    mascotToastTitle = operationStatus;
+    mascotToastMessage = "Menunggu proses selesai; jangan tutup halaman.";
+    mascotToastProgress = null;
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -2974,8 +3402,95 @@ Because this is live audio, comment on pronunciation or word stress only when a 
             </button>
           ))}
         </nav>
-        <div className="sidebar-bottom">
-          <button className="profile-row" onClick={() => nav("settings")}>
+        <div className="sidebar-bottom" ref={profileMenuRef}>
+          {profileMenuOpen && (
+            <div className="profile-dropdown-menu" role="menu">
+              <div className="profile-menu-header">
+                <span className="avatar">
+                  {user.name?.charAt(0)?.toUpperCase() || "S"}
+                </span>
+                <div className="profile-menu-info">
+                  <b>{user.name}</b>
+                  <small>{user.email}</small>
+                </div>
+              </div>
+              <div className="profile-menu-divider" />
+              <button
+                type="button"
+                className="profile-menu-item"
+                role="menuitem"
+                onClick={() => {
+                  setProfileMenuOpen(false);
+                  nav("settings");
+                }}
+              >
+                <Settings size={16} />
+                <span>Pengaturan Akun</span>
+              </button>
+              {user.role === "admin" && (
+                <button
+                  type="button"
+                  className="profile-menu-item"
+                  role="menuitem"
+                  onClick={() => {
+                    setProfileMenuOpen(false);
+                    nav("admin");
+                  }}
+                >
+                  <ShieldCheck size={16} />
+                  <span>Panel Admin</span>
+                </button>
+              )}
+              <button
+                type="button"
+                className="profile-menu-item"
+                role="menuitem"
+                onClick={() => {
+                  setProfileMenuOpen(false);
+                  nav("shop");
+                }}
+              >
+                <Gem size={16} />
+                <span>Toko Diamond</span>
+              </button>
+              {canInstall && !isInstalled && (
+                <button
+                  type="button"
+                  className="profile-menu-item pwa-menu-item"
+                  role="menuitem"
+                  onClick={async () => {
+                    setProfileMenuOpen(false);
+                    const ok = await installApp();
+                    if (ok) toast.success("Aplikasi SpeakUp berhasil dipasang!");
+                  }}
+                >
+                  <Download size={16} />
+                  <span>Install Aplikasi</span>
+                </button>
+              )}
+              <div className="profile-menu-divider" />
+              <button
+                type="button"
+                className="profile-menu-item logout"
+                role="menuitem"
+                onClick={() => {
+                  setProfileMenuOpen(false);
+                  void logout();
+                }}
+              >
+                <LogOut size={16} />
+                <span>Keluar</span>
+              </button>
+            </div>
+          )}
+          <button
+            type="button"
+            className={`profile-row ${profileMenuOpen ? "active" : ""}`}
+            onClick={() => setProfileMenuOpen((prev) => !prev)}
+            aria-expanded={profileMenuOpen}
+            aria-haspopup="menu"
+            aria-label="Menu profil"
+          >
             <span className="avatar">
               {user.name?.charAt(0)?.toUpperCase() || "S"}
             </span>
@@ -3029,8 +3544,22 @@ Because this is live audio, comment on pronunciation or word stress only when a 
             <span className="streak-pill">
               <Flame size={17} fill="currentColor" /> {data.streak || 0} hari
             </span>
+            {canInstall && !isInstalled && (
+              <button
+                type="button"
+                className="install-app-pill"
+                onClick={async () => {
+                  const ok = await installApp();
+                  if (ok) toast.success("Aplikasi SpeakUp berhasil dipasang!");
+                }}
+                title="Install SpeakUp ke layar utama perangkat"
+              >
+                <Download size={14} />
+                <span className="install-app-text">Install App</span>
+              </button>
+            )}
             <button
-              className="icon-btn"
+              className="icon-btn topbar-settings-btn"
               onClick={() => nav("settings")}
               aria-label="Pengaturan"
             >
@@ -3045,53 +3574,6 @@ Because this is live audio, comment on pronunciation or word stress only when a 
           </div>
         )}
         <div className="page-content">
-          {processing ? (
-            <ProcessingStatus
-              message={processingMessage || "Memproses jawaban…"}
-              detail="Permintaan sedang diproses. Koneksi lambat bisa membutuhkan waktu lebih lama."
-              className="processing-status-global"
-            />
-          ) : ttsBusy ? (
-            <ProcessingStatus
-              message={ttsStatus.message || "Menyiapkan audio…"}
-              progress={ttsStatus.progress}
-              detail={
-                ttsStatus.phase === "download"
-                  ? "Unduhan awal model sekitar 82 MB. Model akan tersimpan di perangkat untuk pemutaran berikutnya."
-                  : ttsStatus.phase === "load-model" ||
-                      ttsStatus.phase === "cache-hit"
-                    ? "Model sedang dimuat di perangkat sebelum suara mulai diputar."
-                    : ttsStatus.phase === "speaking"
-                      ? "Suara sedang dibuat dan diputar di perangkat."
-                      : "Menyiapkan mesin suara. Proses pertama kali bisa memerlukan waktu."
-              }
-              className="processing-status-global"
-            />
-          ) : liveLoading ? (
-            <ProcessingStatus
-              message={liveStatus || "Menghubungkan ke Gemini Live…"}
-              detail="Menyiapkan mikrofon, koneksi, atau feedback sesi."
-              className="processing-status-global"
-            />
-          ) : loadingRecordingId ? (
-            <ProcessingStatus
-              message="Memuat rekaman audio…"
-              detail="Audio sedang diambil dari akunmu."
-              className="processing-status-global"
-            />
-          ) : permission === "requesting" ? (
-            <ProcessingStatus
-              message="Meminta akses mikrofon…"
-              detail="Pilih Izinkan pada dialog browser jika diminta."
-              className="processing-status-global"
-            />
-          ) : operationStatus ? (
-            <ProcessingStatus
-              message={operationStatus}
-              detail="Menunggu proses selesai; jangan tutup halaman ini."
-              className="processing-status-global"
-            />
-          ) : null}
           <ModuleErrorBoundary module={page}>
             <Suspense fallback={<ModuleLoading label={pageTitle} />}>
               {page === "home" && (
@@ -3150,8 +3632,9 @@ Because this is live audio, comment on pronunciation or word stress only when a 
                     setData={setData}
                     speak={speak}
                     ttsStatus={ttsStatus}
-                    speechInputMode={appConfig.speech_input_mode}
-                    speechScoringMode={appConfig.speech_scoring_mode}
+                    aiAudioCost={
+                      appConfig.courseware_policy?.cost_listening_direct_audio ?? 3
+                    }
                     maxRecordSeconds={maxRecordingSeconds}
                     maxAiAudioBytes={
                       Number(appConfig.courseware_policy?.max_ai_audio_bytes) ||
@@ -3162,6 +3645,12 @@ Because this is live audio, comment on pronunciation or word stress only when a 
                     }
                     aiProvider={appConfig.ai_provider}
                     unlimitedDiamonds={user?.unlimited_diamonds}
+                    learningProgressionMode={
+                      currentCoursePayload?.course?.listeningProgressionMode ||
+                      currentCoursePayload?.course?.progressionMode ||
+                      appConfig.courseware_policy?.learning_progression_mode ||
+                      "parallel"
+                    }
                     onDiamondsChanged={applyDiamondBalance}
                     onCourseProgress={incrementCourseProgress}
                   />
@@ -3187,6 +3676,7 @@ Because this is live audio, comment on pronunciation or word stress only when a 
                   )}
                   <PracticePage
                     showBackButton={!route?.courseId}
+                    audioStream={recording ? streamRef.current : null}
                     onBack={() =>
                       route?.courseId
                         ? openCourse(
@@ -3245,6 +3735,12 @@ Because this is live audio, comment on pronunciation or word stress only when a 
                     similarityThreshold={appConfig.speech_similarity_threshold}
                     sessionSaveAudio={sessionSaveAudio}
                     resetRecording={resetRecording}
+                    learningProgressionMode={
+                      currentCoursePayload?.course?.aiLessonProgressionMode ||
+                      currentCoursePayload?.course?.progressionMode ||
+                      appConfig.courseware_policy?.learning_progression_mode ||
+                      "parallel"
+                    }
                   />
                 </>
               )}
@@ -3265,6 +3761,7 @@ Because this is live audio, comment on pronunciation or word stress only when a 
                   )}
                   <LivePage
                     courseId={currentCourseId}
+                    liveStream={liveOn ? liveStreamRef.current : null}
                     topics={currentLiveTopics}
                     liveMaxSeconds={liveMaxSeconds}
                     liveBlockMinutes={liveRuntimeBlockMinutes}
@@ -3284,6 +3781,9 @@ Because this is live audio, comment on pronunciation or word stress only when a 
                     beginLive={beginLive}
                     endLive={endLive}
                     retryLiveAssessment={retryLiveAssessment}
+                    liveHistory={data.liveHistory || []}
+                    deleteLiveHistoryItem={deleteLiveHistoryItem}
+                    clearAllLiveHistory={clearAllLiveHistory}
                   />
                 </>
               )}
@@ -3363,6 +3863,14 @@ Because this is live audio, comment on pronunciation or word stress only when a 
           refreshing={coursePurchaseRefreshing}
         />
       )}
+      {/* Gamified Mascot Bottom Loading Toast */}
+      <MascotLoadingToast
+        active={isGlobalLoading}
+        type={mascotToastType}
+        title={mascotToastTitle}
+        message={mascotToastMessage}
+        progress={mascotToastProgress}
+      />
       <nav className="mobile-nav" aria-label="Menu seluler">
         {menu
           .filter((item) =>

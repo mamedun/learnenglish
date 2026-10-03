@@ -206,8 +206,95 @@ img {
   margin: 5px 0 0;
 }
 .sidebar-bottom {
+  position: relative;
   margin-top: auto;
   padding-top: 12px;
+}
+.profile-dropdown-menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 4px;
+  right: 4px;
+  background: var(--surface, #ffffff);
+  border: 1px solid var(--border, #e5e0f5);
+  border-radius: 14px;
+  box-shadow: 0 10px 25px rgba(23, 20, 48, 0.12), 0 2px 6px rgba(23, 20, 48, 0.06);
+  padding: 8px;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  animation: profileMenuPop 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes profileMenuPop {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.profile-menu-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px 8px;
+}
+.profile-menu-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.profile-menu-info b {
+  font-size: 13px;
+  color: #312d52;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.profile-menu-info small {
+  font-size: 11px;
+  color: #918ba9;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.profile-menu-divider {
+  height: 1px;
+  background: var(--border, #e5e0f5);
+  margin: 3px 0;
+}
+.profile-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 9px;
+  border: none;
+  background: transparent;
+  color: #312d52;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  transition: background 0.15s, color 0.15s;
+}
+.profile-menu-item:hover {
+  background: #f3f0ff;
+  color: #5846c8;
+}
+.profile-menu-item.logout {
+  color: #c84343;
+}
+.profile-menu-item.logout:hover {
+  background: #fff0f0;
+  color: #b72b2b;
+}
+.topbar-settings-btn {
+  display: none !important;
 }
 .profile-row {
   border-top: 1px solid var(--border);
@@ -1494,6 +1581,49 @@ img {
     600 23px "Fredoka",
     sans-serif;
 }
+.journey-course-filter-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: -6px 0 16px;
+}
+.journey-course-filter-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #797392;
+}
+.journey-course-filter-buttons {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.journey-filter-btn {
+  padding: 7px 15px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  border: 1.5px solid var(--border, #e5e0f5);
+  background: var(--surface, #ffffff);
+  color: #554f73;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.journey-filter-btn:hover {
+  border-color: #baaefc;
+  color: #312d52;
+  background: #fbfaff;
+}
+.journey-filter-btn.active {
+  background: #5846c8;
+  border-color: #5846c8;
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(88, 70, 200, 0.25);
+}
 .journey-map-toolbar {
   display: flex;
   align-items: center;
@@ -2162,6 +2292,9 @@ img {
     flex: none;
     width: 34px;
     height: 34px;
+  }
+  .topbar-settings-btn {
+    display: grid !important;
   }
   .page-content {
     padding: 23px 16px 80px;

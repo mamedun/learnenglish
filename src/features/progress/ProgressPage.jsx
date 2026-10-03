@@ -29,7 +29,6 @@ export default function ProgressPage({
       }),
     [courses, courseCatalogs, data, fallbackCatalog],
   );
-  const [courseFilter, setCourseFilter] = useState("all");
   const courseOptions = useMemo(() => {
     const options = new Map();
     for (const course of courses) {
@@ -44,9 +43,37 @@ export default function ProgressPage({
     }
     return [...options.values()].sort((a, b) => a.name.localeCompare(b.name));
   }, [courses]);
+
+  const defaultCourseId = useMemo(() => {
+    const enrolled = courses
+      .filter((c) => hasCourseAccess(c) && c.id != null)
+      .sort(
+        (a, b) =>
+          new Date(b.lastActivityAt || 0) - new Date(a.lastActivityAt || 0),
+      );
+    if (enrolled[0]?.lastActivityAt) return String(enrolled[0].id);
+
+    const lastSession = (data.sessions || [])
+      .slice()
+      .reverse()
+      .find((s) => s.courseId);
+    if (lastSession?.courseId) return String(lastSession.courseId);
+
+    if (enrolled[0]?.id) return String(enrolled[0].id);
+    return courseOptions[0]?.id || "ielts";
+  }, [courses, data.sessions, courseOptions]);
+
+  const [courseFilter, setCourseFilter] = useState(() => defaultCourseId);
+
+  // If the active filter is no longer in course options (e.g. initial load), sync to default
+  const activeCourseFilter = useMemo(() => {
+    if (courseOptions.some((c) => c.id === courseFilter)) return courseFilter;
+    return defaultCourseId;
+  }, [courseFilter, courseOptions, defaultCourseId]);
+
   const journeyLevels = useMemo(
-    () => filterJourneyLevels(summary.levels, courseFilter),
-    [courseFilter, summary.levels],
+    () => filterJourneyLevels(summary.levels, activeCourseFilter),
+    [activeCourseFilter, summary.levels],
   );
   const recent = (data.sessions || []).slice(-5).reverse();
   const badges = achievements(summary.achievementProgress);
@@ -105,25 +132,26 @@ export default function ProgressPage({
           <h2>Jelajahi tiap level</h2>
         </div>
       </div>
-      {courseOptions.length > 1 && (
-        <div className="journey-map-toolbar">
-          <label htmlFor="journey-course-filter">
-            <Filter size={16} />
-            <span>Filter course</span>
-            <select
-              id="journey-course-filter"
-              value={courseFilter}
-              onChange={(event) => setCourseFilter(event.target.value)}
-            >
-              <option value="all">Semua course</option>
-              {courseOptions.map((course) => (
-                <option value={course.id} key={course.id}>
-                  {course.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <span>{journeyLevels.length} level</span>
+      {courseOptions.length > 0 && (
+        <div className="journey-course-filter-bar">
+          <div className="journey-course-filter-label">
+            <Filter size={15} />
+            <span>Pilih course:</span>
+          </div>
+          <div className="journey-course-filter-buttons" role="tablist">
+            {courseOptions.map((course) => (
+              <button
+                key={course.id}
+                type="button"
+                role="tab"
+                aria-selected={activeCourseFilter === course.id}
+                className={`journey-filter-btn ${activeCourseFilter === course.id ? "active" : ""}`}
+                onClick={() => setCourseFilter(course.id)}
+              >
+                {course.name}
+              </button>
+            ))}
+          </div>
         </div>
       )}
       {summary.levels.length ? (
@@ -194,13 +222,13 @@ export default function ProgressPage({
       {summary.levels.length > 0 && journeyLevels.length === 0 && (
         <div className="empty-activity">
           <span>🔎</span>
-          <b>Tidak ada level untuk course ini</b>
-          <p>Coba pilih course lain untuk melihat progresnya.</p>
+          <b>Belum ada materi untuk course ini</b>
+          <p>Pilih course lain atau buka halaman Course untuk melihat materi.</p>
           <button
             className="btn-primary"
-            onClick={() => setCourseFilter("all")}
+            onClick={() => nav("courses")}
           >
-            Tampilkan semua course <ArrowRight size={16} />
+            Jelajahi course <ArrowRight size={16} />
           </button>
         </div>
       )}
@@ -283,9 +311,6 @@ export default function ProgressPage({
           )}
         </>
       )}
-      <p className="home-caveat">
-        XP dan badge adalah motivasi belajar, bukan band atau sertifikasi IELTS.
-      </p>
     </div>
   );
 }

@@ -14,6 +14,8 @@ import {
   ShieldCheck,
   Users,
   ShoppingBag,
+  Megaphone,
+  Image as ImageIcon,
 } from "lucide-react";
 import { apiFetch, apiJson } from "../../api";
 import ModuleLoading from "../../components/ModuleLoading";
@@ -21,6 +23,8 @@ import AdminAudioCache from "./AdminAudioCache";
 import AdminUsersPanel from "./AdminUsersPanel";
 import AdminPurchasesHub from "./AdminPurchasesHub";
 import AdminCourseUsagePanel from "./AdminCourseUsagePanel";
+import AdminAdsPanel from "./AdminAdsPanel";
+import AdminImageGeneratorPanel from "./AdminImageGeneratorPanel";
 import CourseStudio from "./CourseStudio";
 import { toast } from "sonner";
 
@@ -72,6 +76,7 @@ export default function AdminPage({
       cost_live_per_minute: 2,
       live_block_minutes: 5,
       diamond_price_idr: 100,
+      learning_progression_mode: "parallel",
     },
   });
   const [models, setModels] = useState([]);
@@ -298,6 +303,22 @@ export default function AdminPage({
         </button>
         <button
           role="tab"
+          aria-selected={adminTab === "ads"}
+          className={adminTab === "ads" ? "active" : ""}
+          onClick={() => setAdminTab("ads")}
+        >
+          <Megaphone size={17} /> Iklan
+        </button>
+        <button
+          role="tab"
+          aria-selected={adminTab === "media"}
+          className={adminTab === "media" ? "active" : ""}
+          onClick={() => setAdminTab("media")}
+        >
+          <ImageIcon size={17} /> Image Generator
+        </button>
+        <button
+          role="tab"
           aria-selected={adminTab === "purchases"}
           className={adminTab === "purchases" ? "active" : ""}
           onClick={() => setAdminTab("purchases")}
@@ -327,6 +348,10 @@ export default function AdminPage({
         <AdminAudioCache />
       ) : adminTab === "users" ? (
         <AdminUsersPanel />
+      ) : adminTab === "ads" ? (
+        <AdminAdsPanel />
+      ) : adminTab === "media" ? (
+        <AdminImageGeneratorPanel activeProvider={settings?.ai_provider || "clario"} />
       ) : adminTab === "purchases" ? (
         <AdminPurchasesHub />
       ) : adminTab === "usage" ? (
@@ -642,39 +667,11 @@ export default function AdminPage({
                   <AudioLines size={18} />
                 </div>
                 <div>
-                  <b>Listening Lab · penilaian speaking</b>
+                  <b>Listening Lab · Ambang Kelulusan Speaking</b>
                   <small>
-                    Metode ini berlaku untuk pencocokan read-aloud; tidak
-                    mengubah pilihan per jawaban di AI Lesson.
+                    Ambang persentase kecocokan minimum agar latihan speaking di Listening Lab dinyatakan lulus.
                   </small>
                 </div>
-              </div>
-              <label className="field-label" htmlFor="speech-scoring-mode">
-                METODE PENCOCOKAN TRANSKRIP
-              </label>
-              <div className="select-wrap">
-                <select
-                  id="speech-scoring-mode"
-                  className="text-field"
-                  value={settings.speech_scoring_mode || "local"}
-                  onChange={(event) =>
-                    change("speech_scoring_mode", event.target.value)
-                  }
-                >
-                  <option value="local">Cocokkan secara lokal · gratis</option>
-                  <option value="ai">AI provider global · 1 diamond</option>
-                </select>
-                <ChevronDown size={16} />
-              </div>
-              <div className="info-box speech-mode-info speech-scoring-info">
-                <CircleHelp size={15} />
-                <span>
-                  Mode lokal menghitung kemiripan di browser tanpa AI. Mode AI
-                  mengirim hanya naskah dan transkrip teks ke provider global
-                  dan memakai 1 diamond. Audio tidak dikirim ke AI untuk
-                  pencocokan teks. Gemini Live tetap memakai Gemini; feedback
-                  pasca-sesi memakai provider global.
-                </span>
               </div>
               <label
                 className="field-label"
@@ -1019,13 +1016,7 @@ export default function AdminPage({
                 <label className="field-label">AI LESSON · AUDIO (diamond)
                   <input className="text-field" type="number" min={0} max={10000} step={1} value={settings.courseware_policy?.cost_ai_lesson_audio ?? 5} onChange={(event)=>changePolicy("cost_ai_lesson_audio",Number(event.target.value))}/>
                 </label>
-                <label className="field-label">LISTENING · TRANSKRIPSI (diamond)
-                  <input className="text-field" type="number" min={0} max={10000} step={1} value={settings.courseware_policy?.cost_listening_transcribe ?? 1} onChange={(event)=>changePolicy("cost_listening_transcribe",Number(event.target.value))}/>
-                </label>
-                <label className="field-label">LISTENING · AI SCORE (diamond)
-                  <input className="text-field" type="number" min={0} max={10000} step={1} value={settings.courseware_policy?.cost_listening_ai_score ?? 1} onChange={(event)=>changePolicy("cost_listening_ai_score",Number(event.target.value))}/>
-                </label>
-                <label className="field-label">LISTENING · DIRECT AUDIO (diamond)
+                <label className="field-label">LISTENING · EVALUASI AUDIO AI (diamond)
                   <input className="text-field" type="number" min={0} max={10000} step={1} value={settings.courseware_policy?.cost_listening_direct_audio ?? 3} onChange={(event)=>changePolicy("cost_listening_direct_audio",Number(event.target.value))}/>
                 </label>
                 <label className="field-label">LIVE · ASSESSMENT SETELAH SESI (diamond)
@@ -1043,7 +1034,75 @@ export default function AdminPage({
               </div>
               <div className="info-box">
                 <CircleHelp size={15}/>
-                <span>Admin utama tidak mengonsumsi diamond. Biaya Live Assessment default 0; Gemini Live tetap menangani audio langsung, sedangkan assessment memakai provider AI global terpilih.</span>
+                <span>Admin utama tidak mengonsumsi diamond. Mode Penilaian Sistem di Listening Lab selalu gratis. Mode Penilaian AI di Listening Lab menggunakan tarif evaluasi audio AI di atas. Biaya Live Assessment default 0; Gemini Live menangani percakapan real-time.</span>
+              </div>
+              <div className="admin-divider" />
+              <div className="setting-title">
+                <div className="setting-icon purple">
+                  <BookOpen size={18} />
+                </div>
+                <div>
+                  <b>Alur Belajar Listening & AI Lesson</b>
+                  <small>
+                    Tentukan apakah learner dapat memilih materi secara bebas (paralel) atau harus bertahap (linear).
+                  </small>
+                </div>
+              </div>
+              <div className="admin-radio-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 12, marginTop: 12 }}>
+                <label
+                  style={{
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: 10,
+                    padding: "14px 16px",
+                    borderRadius: 12,
+                    border: `1.5px solid ${settings.courseware_policy?.learning_progression_mode !== "linear" ? "#5846c8" : "var(--border, #e5e0f5)"}`,
+                    background: settings.courseware_policy?.learning_progression_mode !== "linear" ? "#fbfaff" : "var(--surface, #fff)",
+                    cursor: "pointer",
+                  }}
+                >
+                  <input
+                    type="radio"
+                    name="learning_progression_mode"
+                    value="parallel"
+                    checked={settings.courseware_policy?.learning_progression_mode !== "linear"}
+                    onChange={() => changePolicy("learning_progression_mode", "parallel")}
+                    style={{ marginTop: 3 }}
+                  />
+                  <div>
+                    <b style={{ color: "#312d52", display: "block", fontSize: 14 }}>Belajar Paralel</b>
+                    <small style={{ color: "#797392", display: "block", marginTop: 2, fontSize: 12, lineHeight: 1.4 }}>
+                      Learner dapat bebas memilih materi tanpa harus menyelesaikan materi sebelumnya (mirip listening saat ini).
+                    </small>
+                  </div>
+                </label>
+                <label
+                  style={{
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: 10,
+                    padding: "14px 16px",
+                    borderRadius: 12,
+                    border: `1.5px solid ${settings.courseware_policy?.learning_progression_mode === "linear" ? "#5846c8" : "var(--border, #e5e0f5)"}`,
+                    background: settings.courseware_policy?.learning_progression_mode === "linear" ? "#fbfaff" : "var(--surface, #fff)",
+                    cursor: "pointer",
+                  }}
+                >
+                  <input
+                    type="radio"
+                    name="learning_progression_mode"
+                    value="linear"
+                    checked={settings.courseware_policy?.learning_progression_mode === "linear"}
+                    onChange={() => changePolicy("learning_progression_mode", "linear")}
+                    style={{ marginTop: 3 }}
+                  />
+                  <div>
+                    <b style={{ color: "#312d52", display: "block", fontSize: 14 }}>Belajar Linear</b>
+                    <small style={{ color: "#797392", display: "block", marginTop: 2, fontSize: 12, lineHeight: 1.4 }}>
+                      Learner harus menyelesaikan materi secara bertahap satu per satu dari awal sebelum membuka materi berikutnya.
+                    </small>
+                  </div>
+                </label>
               </div>
               <div className="admin-divider" />
               <div className="setting-title">

@@ -4,6 +4,7 @@ import {
   Check,
   CheckCircle2,
   Headphones,
+  Lock,
   Play,
   RotateCcw,
   Sparkles,
@@ -27,16 +28,17 @@ export default function ListeningPage({
   setData,
   speak,
   ttsStatus,
-  speechInputMode = "live_transcribe",
-  speechScoringMode = "local",
   speechSimilarityThreshold = 90,
+  aiAudioCost = 3,
   aiProvider = "clario",
   maxRecordSeconds = 180,
   maxAiAudioBytes = 12 * 1024 * 1024,
   unlimitedDiamonds = false,
+  learningProgressionMode = "parallel",
   onDiamondsChanged = () => {},
   onCourseProgress = () => {},
 }) {
+  const isLinear = learningProgressionMode === "linear";
   const speechThreshold = normalizeSpeechThreshold(speechSimilarityThreshold);
   const scopedData =
     courseId === "ielts" ? data : (data.courseProgress || {})[courseId] || {};
@@ -58,8 +60,11 @@ export default function ListeningPage({
     () => allLessons.filter((x) => level === "All" || x.level === level),
     [allLessons, level],
   );
-  const active = lessons.find((x) => x.id === activeId) || lessons[0];
+  const active = lessons.find((x) => x.id === activeId) || lessons[0] || allLessons[0];
   const done = scopedData.listeningCompleted || [];
+  const firstIncompleteIdx = isLinear
+    ? allLessons.findIndex((item) => !done.includes(item.id))
+    : -1;
   const speechPassed = (scopedData.speakingCompleted || []).includes(
     active?.id,
   );
@@ -221,12 +226,7 @@ export default function ListeningPage({
         <div>
           <b>Audio lesson & privasi mic</b>
           <span>
-            Audio memakai cache bersama sesuai voice default materi atau TTS
-            pilihanmu. Cache miss saat mode cached aktif memakai Browser Native.
-            Latihan speaking memakai mode global admin: transkripsi browser
-            read-only atau rekaman yang dikirim ke AI hanya setelah persetujuan.
-            Web Speech dapat menggunakan layanan vendor browser; audio tidak
-            diarsipkan oleh SpeakUp.
+            Latihan Speaking dengan auto transcribe mendukung browser berbasis Chromium (Google Chrome, Brave, Microsoft Edge) di PC/Laptop maupun Smartphone. Untuk browser lain, audio dapat dikirim ke server AI untuk dievaluasi.
           </span>
         </div>
       </div>
@@ -265,28 +265,46 @@ export default function ListeningPage({
             {doneCount} dari {allLessons.length} misi selesai
           </div>
           <div className="listening-list">
-            {lessons.map((l) => (
-              <button
-                key={l.id}
-                className={`listening-item ${l.id === active.id ? "active" : ""}`}
-                onClick={() => {
-                  setActiveId(l.id);
-                  setShowScript(false);
-                  onSelectLesson?.(l.id);
-                }}
-              >
-                <span className="listen-level">{l.level}</span>
-                <span>
-                  <b>{l.title}</b>
-                  <small>{l.objective}</small>
-                </span>
-                {done.includes(l.id) ? (
-                  <CheckCircle2 size={19} />
-                ) : (
-                  <ArrowRight size={16} />
-                )}
-              </button>
-            ))}
+            {lessons.map((l) => {
+              const lessonGlobalIdx = allLessons.findIndex(
+                (item) => item.id === l.id,
+              );
+              const isLocked =
+                isLinear &&
+                firstIncompleteIdx >= 0 &&
+                lessonGlobalIdx > firstIncompleteIdx;
+              return (
+                <button
+                  key={l.id}
+                  className={`listening-item ${l.id === active.id ? "active" : ""} ${isLocked ? "locked" : ""}`}
+                  onClick={() => {
+                    if (isLocked) {
+                      toast.info(
+                        "Mode Linear: Selesaikan lesson sebelumnya untuk membuka materi ini.",
+                      );
+                      return;
+                    }
+                    setActiveId(l.id);
+                    setShowScript(false);
+                    onSelectLesson?.(l.id);
+                  }}
+                  title={isLocked ? "Terkunci: selesaikan lesson sebelumnya" : l.title}
+                >
+                  <span className="listen-level">{l.level}</span>
+                  <span>
+                    <b>{l.title}</b>
+                    <small>{isLocked ? "Terkunci · Selesaikan sebelumnya" : l.objective}</small>
+                  </span>
+                  {done.includes(l.id) ? (
+                    <CheckCircle2 size={19} />
+                  ) : isLocked ? (
+                    <Lock size={16} />
+                  ) : (
+                    <ArrowRight size={16} />
+                  )}
+                </button>
+              );
+            })}
             {!lessons.length && (
               <p className="studio-empty">Belum ada lesson untuk level ini.</p>
             )}
@@ -298,14 +316,6 @@ export default function ListeningPage({
             <h2>{active.title}</h2>
             <p>{active.objective}</p>
           </div>
-          {active.image && (
-            <CourseMedia
-              src={active.image}
-              alt={`Ilustrasi pelengkap untuk ${active.title}`}
-              className="listening-visual"
-              caption="Ilustrasi pelengkap · jawaban ada dalam naskah audio, bukan gambar."
-            />
-          )}
           <div className="audio-player-card">
             <span className="audio-disc">
               <Headphones size={26} />
@@ -343,6 +353,14 @@ export default function ListeningPage({
           {showScript && (
             <div className="listening-script">{active.script}</div>
           )}
+          {(active.image || active.mediaUrl) && (
+            <CourseMedia
+              src={active.image || active.mediaUrl}
+              alt={`Ilustrasi materi ${active.title}`}
+              className="listening-visual"
+              caption="Ilustrasi pelengkap · jawaban ada dalam naskah audio, bukan gambar."
+            />
+          )}
           <div className="listening-questions">
             <div className="question-section-heading">
               <span className="eyebrow">CHECK YOUR UNDERSTANDING</span>
@@ -359,6 +377,13 @@ export default function ListeningPage({
                     {String(i + 1).padStart(2, "0")}
                   </div>
                   <h3>{q.prompt}</h3>
+                  {(q.image || q.mediaUrl) && (
+                    <CourseMedia
+                      src={q.image || q.mediaUrl}
+                      alt={`Ilustrasi soal ${i + 1}`}
+                      className="question-visual"
+                    />
+                  )}
                   <div className="answer-options">
                     {q.options.map((option, j) => (
                       <button
@@ -428,9 +453,8 @@ export default function ListeningPage({
             lesson={active}
             speak={(text) => speak(text, { type: "listening", item: active })}
             ttsStatus={ttsStatus}
-            speechInputMode={speechInputMode}
-            speechScoringMode={speechScoringMode}
             speechSimilarityThreshold={speechThreshold}
+            aiAudioCost={aiAudioCost}
             aiProvider={aiProvider}
             courseId={courseId}
             maxRecordSeconds={maxRecordSeconds}
@@ -529,10 +553,6 @@ export default function ListeningPage({
                 Selesaikan misi <Check size={16} />
               </button>
             )}
-          </div>
-          <div className="listening-caveat">
-            <Sparkles size={16} /> Materi latihan orisinal, bukan tes IELTS
-            resmi dan tidak menghasilkan band IELTS.
           </div>
         </article>
       </div>

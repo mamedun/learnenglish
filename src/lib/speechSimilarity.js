@@ -131,15 +131,272 @@ const normalizeWords = (text = "") => {
   return normalizeNumberPhrases(normalized);
 };
 
+const homophones = {
+  buy: "by",
+  bye: "by",
+  by: "by",
+  to: "to",
+  too: "to",
+  two: "to",
+  for: "for",
+  four: "for",
+  fore: "for",
+  their: "there",
+  there: "there",
+  theyre: "there",
+  no: "no",
+  know: "no",
+  right: "right",
+  write: "right",
+  rite: "right",
+  hear: "here",
+  here: "here",
+  our: "hour",
+  hour: "hour",
+  one: "one",
+  won: "one",
+  meat: "meet",
+  meet: "meet",
+  sea: "see",
+  see: "see",
+  sun: "son",
+  son: "son",
+  weather: "weather",
+  whether: "weather",
+  peace: "piece",
+  piece: "piece",
+  ate: "eight",
+  eight: "eight",
+  whole: "hole",
+  hole: "hole",
+  which: "witch",
+  witch: "witch",
+  wait: "weight",
+  weight: "weight",
+  break: "brake",
+  brake: "brake",
+  blew: "blue",
+  blue: "blue",
+  deer: "dear",
+  dear: "dear",
+  die: "dye",
+  dye: "dye",
+  fair: "fare",
+  fare: "fare",
+  grate: "great",
+  great: "great",
+  hair: "hare",
+  hare: "hare",
+  heal: "heel",
+  heel: "heel",
+  mail: "male",
+  male: "male",
+  plain: "plane",
+  plane: "plane",
+  road: "rode",
+  rode: "rode",
+  sail: "sale",
+  sale: "sale",
+  stair: "stare",
+  stare: "stare",
+  tail: "tale",
+  tale: "tale",
+  weak: "week",
+  week: "week",
+  colour: "color",
+  favourite: "favorite",
+  favour: "favor",
+  honour: "honor",
+  centre: "center",
+  theatre: "theater",
+  metre: "meter",
+  realise: "realize",
+  organise: "organize",
+  analyse: "analyze",
+  travelling: "traveling",
+  travelled: "traveled",
+  grey: "gray",
+  defence: "defense",
+  licence: "license",
+  practise: "practice",
+  dialogue: "dialog",
+  catalogue: "catalog",
+};
+
+function metaphone(word) {
+  if (!word) return "";
+  let w = word.toLowerCase().replace(/[^a-z]/g, "");
+  if (!w) return "";
+  if (/^(kn|gn|pn|wr|ps)/.test(w)) w = w.slice(1);
+  if (w.startsWith("x")) w = "s" + w.slice(1);
+  let code = "";
+  for (let i = 0; i < w.length; i += 1) {
+    const c = w[i];
+    const prev = w[i - 1] || "";
+    const next = w[i + 1] || "";
+    if (c === prev && c !== "c") continue;
+    if (i === 0 && /[aeiou]/.test(c)) {
+      code += c.toUpperCase();
+      continue;
+    }
+    if (/[aeiou]/.test(c)) continue;
+    switch (c) {
+      case "b":
+        if (prev === "m" && i === w.length - 1) break;
+        code += "B";
+        break;
+      case "c":
+        if (next === "h") {
+          code += "X";
+          i += 1;
+        } else if (/[eiy]/.test(next)) {
+          code += "S";
+        } else {
+          code += "K";
+        }
+        break;
+      case "d":
+        if (next === "g" && /[eiy]/.test(w[i + 2] || "")) {
+          code += "J";
+          i += 2;
+        } else {
+          code += "T";
+        }
+        break;
+      case "f":
+      case "v":
+        code += "F";
+        break;
+      case "g":
+        if (next === "h" && i === w.length - 2) break;
+        if (/[eiy]/.test(next)) {
+          code += "J";
+        } else {
+          code += "K";
+        }
+        break;
+      case "h":
+        if (/[aeiou]/.test(next) && !/[csptg]/.test(prev)) code += "H";
+        break;
+      case "j":
+        code += "J";
+        break;
+      case "k":
+        if (prev !== "c") code += "K";
+        break;
+      case "l":
+        code += "L";
+        break;
+      case "m":
+        code += "M";
+        break;
+      case "n":
+        code += "N";
+        break;
+      case "p":
+        if (next === "h") {
+          code += "F";
+          i += 1;
+        } else code += "P";
+        break;
+      case "q":
+        code += "K";
+        break;
+      case "r":
+        code += "R";
+        break;
+      case "s":
+        if (next === "h") {
+          code += "X";
+          i += 1;
+        } else code += "S";
+        break;
+      case "t":
+        if (next === "h") {
+          code += "0";
+          i += 1;
+        } else if (next === "i" && /[ao]/.test(w[i + 2] || "")) {
+          code += "X";
+          i += 2;
+        } else code += "T";
+        break;
+      case "w":
+      case "y":
+        if (/[aeiou]/.test(next)) code += c.toUpperCase();
+        break;
+      case "z":
+        code += "S";
+        break;
+    }
+  }
+  return code;
+}
+
+function charEditDistance(a, b) {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i += 1) {
+    const curr = [i];
+    for (let j = 1; j <= b.length; j += 1) {
+      curr[j] = Math.min(
+        curr[j - 1] + 1,
+        prev[j] + 1,
+        prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+    }
+    prev = curr;
+  }
+  return prev[b.length];
+}
+
+const digitToWord = {
+  "0": "zero",
+  "1": "one",
+  "2": "two",
+  "3": "three",
+  "4": "four",
+  "5": "five",
+  "6": "six",
+  "7": "seven",
+  "8": "eight",
+  "9": "nine",
+  "10": "ten",
+};
+
+function wordMatchCost(w1, w2) {
+  if (w1 === w2) return 0;
+  const word1 = digitToWord[w1] || w1;
+  const word2 = digitToWord[w2] || w2;
+  if (word1 === word2) return 0;
+  // Direct homophone or dialect dictionary
+  if (homophones[word1] && homophones[word1] === (homophones[word2] || word2)) return 0;
+  if (homophones[word2] && homophones[word2] === (homophones[word1] || word1)) return 0;
+  // English phonetic equivalence
+  const m1 = metaphone(word1);
+  const m2 = metaphone(word2);
+  if (m1 && m2 && m1 === m2) return 0;
+  // Character-level fuzzy matching for near-miss typos/minor STT variance
+  const maxLen = Math.max(word1.length, word2.length);
+  if (maxLen >= 4) {
+    const dist = charEditDistance(word1, word2);
+    const charSim = 1 - dist / maxLen;
+    if (charSim >= 0.8) return (1 - charSim) * 0.5;
+  }
+  return 1;
+}
+
 function wordEditDistance(left, right) {
   let previous = Array.from({ length: right.length + 1 }, (_, i) => i);
   for (let i = 1; i <= left.length; i += 1) {
     const current = [i];
     for (let j = 1; j <= right.length; j += 1) {
+      const cost = wordMatchCost(left[i - 1], right[j - 1]);
       current[j] = Math.min(
         current[j - 1] + 1,
         previous[j] + 1,
-        previous[j - 1] + (left[i - 1] === right[j - 1] ? 0 : 1),
+        previous[j - 1] + cost,
       );
     }
     previous = current;

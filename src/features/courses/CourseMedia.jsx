@@ -51,7 +51,7 @@ export default function CourseMedia({
         allowFullScreen
       />
     );
-  else if (video && /^https:\/\//i.test(value))
+  else if (video && (/^https?:\/\//i.test(value) || value.startsWith("/") || value.startsWith("./")))
     content = (
       <video
         src={value}

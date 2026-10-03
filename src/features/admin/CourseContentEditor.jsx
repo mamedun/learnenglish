@@ -386,6 +386,32 @@ function AiLessonEditor({ content, onChange, disabled }) {
             disabled={disabled}
             onChange={(responseSeconds) => onChange({ responseSeconds })}
           />
+          <Field
+            label="Target percakapan (turn)"
+            type="number"
+            min={1}
+            max={50}
+            value={content.targetTurns ?? 4}
+            disabled={disabled}
+            hint="Default 4x percakapan. Poin dihitung proporsional dari bintang."
+            onChange={(targetTurns) =>
+              onChange({ targetTurns: Math.max(1, Number(targetTurns) || 4) })
+            }
+          />
+          <Field
+            label="Nilai kelulusan minimum"
+            type="number"
+            min={10}
+            max={100}
+            value={content.minScore ?? 80}
+            disabled={disabled}
+            hint="Default 80. Skor minimal agar siswa eligible lanjut ke materi berikutnya."
+            onChange={(minScore) =>
+              onChange({
+                minScore: Math.max(10, Math.min(100, Number(minScore) || 80)),
+              })
+            }
+          />
         </div>
       </SchemaCard>
       <AudioVoices content={content} disabled={disabled} onChange={onChange} />

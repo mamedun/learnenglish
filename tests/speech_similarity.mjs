@@ -66,6 +66,16 @@ assert.equal(
   false,
 );
 assert.equal(compareSpokenText("", "anything").passed, false);
+
+// Test mergeTranscripts (Android Chrome de-duplication and continuous streaming)
+import { mergeTranscripts } from "../src/hooks/useSpeechRecognition.js";
+assert.equal(mergeTranscripts("Good morning", "Good morning everyone"), "Good morning everyone");
+assert.equal(mergeTranscripts("Good morning", "Good morning"), "Good morning");
+assert.equal(mergeTranscripts("Good morning", "everyone"), "Good morning everyone");
+assert.equal(mergeTranscripts("screen yesterday", "yesterday and opened"), "screen yesterday and opened");
+assert.equal(mergeTranscripts("", "Hello world"), "Hello world");
+assert.equal(mergeTranscripts("Hello world", ""), "Hello world");
+
 console.log(
   "PASS: punctuation-insensitive matching, contraction/number variants, and 90% threshold.",
 );

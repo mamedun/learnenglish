@@ -1,113 +1,392 @@
-# SpeakUp — petualangan belajar bahasa Inggris
+# SpeakUp (LearnEnglish) — AI English Conversation & Fluency Coach
 
-Aplikasi React **JSX** + Vite dan API PHP/SQLite untuk latihan bahasa Inggris yang terinspirasi IELTS. Default path frontend: `/learnenglish/`; API: `/learnenglish/api/`. Path dapat diatur untuk subfolder lain atau domain root. Ini **bukan** tes atau sertifikasi IELTS resmi.
+Selamat datang di repositori resmi **SpeakUp (LearnEnglish)** — platform komprehensif pembelajaran bahasa Inggris interaktif berbasis web yang memadukan latihan *Speaking*, *Listening Lab*, *Shadowing Practice*, percakapan *AI Roleplay*, dan percakapan suara *Real-Time Gemini Live*.
 
-## Arsitektur
+Dokumentasi ini disusun secara lengkap dan mendalam agar dapat dipahami dengan mudah oleh **pengguna akhir (end-user)**, **pengembang (developer)**, maupun **agen AI** yang akan melanjutkan pengembangan di sesi berikutnya.
 
-- **Frontend:** `src/app/` merangkai fitur; `src/features/{auth,admin,dashboard,listening,speaking,live,progress,settings}/` berisi halaman; `src/components/` berisi status loading/error; `src/store/` menyimpan auth dan progres global dengan Zustand; `src/api.js` menangani HTTP, Bearer token, satu proses refresh untuk request bersamaan, dan retry. Modul yang jarang dibuka di-_lazy load_ dengan skeleton, status aksesibel, dan fallback jika unduhan modul gagal. Semua tetap JSX/JavaScript.
-- **Pilihan dependensi:** Zustand dipakai karena state sesi dan belajar digunakan lintas halaman. `lucide-react` dan **Sonner** sudah menyediakan ikon/toast; tidak ditambah React-Toastify. `fetch` yang ada mendukung file biner, error, dan retry sehingga axios belum diperlukan. ECharts, TanStack Table, React Player, dan react-pdf belum diperlukan: belum ada grafik kompleks/tabel besar/video terverifikasi/PDF. Tambahkan hanya saat fiturnya benar-benar ada.
-- **Konten:** SQLite menyimpan 6 jenjang A1–C2, 48 unit speaking, 18 lesson listening, 36 soal, dan kunci. `api/seeds/catalog.json` digunakan sekali saat katalog kosong. Studio Admin mengedit/publikasi/arsip langsung di SQLite; kunci listening tidak dikirim ke katalog peserta dan dicek melalui `POST listening/check`.
-- **Batas produk:** Listening Lab tersedia untuk akun learner; AI Lesson dan Live Lesson memakai saldo diamond (tanpa syarat Premium). AI Lesson transcript berbiaya 2 diamond, evaluasi audio 5 diamond; Live mencadangkan 10 diamond per blok 5 menit, menagih 2 per menit yang dimulai, maksimal 10 menit. Audio arsip memerlukan persetujuan terpisah dari pengiriman audio ke AI. XP/streak/badge adalah motivasi, bukan skor IELTS atau proteksi anti-cheat. Bank video tetap kosong sampai sumber dan kunci soal diverifikasi. Lihat [IELTS_COURSE_DESIGN.md](./IELTS_COURSE_DESIGN.md) dan [IMAGE_PROMPTS.md](./IMAGE_PROMPTS.md).
-- **TTS:** Kokoro melalui TTS.Rocks tetap menjadi engine default; Browser Native tetap dapat dipilih. Empat suara Kokoro tersedia (Heart-American, Puck-American, Emma-British, George-British) dengan WebGPU/WASM dan model lokal IndexedDB. Preferensi **Gunakan cached voice** default aktif: audio authored yang dibuat Admin dipakai bersama, dan cache miss memakai Browser Native. Jika dinonaktifkan, aplikasi mengecek shared cache dulu lalu merender WAV secara lokal dan mengunggahnya pada cache miss. Cache server 1 GB memakai LRU; prompt/cue card/script yang diedit menginvalidasi WAV item terkait. Balasan AI tutor dinamis tidak disimpan.
-- **AI global & input speaking:** Admin memilih satu provider global: Clario, Gemini Server AI, OpenRouter, atau Free API Key. Model Gemini/OpenRouter dapat dipilih dari katalog provider; semua API key disimpan terenkripsi dan tetap server-side. Gemini Server AI memakai key/model tersendiri dan endpoint `generateContent`, terpisah dari Gemini Live yang tetap memakai token dan model Live sendiri. OpenRouter memakai endpoint resmi OpenAI-compatible `/api/v1/chat/completions`. Mode live transcription browser (adapter Web Speech API mengikuti pola `paulmagadi/speech-to-text-converter`) terpisah dari rekaman yang dikirim setelah persetujuan; browser yang tidak mendukung live transcription dapat memakai rekaman AI secara eksplisit untuk lesson tersebut. Adapter Free API Key mengikuti contoh `VocalAI English Studio`: server memilih node acak dari pool HTTPS SG1–SG10, membuat JWT HS256 (claim `iss`, `sub`, `exp`, `apiKey`) atau memakai manual token, lalu mengirim `Authorization: Bearer`, `X-API-Key`, dan multipart FormData (`prompt`, `audio`) ke `/chat`. API key/JWT secret/manual token disimpan terenkripsi di server; config PHP memakai nama `FREE_*`, dan pengaturan tersimpan dari versi sebelumnya tetap terbaca. Nilai default credential dari sample tidak disalin ke repo. Tidak ada fallback ke provider yang tidak dipilih. Latihan read-aloud membandingkan kata dengan tanda baca diabaikan; ambang kelulusan 50–100% dapat diatur Admin secara global (default 90%).
-- **Live Lesson:** peserta dapat memilih topik role-play (mis. wawancara kerja, rapat, restoran, perjalanan); Gemini Live memulai percakapan dengan pertanyaan sesuai peran. Setelah tiap giliran, instruksi Live meminta tutor membetulkan grammar/pronoun dengan contoh singkat atau memberi pujian spesifik saat sudah natural. Tema dan koreksi tetap berupa latihan percakapan, bukan penilaian medis/IELTS resmi.
-- **Protokol assessment audio:** `POST api/assess-audio` menerima consent, mode, level, prompt, dan file audio dari browser. Clario dan OpenRouter menerima format OpenAI-compatible `input_audio` (model yang dipilih harus mendukung audio); Gemini Server AI menerjemahkan pesan tersebut menjadi `inlineData` pada `generateContent`. Jalur normal Free API Key memakai multipart `/chat` dan auth server-side sesuai adapter di atas; cookie dan User-Agent browser tidak diteruskan atau dipalsukan. Pengecualian diagnostik: toggle **Debug request langsung dari browser** hanya untuk sesi Admin, memerlukan token Auto, meminta prompt dan JWT 5 menit dari PHP, lalu mengirim audio langsung ke SG node. X-API-Key akan terlihat di DevTools; endpoint Free harus mengizinkan CORS. Learner tetap memakai jalur PHP. Matikan toggle setelah diagnosis; key yang sudah terekspos perlu dirotasi melalui provider jika ingin dicabut. Jika Clario mengembalikan `inline_image_not_supported`, jangan mengubah audio menjadi `image_url` atau mengulang payload yang sama—minta protokol/model audio yang didukung Clario.
+---
 
-### Login yang bertahan tanpa menyimpan token di browser storage
+## Daftar Isi
+1. [Ringkasan & Visi Produk](#1-ringkasan--visi-produk)
+2. [Fitur-Fitur Utama Aplikasi](#2-fitur-fitur-utama-aplikasi)
+   - [A. Listening Lab (Laboratorium Listening & Shadowing)](#a-listening-lab-laboratorium-listening--shadowing)
+   - [B. AI Lesson / Practice Studio](#b-ai-lesson--practice-studio)
+   - [C. Gemini Live Lesson (Real-Time Voice Conversation)](#c-gemini-live-lesson-real-time-voice-conversation)
+   - [D. Gamifikasi, Journey Map, & Progres](#d-gamifikasi-journey-map--progres)
+   - [E. Studio Admin & Panel Manajemen](#e-studio-admin--panel-manajemen)
+3. [Arsitektur & Tech Stack](#3-arsitektur--tech-stack)
+4. [Peta Struktur Direktori Proyek](#4-peta-struktur-direktori-proyek)
+5. [Sistem Suara & Visualizer Audio Real-Time](#5-sistem-suara--visualizer-audio-real-time)
+6. [Referensi Endpoint REST API](#6-referensi-endpoint-rest-api)
+7. [Autentikasi, Keamanan, & Sesi](#7-autentikasi-keamanan--sesi)
+8. [Panduan Instalasi & Menjalankan Aplikasi](#8-panduan-instalasi--menjalankan-aplikasi)
+9. [Panduan Deployment Produksi (Apache & Nginx)](#9-panduan-deployment-produksi-apache--nginx)
+10. [Panduan Khusus untuk Pengembang & Agen AI Berikutnya](#10-panduan-khusus-untuk-pengembang--agen-ai-berikutnya)
 
-PHP membuat **JWT akses HS256 berlaku 15 menit** dan menyimpannya hanya dalam memori Zustand; token tidak masuk `localStorage`. **Refresh token acak berlaku 30 hari sejak aktivitas terakhir**, dirotasi pada setiap `POST auth/refresh`, dikirim sebagai cookie `HttpOnly`, `SameSite=Lax` (default), dan hanya hash SHA-256-nya yang disimpan di tabel `auth_sessions`. Akses dipulihkan setelah reload; jika JWT kedaluwarsa, frontend me-refresh sekali untuk request yang sedang berjalan. Logout mencabut sesi di server; penggantian password mencabut semua sesi lama. User lama yang masih memiliki sesi PHP valid dimigrasikan sekali saat refresh. Setelah 30 hari tanpa aktivitas, login ulang tetap diperlukan.
+---
 
-Untuk API beda origin, atur allowlist origin persis, HTTPS, dan `SESSION_SAMESITE=None`. Cookie `Secure` diwajibkan. Jika PHP berada di belakang proxy HTTPS, aktifkan `TRUST_HTTPS_PROXY` **hanya jika proxy tepercaya menimpa** header `X-Forwarded-Proto`. Gunakan HTTPS di produksi; jangan gunakan `*` untuk CORS berkredensial. Jangan mengganti `APP_ENCRYPTION_KEY` tanpa rencana rotasi: JWT lama terputus dan API key provider terenkripsi mungkin tidak dapat dibaca.
+## 1. Ringkasan & Visi Produk
 
-### Mengapa katalog di database?
+**SpeakUp (LearnEnglish)** dirancang untuk mengatasi hambatan terbesar pembelajar bahasa Inggris: **kurangnya partner bicara yang suportif, rasa cemas saat berbicara, dan minimnya feedback pengucapan yang spesifik**. 
 
-**Pro:** Admin dapat memperbarui materi tanpa rebuild; semua akun memakai katalog yang sama; kunci soal tetap di server; arsip mempertahankan ID/progres. **Kontra:** PHP/SQLite harus tersedia dan dapat menulis, termasuk direktori untuk WAL; butuh backup dan migrasi skema. Seed JSON yang diedit setelah instalasi tidak menyinkronkan database lama. Mengedit soal mengganti ID pertanyaan; hindari publikasi saat peserta sedang mengerjakannya.
+Platform ini menghadirkan pengalaman belajar mandiri berstandar CEFR (jenjang A1 hingga C2) dan IELTS yang imersif melalui:
+- **Audio Native Kokoro TTS & Cerita Interaktif**: Melatih telinga menangkap aksen, intonasi, dan kosakata kontekstual.
+- **Latihan Shadowing Dual-Mode**: Memilih antara penilaian fonetik lokal gratis (browser) atau penilaian AI mendalam dengan laporan artikulasi & kelancaran.
+- **Tutor Digital AI**: Memberikan koreksi tata bahasa (*grammar*), sinonim lebih natural, dan penilaian skor instan.
+- **Percakapan Bebas Real-Time (Gemini Live)**: Simulasi percakapan telepon dua arah yang spontan dengan jeda latensi sangat rendah.
 
-## Konfigurasi: `.env*` hanya untuk frontend, `config.php` hanya untuk PHP
+---
 
-**PHP tidak membaca `.env`, `ENV_FILE`, atau `getenv()` lagi.** Semua konfigurasi backend berasal dari `api/config.php` yang harus dijaga privat dan tidak di-commit; file itu mengembalikan array PHP. `api/config.example.php` memuat default aman **tanpa rahasia**. Di server:
+## 2. Fitur-Fitur Utama Aplikasi
 
-```bash
-cp api/config.example.php api/config.php
-chmod 600 api/config.php
+### A. Listening Lab (Laboratorium Listening & Shadowing)
+- **Audio Cerita Berjenjang**: Setiap unit listening memiliki narasi audio berkualitas tinggi dengan dukungan **Kokoro TTS** (Heart-American, Puck-American, Emma-British, George-British) atau suara bawaan browser.
+- **Kuis Pemahaman (Comprehension Check)**: Soal latihan interaktif (pilihan ganda, melengkapi kalimat) yang diperiksa langsung secara aman oleh server (`POST /api/listening/check`).
+- **Shadowing & Speaking Task**:
+  - **Tombol Hero Interaktif (*Eye-Catching Action Button*)**: Tombol besar bergaya kartu modern dengan ikon mikrofon berdenyut, status live yang jelas, dan tag biaya/gratis.
+  - **Mode Penilaian Sistem (Gratis · 0 Diamond)**:
+    - Menggunakan Web Speech API browser untuk mentranskripsikan suara menjadi teks secara instan.
+    - Teks dapat diedit di perangkat mobile bila ada kata yang terlewat.
+    - Algoritma pencocokan fonetik cerdas (`speechSimilarity.js`) menggunakan **Double Metaphone**, pemetaan homofon (*there/their/they're*), normalisasi ejaan UK/US (*color/colour*), dan jarak Levenshtein fuzzy.
+    - Skor **hanya muncul setelah tombol periksa diklik secara eksplisit** (mencegah skor prematur).
+  - **Mode Penilaian AI (Analisis Suara & Artikulasi Langsung)**:
+    - Merekam suara langsung (*direct audio*) tanpa transkripsi lokal.
+    - Menyediakan pemutar preview audio agar pengguna dapat mendengarkan kembali suaranya sebelum dikirim.
+    - Mengirim rekaman ke AI Server untuk menganalisis akurasi pengucapan, kejelasan artikulasi kata, dan kelancaran (*stutter detection*).
+    - Menampilkan kartu **Laporan Artikulasi & Kejelasan AI** (`articulationReport`) serta persentase skor.
+  - **Visualizer Gelombang Suara Audio-Reactive (Web Audio API)**:
+    - Waveform **benar-benar tenang dan statis saat kondisi hening**.
+    - Waveform **bergejolak dinamis mengikuti desibel dan volume suara** pengguna saat berbicara.
+
+---
+
+### B. AI Lesson / Practice Studio
+- **Latihan Percakapan Berbasis Skenario**: Pengguna berdialog giliran-demi-giliran (*turn-based*) dengan persona tutor AI sesuai topik (pekerjaan, perjalanan, debat, wawancara).
+- **Alur Audio Hero yang Menarik**: Tombol dengarkan soal dan instruksi dilengkapi bar visualizer interaktif.
+- **Progres Pembelajaran Fleksibel**:
+  - Mendukung mode alur **Berurutan (Sequential)** maupun **Bebas (Independent)** yang dapat dikonfigurasi per kursus melalui Course Studio.
+- **Modal Perayaan Gamifikasi (Celebration Modal)**:
+  - Efek konfeti meriah (`canvas-confetti`) dan kartu ucapan selamat saat pengguna berhasil mencapai target skor poin minimum.
+- **Riwayat Rekaman Percakapan**:
+  - Rekaman audio jawaban dapat diputar kembali.
+  - Penghapusan kartu riwayat otomatis menghapus rekaman terkait di database serta file audio fisik di server.
+
+---
+
+### C. Gemini Live Lesson (Real-Time Voice Conversation)
+- **Percakapan Telepon Dua Arah dengan Maya**: Pengguna berbicara secara bebas tanpa perlu mengetik teks; tutor AI merespons secara langsung melalui suara.
+- **Pilihan Topik Beragam**: Wawancara kerja, *ordering at a restaurant*, diskusi film, simulasi IELTS speaking part 2.
+- **Sistem Billing Transparan**: Penggunaan dihitung dalam blok waktu cadangan diamond per menit.
+- **Review Pasca Sesi**: Rangkuman kekuatan (*strengths*), aspek yang perlu diperbaiki (*improvements*), dan contoh kalimat revisi natural.
+
+---
+
+### D. Gamifikasi, Journey Map, & Progres
+- **Peta Petualangan (Journey Map)**: Menampilkan visualisasi jalur belajar dari A1 Pemula hingga C2 Mahir yang difilter otomatis berdasarkan kursus aktif terakhir.
+- **XP, Level, & Daily Streak**: Membangun konsistensi belajar harian dengan reward XP dan perhitungan *streak*.
+- **Piala & Badge Pencapaian**: Koleksi medali atas kelulusan unit dan performa berbicara.
+- **Ekonomi Diamond**: Saldo diamond digunakan untuk fitur-fitur bertenaga AI (Penilaian AI dan Gemini Live). Pengguna dengan hak Admin memiliki akses tak terbatas (*Unlimited Diamonds*).
+
+---
+
+### E. Studio Admin & Panel Manajemen
+Akses khusus administrator untuk mengelola seluruh aspek aplikasi secara terpadu:
+- **Course Studio**:
+  - Pembuatan kursus baru, jenjang (Levels), unit speaking, dan materi listening.
+  - Konfigurasi alur belajar per kursus: *Sequential Progression* (terkunci berurutan) atau *Free/Independent Access* (bebas pilih lesson).
+  - Penetapan harga beli kursus (dalam IDR/Diamond).
+- **Manajemen Pengguna & Pembelian**:
+  - Pencarian, filter status, pengubahan saldo diamond, reset password, dan audit transaksi kursus pengguna.
+- **Manajemen Iklan Global (Ads Studio)**:
+  - Konfigurasi banner ads, interstitial, dan reward ads.
+- **Akses & Kebijakan (Settings)**:
+  - Pengaturan biaya diamond penilaian audio langsung (`cost_listening_direct_audio`).
+  - Ambang batas kelulusan speaking (*Similarity Threshold* 50%–100%).
+  - Pemilihan AI Provider global (Clario, Gemini Server AI, OpenRouter, Free API Key SG1–SG10).
+  - Manajemen cache suara Kokoro TTS (kapasitas 1 GB dengan penghapusan otomatis LRU).
+- **AI Image Generator & Media Manager**:
+  - Generator gambar berbasis AI yang otomatis menggunakan provider aktif (Free AI Key, Gemini Imagen/Flash, OpenRouter, atau Clario).
+  - Pilihan rasio aspek gambar: `1:1` (persegi), `16:9` (landscape banner), `4:3` (standar materi soal), `9:16` (portrait), dan `3:4` (buku/sampul).
+  - Pratinjau instan dengan opsi konfirmasi simpan atau buang.
+  - Penyimpanan permanen gambar ke `api/uploads/media/` dengan penamaan acak aman, menyediakan URL relatif (misalnya `/learnenglish/api/uploads/media/img_abc123.jpg`) beserta tombol salin instan.
+  - Galeri media tersimpan dengan modal pratinjau penuh, salin URL, dan tombol hapus file.
+  - Terintegrasi langsung dengan **Course Studio**: tombol **"Pilih Gambar"** tersedia di samping input Poster, Banner, dan Ilustrasi Unit untuk memilih media secara langsung melalui modal file manager.
+
+---
+
+### F. Dukungan PWA (Progressive Web App) & Instalasi Mobile
+Aplikasi SpeakUp kini mendukung penuh standar **Progressive Web App (PWA)** sehingga dapat diinstall langsung di layar utama smartphone (Android & iOS) maupun desktop tanpa melalui toko aplikasi (App Store / Play Store):
+- **Web App Manifest (`public/manifest.webmanifest`)**:
+  - Mode tampilan `standalone` (tampilan aplikasi penuh tanpa address bar browser).
+  - Tema warna `#315c45` selaras dengan status bar perangkat.
+  - Ikon aplikasi beresolusi tinggi (192x192, 512x512, maskable 512x512, dan Apple Touch Icon 180x180).
+  - Shortcuts navigasi cepat langsung ke menu "Latihan Percakapan" dan "Listening Lab".
+- **Service Worker (`public/sw.js` & `src/registerServiceWorker.js`)**:
+  - Pre-caching aset inti aplikasi (*app shell*) untuk waktu pembukaan instan dan keandalan saat jaringan lambat.
+  - Strategi *Stale-While-Revalidate* untuk file statis dan *Network-First* untuk navigasi dengan fallback offline.
+  - Bypass otomatis untuk API requests (`/api/*`), WebSockets, dan streaming AI.
+- **Pemicu Instalasi Dalam Aplikasi (`src/hooks/usePwaInstall.js`)**:
+  - Menangkap event `beforeinstallprompt` browser secara otomatis.
+  - Tombol aksi **"Install App"** pada bilah atas (*topbar*) dan menu profil sidebar.
+  - Panduan instalasi interaktif di halaman **Pengaturan (Settings)** untuk Android Chrome dan iOS Safari (Share ⎋ -> *Add to Home Screen*).
+
+---
+## 3. Arsitektur & Tech Stack
+
+| Lapisan | Teknologi | Deskripsi |
+| :--- | :--- | :--- |
+| **Frontend UI** | React 18 (JSX), Vite | Komponen modular, transisi cepat, responsif mobile & desktop |
+| **State Management**| Zustand | Menyimpan state autentikasi, user profile, katalog kursus, dan progres |
+| **Ikon & Feedback** | Lucide React, Sonner | Ikon modern dan sistem notifikasi toast halus |
+| **Audio Processing** | Web Audio API, Canvas | Analisis FFT `AnalyserNode` real-time, visualizer 60 FPS |
+| **TTS Engine** | Kokoro TTS (TTS.Rocks) | Text-to-speech berkualitas tinggi dengan aksen US dan UK |
+| **Backend API** | PHP 8.1+ | RESTful API berbasis JSON tanpa framework berat, performa tinggi |
+| **Database** | SQLite 3 dengan WAL Mode | Penyimpanan relasional ringan, transaksi cepat, ACID compliant |
+| **Keamanan** | JWT, HttpOnly Cookies, AES-256-GCM | Token akses memori, refresh token terenkripsi, proteksi data |
+
+---
+
+## 4. Peta Struktur Direktori Proyek
+
+```text
+learnenglish/
+├── api/                             # Backend PHP REST API
+│   ├── config.example.php           # Template konfigurasi backend tanpa rahasia
+│   ├── config.php                   # Konfigurasi privat (kunci enkripsi, paths, kredensial)
+│   ├── index.php                    # Router utama API, endpoint assessment, audio, users, auth
+│   ├── courseware.php               # Endpoint kursus, progres, modul listening, dan studio
+│   ├── migrate.php                  # Skrip CLI & web migrasi database otomatis
+│   ├── router.php                   # Router untuk development server PHP bawaan
+│   ├── seeds/                       # Seed data JSON katalog dan kurikulum awal
+│   ├── db/                          # Direktori database SQLite (data.db)
+│   └── uploads/                     # Direktori penyimpanan rekaman suara pengguna
+├── src/                             # Kode Sumber Frontend (React JSX)
+│   ├── app/
+│   │   └── App.jsx                  # Komponen induk, routing utama, navigasi topbar/sidebar
+│   ├── components/                  # Komponen pakai ulang
+│   │   ├── AudioRadarWaveform.jsx   # Visualizer gelombang suara & radar reaktif Web Audio API
+│   │   ├── AudioRadarWaveform.css   # Styling visualizer, tema emerald/coral/purple
+│   │   ├── ProcessingStatus.jsx     # Indikator status loading proses AI
+│   │   ├── ModuleLoading.jsx        # Skeleton loader
+│   │   └── ModuleErrorBoundary.jsx  # Penangkap error runtime
+│   ├── features/                    # Modul fitur berbasis domain
+│   │   ├── admin/                   # Halaman Admin, Course Studio, Ads, User Management
+│   │   ├── auth/                    # Halaman Login & Registrasi
+│   │   ├── courses/                 # Daftar & Detail Kursus
+│   │   ├── listening/               # Listening Lab & Speaking Task (Shadowing)
+│   │   ├── live/                    # Percakapan suara Gemini Live
+│   │   ├── progress/                # Journey Map, Profil, XP & Achievements
+│   │   ├── settings/                # Pengaturan suara TTS & akun pengguna
+│   │   └── speaking/                # AI Lesson Practice Page & Skenario Roleplay
+│   ├── hooks/                       # Custom React Hooks
+│   │   ├── useSpeechRecognition.js  # Wrapper Web Speech API dengan filter duplikasi mobile
+│   │   └── useSmallViewport.js      # Deteksi ukuran layar responsif
+│   ├── lib/                         # Utilitas & Logika Bisnis
+│   │   ├── speechSimilarity.js      # Algoritma pencocokan fonetik Metaphone & fuzzy
+│   │   ├── audio.js                 # Konversi rekaman audio ke WAV
+│   │   ├── formatTime.js            # Formatter durasi waktu (MM:SS)
+│   │   └── ttsRocks.js              # Integrasi Kokoro TTS player
+│   ├── styles.css                   # Gaya dasar aplikasi
+│   ├── overrides.css                # Komponen kustom, radar pulse, hero buttons
+│   └── theme.css                    # Variabel warna dan tema desain
+├── tests/                           # Skrip pengujian otomatis (Node & Python)
+├── index.html                       # Entry point HTML
+├── package.json                     # Dependensi frontend npm
+└── vite.config.js                   # Konfigurasi bundler Vite
 ```
 
-Edit file privat itu, minimal `APP_ENCRYPTION_KEY` (>=32 karakter acak), `ADMIN_EMAIL` dan `ADMIN_PASSWORD` bootstrap jika admin belum ada, `DATA_DB_PATH`, `UPLOADS_DIR`, `TTS_CACHE_DIR`, dan `CORS_ALLOWED_ORIGINS`. `TTS_CACHE_DIR` menyimpan WAV Kokoro bersama (metadata di SQLite) dengan hard limit 1 GB dan eviction least-recently-used; arahkan ke folder privat di luar web root bila memungkinkan. Untuk database yang sudah ada, gunakan path **absolut** ke file yang benar (misalnya `__DIR__ . '/db/data.db'`); path relatif dalam config diartikan relatif terhadap `api/`, bukan working directory PHP. Akun admin hanya dibuat jika email tersebut belum ada; perubahan password di config tidak mereset akun. Setelah login awal admin wajib mengganti password (baru minimal 12 karakter); hapus password bootstrap dari config sesudahnya.
+---
 
-**Jangan commit atau kirim `api/config.php` ke web sebagai file publik.** Apache `.htaccess` menghalangi akses langsung ke config, helper, seed, DB, dan upload. Di Nginx `.htaccess` tidak berlaku: tambahkan deny untuk config dan folder privat. Idealnya simpan DB/upload di luar web root melalui path di `api/config.php`.
+## 5. Sistem Suara & Visualizer Audio Real-Time
 
-Frontend menggunakan `.env.development.local` / `.env.production.local` yang **hanya** berisi variabel `VITE_*`; salin dari `.env.development.example` / `.env.production.example` jika perlu. `VITE_BASE_PATH` mengatur mount frontend dan otomatis membentuk URL aset/API: gunakan `/learnenglish` (default), `/speakup`, atau `/` untuk root. Contoh subfolder: set `VITE_BASE_PATH=/speakup`; untuk root: `VITE_BASE_PATH=/`. Setelah mengubahnya, rebuild frontend dan salin isi `dist/` ke folder web yang cocok.
+Platform ini mengimplementasikan visualizer suara berbasis **Web Audio API (`AudioContext` & `AnalyserNode`)** yang digambar pada HTML5 Canvas pada 60 FPS:
 
-**Tidak cukup hanya mengubah variabel frontend bila path API PHP juga berubah.** `api/config.php` di server harus memiliki `APP_BASE_PATH` yang sama dengan prefix publik API (mis. `'/speakup'`, atau `'/'` untuk root); defaultnya `/learnenglish` dan dijelaskan di `api/config.example.php`. Pastikan web server benar-benar memetakan frontend dan `/api/` pada lokasi tersebut. Saat development, `VITE_API_PROXY_PATH_PREFIX` menunjuk prefix backend yang dituju (default mengikuti `VITE_BASE_PATH`; isi kosong bila backend ada di root), sedangkan `VITE_API_PROXY_TARGET` adalah host PHP. Gunakan `VITE_API_BASE_URL` hanya untuk API beda origin. Jangan pernah menaruh kredensial PHP/API key di `VITE_*`.
+1. **Responsif Terhadap Desibel Suara**:
+   - Nilai desibel diekstrak dari frekuensi data mikrofon secara real-time.
+   - **Kondisi Hening**: Semua bar berada di posisi dasar berupa kapsul statis (*flat resting pills* setinggi 4px), radar sonar tidak memancar agresif, dan teks berbunyi `● Hening (Menunggu suaramu…)`.
+   - **Kondisi Berbicara**: Bar equalizer bergejolak melompat tinggi secara proporsional dengan volume suara pengguna, radar sonar memancar seirama intensitas suara, dan indikator berbunyi `● Suara terdeteksi — mic merespons (Volume: XX%)`.
+2. **Desain Sentris Simetris (*Center-Weighted*)**:
+   - Frekuensi vokal manusia diletakkan di tengah dan melandai ke sisi kiri-kanan, menghasilkan visualisasi gelombang suara organik layaknya aplikasi rekaman modern.
+3. **Fisika Pegas Halus (*Fluid Spring Physics*)**:
+   - Lonjakan bar naik cepat (*fast attack*) dan turun secara bertahap (*smooth decay*), mencegah visualizer terlihat patah-patah atau bergetar liar.
 
-### Jalankan lokal
+### Sistem Loading Toast Berkarakter Gamifikasi (Mascot Loading Toast)
+Setiap proses asinkron yang membutuhkan waktu (seperti pengiriman rekaman audio ke server AI, sintesis suara Kokoro TTS melalui GPU/WASM CPU pada smartphone, atau pemeriksaan fonetik) kini menampilkan **Mascot Bottom Loading Toast** yang melayang dari bagian bawah layar:
+- **Karakter Maskot Pip**: Karakter burung hantu robot 3D bergaya claymation yang ramah dan ekspresif:
+  - `pip-thinking.png`: Saat AI sedang menganalisis jawaban suara, mengevaluasi tata bahasa, atau mencocokkan naskah.
+  - `pip-audio.png`: Saat Kokoro TTS sedang memuat model atau merender gelombang suara audio dengan headphone dan nada musik.
+  - `pip-success.png`: Saat respons berhasil diterima dan audio siap diputar (merayakan dengan bintang emas sebelum toast menghilang).
+- **Dual Progress Bar**:
+  - *Determinate Progress*: Menampilkan persentase unduhan/generasi audio real-time (0–100%) jika didukung.
+  - *Indeterminate Progress*: Animasi *infinite candy-stripe shimmer* saat menunggu respons dari server AI eksternal.
 
-Persyaratan: Node.js 20+, PHP 8.1+ dengan `pdo_sqlite`, `openssl`, `fileinfo`, session; `curl` disarankan untuk provider (ada fallback HTTP stream).
+### Konversi Audio Client-Side ke MP3 128kbps Mono
+Untuk menghemat ruang penyimpanan server secara signifikan serta mempercepat waktu transfer jaringan di perangkat seluler pengguna:
+- **Encoding MP3 128kbps Mono di Browser**: Menggunakan pustaka murni JavaScript `@breezystack/lamejs` tanpa dependensi eksternal, seluruh audio vokal diproses secara lokal langsung pada browser pengguna (`src/lib/audio.js`).
+- **Penyimpanan Cache Kokoro TTS**: Hasil sintesis suara Kokoro (single speaker maupun multi-speaker composite dialog) dikonversi menjadi file MP3 mono 128kbps sebelum disimpan ke server cache shared (`POST api/tts-cache`). File yang tersimpan menyusut drastis dari ~1.5–5 MB (WAV uncompressed) menjadi hanya ~100–350 KB (MP3 128kbps).
+- **Pengiriman Rekaman ke AI & Arsip Akun**: Rekaman suara mikrofon pengguna yang dikirim ke AI untuk penilaian (`POST api/assess-audio`) atau disimpan ke arsip latihan akun (`POST api/audio`) secara otomatis dikonversi ke MP3 128kbps mono di sisi klien sebelum dikirim melalui jaringan.
+- **Dukungan Backend Terintegrasi**: Server PHP (`api/tts_cache.php` dan `api/index.php`) telah diperbarui untuk menerima tipe `audio/mpeg` dan `audio/mp3`, menyimpannya dengan format MP3 yang tepat, dan meneruskan format audio ke model AI upstream (Gemini / OpenRouter / Free AI key).
 
-```bash
-npm ci
-cp api/config.example.php api/config.php
-# isi APP_ENCRYPTION_KEY dan kredensial bootstrap secara privat
-php -S 0.0.0.0:8787 api/router.php    # terminal pertama
-npm run dev                            # terminal kedua
-```
+---
 
-Dengan konfigurasi default, buka `http://localhost:5173/learnenglish/`. Untuk root/subfolder lain, atur `VITE_BASE_PATH` di env development serta `APP_BASE_PATH` di `api/config.php`; restart Vite setelah mengubah env. Login/bootstrap gagal bila `APP_ENCRYPTION_KEY` masih kosong (health menampilkan `auth_configured:false`). Password user baru minimal 10 karakter. Default API health: `http://localhost:8787/learnenglish/api/health`. Browser di Vite memakai URL relatif dan proxy; tidak memanggil `localhost` dari kode frontend yang di-deploy.
+## 6. Referensi Endpoint REST API
 
-## Menangani `GET /api/health` dan `/api/me` HTTP 503
+Default root API: `https://domain.com/learnenglish/api/` (atau sesuai konfigurasi base path).
 
-**503 bukan kesalahan `api.js` di browser**: server PHP merespons gagal menyiapkan SQLite. File `.db` yang sudah ada **belum membuktikan** bahwa PHP web server memiliki driver/akses untuk membukanya. Versi API ini menambahkan `code` dan diagnostik boolean aman pada respons 503 `health`/`me`; detail exception lengkap masuk log PHP dan hanya boleh ditampilkan jika `APP_DEBUG=true` di lingkungan privat.
+### Autentikasi & Akun
+- `POST auth/register` — Mendaftarkan akun pembelajar baru.
+- `POST auth/login` — Login pengguna; mengembalikan JWT token di memori dan cookie refresh `HttpOnly`.
+- `POST auth/refresh` — Merotasi dan memperbarui token akses.
+- `POST auth/logout` — Mencabut sesi pengguna di server.
+- `GET me` — Mengambil data profil, progres, dan saldo diamond pengguna saat ini.
+- `POST account/password` — Mengubah password akun.
 
-| `code`/indikator                                                 | Langkah perbaikan                                                                                                                                                                                  |
-| ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `missing_pdo_sqlite`, `diagnostics.pdo_sqlite=false`             | Aktifkan **PDO_SQLITE pada PHP yang menjalankan situs** (PHP-FPM/Apache), bukan hanya PHP CLI; periksa versi/ekstensi di panel hosting. Kode aplikasi tidak bisa memasang ekstensi hosting.        |
-| `database_directory_missing` atau `directory_writable=false`     | Cocokkan `DATA_DB_PATH` dengan lokasi DB lama yang benar. Beri user proses PHP izin menulis **dan traversal** ke direktori DB; WAL/SHM perlu dibuat di folder ini. Jangan gunakan `chmod 777`.     |
-| `database_permissions` / `database_writable=false` saat file ada | Pastikan file `.db` dapat dibaca/ditulis oleh user PHP-FPM dan direktori induknya juga writable. Periksa kepemilikan sesudah upload/deploy serta ruang disk.                                       |
-| `database_unavailable` padahal izin dan driver benar             | Periksa log PHP untuk pesan SQLite spesifik, seed yang hilang, DB korup/terkunci, atau lokasi/path keliru. Cadangkan DB sebelum memperbaiki; **jangan menghapus DB pengguna untuk mengatasi 503**. |
-| `health` sehat namun `auth_configured=false`                     | Isi `APP_ENCRYPTION_KEY` dengan nilai stabil di `api/config.php` privat; login memerlukan kunci ini.                                                                                               |
+### Pembelajaran & Konten
+- `GET catalog` — Mengambil daftar materi kursus (tanpa menyertakan kunci jawaban).
+- `POST listening/check` — Memeriksa jawaban kuis listening secara aman di server.
+- `GET progress` & `PUT progress` — Menyimpan dan menyinkronkan status penyelesaian unit.
+- `POST speech-score` — Menilai kecocokan teks naskah dan transkrip.
+- `POST assess-audio` — Mengunggah audio rekaman untuk penilaian langsung fonetik, artikulasi, dan kelancaran oleh AI.
+- `POST live-token` & `POST live-assessment` — Mengambil token sesi Gemini Live dan review evaluasi percakapan.
+- `POST audio` & `DELETE audio/{id}` — Mengunggah dan menghapus arsip rekaman audio pengguna beserta file fisiknya.
 
-Jika Vite masih mem-proxy ke `https://rikisample.test` dan alamat tersebut 503, ubah `.env.development.local` agar proxy menuju **PHP yang benar**, lalu restart Vite. Jika 503 terjadi di hosting `.test` atau produksi, deploy kode/config baru dan perbaiki ekstensi/izin **di hosting tersebut**; perubahan pada repo lokal tidak otomatis memperbaiki server yang sedang aktif.
+### Studio Admin
+- `GET/POST admin/courses` — Manajemen katalog kursus dan penetapan mode progres.
+- `GET/POST/PUT/DELETE admin/units` — Manajemen unit speaking.
+- `GET/POST/PUT/DELETE admin/listening` — Manajemen cerita dan soal listening.
+- `GET/PUT admin/settings` — Pengaturan kebijakan, biaya diamond, dan provider AI.
+- `GET/PUT admin/users` — Manajemen akun pengguna dan saldo diamond.
+- `GET/PUT admin/ads` — Pengaturan iklan global.
+- `GET/DELETE admin/tts-cache` — Manajemen cache file WAV suara Kokoro.
+- `POST admin/generate-image` — Menghasilkan gambar baru berbasis AI provider aktif (prompt + aspect ratio).
+- `GET/POST admin/media` & `DELETE admin/media/{filename}` — Manajemen file media `api/uploads/media/`.
+- `GET media/{filename}` — Menyajikan file gambar media yang tersimpan.
 
-## Deploy produksi
+---
 
-1. Sebelum `npm ci && npm run build`, pilih `VITE_BASE_PATH` (`/learnenglish` default, `/speakup`, atau `/` untuk root). Salin **isi** `dist/` ke folder web yang cocok dengan base tersebut. Tempatkan `api/` di URL `<APP_BASE_PATH>/api/`, lalu set `APP_BASE_PATH` pada `api/config.php` privat di server (gunakan `'/'` untuk root). Pastikan SPA fallback tidak menangkap API; `public/.htaccess` memakai rewrite relatif untuk mendukung root maupun subfolder. Buat `api/config.php` privat pada server **sebelum** mengakses API baru; jangan menyalin config development atau `.env` lama ke frontend.
-2. Konfigurasikan `DATA_DB_PATH` ke SQLite yang **sudah berjalan** jika upgrade; pertahankan database/progres, jangan membuat DB baru tanpa sengaja. Proses PHP harus dapat membuat tabel `auth_sessions`, membaca/menulis DB dan menulis di direktori untuk SQLite WAL. Simpan `APP_ENCRYPTION_KEY` yang sama dengan konfigurasi sebelumnya agar API key terenkripsi tetap dapat dibaca. Backup SQLite yang konsisten (termasuk WAL aktif) dan audio bersama.
-3. Di Apache, `.htaccess` melarang akses file privat; di **Nginx** tambahkan aturan setara (sesuaikan server block dan urutan rewrite). Contoh berikut memakai default `/learnenglish`; ganti prefix tersebut sesuai `APP_BASE_PATH` (untuk root deployment, gunakan `/api/...` dan aturan root yang setara):
+## 7. Autentikasi, Keamanan, & Sesi
 
+- **Model Dual-Token**:
+  - **Access Token (JWT HS256)**: Berlaku 15 menit dan **hanya disimpan dalam memori JavaScript (Zustand store)**. Token ini tidak pernah disimpan di `localStorage` atau `sessionStorage` sehingga kebal terhadap serangan XSS pencurian token.
+  - **Refresh Token (30 Hari)**: Token acak 64 karakter disimpan sebagai cookie `HttpOnly`, `SameSite=Lax` (atau `None` untuk cross-origin HTTPS), dan `Secure`. Di database, hanya hash SHA-256 yang disimpan. Setiap kali refresh terjadi, refresh token dirotasi.
+- **Enkripsi Kunci Rahasia**:
+  - API Key provider AI eksternal (Gemini, OpenRouter, Clario) disimpan di database dalam bentuk terenkripsi menggunakan algoritma **AES-256-GCM** dengan kunci `APP_ENCRYPTION_KEY`.
+- **Proteksi Akses File**:
+  - File `.htaccess` memblokir akses HTTP langsung ke direktori database SQLite, file upload privat, dan file konfigurasi.
+---
+
+## 8. Panduan Instalasi & Menjalankan Aplikasi
+
+### Kebutuhan Sistem
+- **Node.js**: Versi 20.x atau lebih baru.
+- **PHP**: Versi 8.1 atau lebih baru dengan ekstensi:
+  - `pdo_sqlite`
+  - `openssl`
+  - `fileinfo`
+  - `curl` (disarankan)
+
+### Langkah Menjalankan di Komputer Lokal
+
+1. **Clone Repositori & Masuk ke Folder**:
+   ```bash
+   git clone https://github.com/mamedun/learnenglish.git
+   cd learnenglish
+   ```
+
+2. **Pasang Dependensi Frontend**:
+   ```bash
+   npm install
+   ```
+
+3. **Siapkan Konfigurasi Backend**:
+   ```bash
+   cp api/config.example.php api/config.php
+   ```
+   Buka `api/config.php` dan pastikan mengisi `APP_ENCRYPTION_KEY` dengan string acak minimal 32 karakter:
+   ```php
+   'APP_ENCRYPTION_KEY' => 'ganti-dengan-32-karakter-acak-rahasia-anda',
+   ```
+
+4. **Jalankan Migrasi Database**:
+   ```bash
+   php api/migrate.php
+   ```
+   *Skrip ini akan membuat tabel SQLite dan mengimpor katalog awal dari `api/seeds/` secara otomatis.*
+
+5. **Jalankan Backend & Frontend**:
+   - **Terminal 1 (PHP Server)**:
+     ```bash
+     php -S 0.0.0.0:8787 api/router.php
+     ```
+   - **Terminal 2 (Vite Frontend Dev)**:
+     ```bash
+     npm run dev
+     ```
+
+6. **Buka Aplikasi**:
+   Akses `http://localhost:5173/learnenglish/` pada browser Anda.
+
+---
+
+## 9. Panduan Deployment Produksi (Apache & Nginx)
+
+1. **Build Frontend**:
+   Tentukan base path pada `.env.production` (default: `VITE_BASE_PATH=/learnenglish`):
+   ```bash
+   npm run build
+   ```
+   Salin isi direktori `dist/` ke direktori web publik server Anda.
+
+2. **Konfigurasi Backend Server**:
+   Tempatkan folder `api/` pada server web. Pastikan permissions folder `api/db/`, `api/uploads/`, dan `api/tts_cache/` dapat dibaca dan ditulis oleh proses web server (`www-data` / `nginx`):
+   ```bash
+   chmod 750 api/db api/uploads api/tts_cache
+   chown -R www-data:www-data api/db api/uploads api/tts_cache
+   ```
+
+3. **Konfigurasi Nginx (Contoh Blok Lokasi)**:
    ```nginx
+   # Blokir akses langsung ke folder privat
    location ^~ /learnenglish/api/db/      { return 404; }
    location ^~ /learnenglish/api/uploads/ { return 404; }
    location ^~ /learnenglish/api/seeds/   { return 404; }
-   location ~* ^/learnenglish/api/(?:config(?:\.example)?|bootstrap|catalog|auth|router|tts_cache)\.php$ { return 404; }
-   location ~* ^/learnenglish/(?:\.env.*|.*\.(?:db|sqlite|sqlite3|log)(?:-wal|-shm)?)$ { return 404; }
+   location ~* ^/learnenglish/api/(?:config(?:\.example)?|bootstrap|catalog|auth|router|migrate)\.php$ { return 404; }
+   location ~* ^/learnenglish/(?:\.env.*|.*\.(?:db|sqlite|sqlite3)(?:-wal|-shm)?)$ { return 404; }
+
+   # Teruskan request API ke PHP-FPM
+   location /learnenglish/api/ {
+       try_files $uri $uri/ /learnenglish/api/index.php?$query_string;
+       location ~ \.php$ {
+           include fastcgi_params;
+           fastcgi_pass unix:/var/run/php/php8.2-fpm.sock;
+           fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+       }
+   }
+
+   # SPA Frontend Fallback
+   location /learnenglish/ {
+       try_files $uri $uri/ /learnenglish/index.html;
+   }
    ```
 
-4. Gunakan HTTPS. Untuk frontend/API pada origin yang sama biarkan `SESSION_SAMESITE=Lax` dan `VITE_API_BASE_URL` kosong; API URL otomatis mengikuti `VITE_BASE_PATH`. Untuk beda origin HTTPS, konfigurasi `CORS_ALLOWED_ORIGINS` (daftar origin frontend), `SESSION_SAMESITE=None`, dan URL API frontend `VITE_API_BASE_URL` saat build. Header `Authorization` diizinkan untuk CORS origin terdaftar.
-5. Atur PHP `upload_max_filesize=26M`, `post_max_size=28M`, `max_execution_time=90` untuk cache WAV Kokoro (maksimal 25 MB) dan evaluasi audio ber-consent (batas aplikasi 12 MB). Pastikan folder `TTS_CACHE_DIR` writable oleh proses PHP dan tidak dapat diakses langsung; bila lokasinya berada di web root Nginx, deny URL folder tersebut seperti aturan `uploads` di atas. API key provider dienkripsi dengan AES-256-GCM menggunakan `APP_ENCRYPTION_KEY`; backup kunci itu secara privat.
-6. Uji `health`, pendaftaran/login, reload/refresh, logout, penyimpanan progres, perubahan password admin, Studio, saldo diamond dan billing Live/AI, serta akses audio berdasarkan kepemilikan. Respons health yang sehat tidak sendiri membuktikan semua fitur/konfigurasi provider telah diuji.
+---
 
-## Endpoint penting (default: `/learnenglish/api/`)
+## 10. Panduan Khusus untuk Pengembang & Agen AI Berikutnya
 
-- `GET health`, `GET me`, `POST register/login/logout`, `POST auth/refresh`, `POST account/password`
-- `GET catalog` (tanpa kunci untuk peserta), `POST listening/check` (koreksi oleh server)
-- `GET/PUT/DELETE progress`; `GET admin/catalog`, `POST/PUT/DELETE admin/units` dan `admin/listening`, `PUT admin/levels/{id}`
-- `GET/POST tts-cache` (WAV Kokoro bersama, terikat ke revisi konten); `GET admin/tts-cache`, `POST admin/tts-cache/clear`
-- `GET/POST/PUT admin/settings`, `GET/POST/PUT/DELETE admin/users`, `GET app-config`; `POST/GET/DELETE audio`, `POST assess-audio`, `POST chat`, `POST live-token`, `POST live-assessment`, `GET models`
+Jika Anda adalah agen AI atau developer yang melanjutkan pekerjaan pada repositori ini:
 
-## Pengujian tanpa menyentuh database pengguna
+1. **Aturan Branch Git**:
+   - Sesi pengembangan ini terikat pada branch **`arena/01a0fcfc-learnenglish`**.
+   - Selalu lakukan commit dan push ke branch ini (`git push origin arena/01a0fcfc-learnenglish`). Jangan beralih ke branch lain.
+2. **Kesesuaian CSS & Gaya Desain**:
+   - Aplikasi menggunakan kombinasi tema alam modern: nuansa hijau zamrud (`#315c45`, `#449e6b`), aksen coral hangat (`#d76154`, `#f27c70`), dan ungu AI (`#5c4bcb`, `#7867ea`).
+   - Jangan menambahkan library styling eksternal baru (seperti Tailwind atau Bootstrap) karena tata letak utama sudah tertata rapi dalam `styles.css`, `overrides.css`, `theme.css`, dan modul CSS lokal.
+3. **Prinsip User Experience (UX)**:
+   - Hindari memunculkan dialog konfirmasi (*popup confirmation*) berulang kali sebelum tindakan wajar (seperti merekam atau mengirim penilaian); prioritaskan pengalaman pengguna yang langsung (*instant & fluid action*).
+   - Pastikan setiap fitur suara memiliki feedback visual instan (*audio reactive*) sehingga pengguna tahu perangkat inputnya bekerja normal.
+4. **Validasi Build**:
+   - Sebelum mengakhiri sesi pengerjaan, selalu jalankan `npm run build` untuk memverifikasi bahwa seluruh bundel terkompilasi bersih tanpa peringatan error sintaks atau missing imports.
 
-```bash
-npm run build
-node tests/course_access.mjs
-node tests/progress_aggregate.mjs
-node tests/vite_base_path.mjs
-npm audit --omit=dev --audit-level=high
-python3 tests/prepare_smoke_api.py
-# start PHP dari path .../.arena/smoke-api-*/api yang baru dicetak di atas:
-# php -S 0.0.0.0:8788 /path/tercetak/router.php
-SMOKE_ADMIN_EMAIL=smoke-admin@example.invalid \
-SMOKE_ADMIN_PASSWORD=smoke-bootstrap-password \
-SMOKE_API_BASE=http://127.0.0.1:8788/learnenglish/api python3 tests/smoke_api.py
-```
+---
 
-Script membuat **salinan API dengan config.php, password, key, dan DB tes yang terpisah**, tidak membaca config/SQLite live. `smoke_api.py` memeriksa login, refresh/rotasi, revokasi saat logout/ganti password, hak akses, seed 6/48/18/36, CRUD user/katalog, koreksi jawaban server, progres, konfigurasi mode/provider global, pool/token mode/masking kredensial Free API Key, no-fallback ke provider lain, CORS, lockdown, dan pendaftaran. `node tests/speech_similarity.mjs` menguji tanda baca dan ambang global yang dapat dikonfigurasi (default 90%); `node tests/lesson_progress.mjs` menguji progres AI Lesson dari audio skenario sampai coba ulang. Jangan arahkan tes destruktif ini ke server produksi. Tes browser manual: reload setelah login tidak keluar; buka modul saat loading; selesaikan listening dan pastikan XP persisten; admin wajib ganti password awal dan dapat menyunting katalog.
+*SpeakUp — Learn English with Confidence, Clarity, and Flow.*

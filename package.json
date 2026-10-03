@@ -5,12 +5,15 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
+    "test": "for f in tests/*.mjs; do node \"$f\"; done",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
     "php:dev": "php -S 0.0.0.0:8787 api/router.php",
     "format": "prettier --write \"src/**/*.{js,jsx,css}\" vite.config.js"
   },
   "dependencies": {
+    "@breezystack/lamejs": "^1.2.7",
+    "canvas-confetti": "^1.9.4",
     "jszip": "^3.10.1",
     "lucide-react": "^0.468.0",
     "qrcode": "^1.5.4",

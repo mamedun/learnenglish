@@ -250,9 +250,18 @@ function tts_cache_get_audio(array $user): never
     }
     $selectedVoice = $expectedVoice;
     $pdo->prepare('UPDATE shared_tts_cache SET last_accessed_at=? WHERE cache_key=?')->execute([gmdate('c'), $key]);
-    header('Content-Type: audio/wav');
+    $storedMime = (string) ($asset['mime'] ?? '');
+    if (!$storedMime || $storedMime === 'audio/wav') {
+        if (str_ends_with((string) $asset['file_path'], '.mp3')) {
+            $storedMime = 'audio/mpeg';
+        } else {
+            $storedMime = 'audio/wav';
+        }
+    }
+    $ext = $storedMime === 'audio/mpeg' ? 'mp3' : 'wav';
+    header('Content-Type: ' . $storedMime);
     header('Content-Length: ' . (string) filesize((string) $asset['file_path']));
-    header('Content-Disposition: inline; filename="lesson-audio.wav"');
+    header('Content-Disposition: inline; filename="lesson-audio.' . $ext . '"');
     header('X-Content-Type-Options: nosniff');
     header('X-Speakup-TTS-Voice: ' . $selectedVoice);
     readfile((string) $asset['file_path']);
@@ -313,15 +322,21 @@ function tts_cache_upload(array $user): never
     $tmpPath = (string) ($file['tmp_name'] ?? '');
     $finfo = new finfo(FILEINFO_MIME_TYPE);
     $mime = $finfo->file($tmpPath) ?: '';
-    if (!in_array($mime, ['audio/wav', 'audio/x-wav', 'audio/vnd.wave'], true))
-        respond(['error' => 'Cache hanya menerima WAV hasil Kokoro.'], 415);
-    $header = @file_get_contents($tmpPath, false, null, 0, 12);
-    if (!is_string($header) || strlen($header) < 12 || substr($header, 0, 4) !== 'RIFF' || substr($header, 8, 4) !== 'WAVE')
-        respond(['error' => 'Isi file bukan WAV yang valid.'], 415);
+    $isMp3 = in_array($mime, ['audio/mpeg', 'audio/mp3'], true);
+    $isWav = in_array($mime, ['audio/wav', 'audio/x-wav', 'audio/vnd.wave'], true);
+    if (!$isMp3 && !$isWav)
+        respond(['error' => 'Cache hanya menerima file audio MP3 atau WAV hasil Kokoro.'], 415);
+    if ($isWav) {
+        $header = @file_get_contents($tmpPath, false, null, 0, 12);
+        if (!is_string($header) || strlen($header) < 12 || substr($header, 0, 4) !== 'RIFF' || substr($header, 8, 4) !== 'WAVE')
+            respond(['error' => 'Isi file bukan WAV yang valid.'], 415);
+    }
 
+    $ext = $isMp3 ? 'mp3' : 'wav';
+    $storedMime = $isMp3 ? 'audio/mpeg' : 'audio/wav';
     $key = tts_cache_key($type, $cacheId, $revision, $voice);
     $directory = tts_cache_directory();
-    $targetPath = $directory . '/' . $key . '.wav';
+    $targetPath = $directory . '/' . $key . '.' . $ext;
     $stagedPath = $directory . '/' . $key . '.' . bin2hex(random_bytes(8)) . '.tmp';
     if (!move_uploaded_file($tmpPath, $stagedPath))
         respond(['error' => 'Gagal menyiapkan file cache.'], 500);
@@ -366,12 +381,12 @@ function tts_cache_upload(array $user): never
                 throw new RuntimeException('File cache lama tidak dapat diamankan.');
         }
         if (!@rename($stagedPath, $targetPath))
-            throw new RuntimeException('Gagal memindahkan WAV ke shared cache.');
+            throw new RuntimeException('Gagal memindahkan audio ke shared cache.');
         $targetInstalled = true;
 
         $now = gmdate('c');
         $save = $pdo->prepare('INSERT INTO shared_tts_cache(cache_key,content_type,content_id,source_revision,voice_id,mime,file_path,file_size,created_at,last_accessed_at) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(cache_key) DO UPDATE SET content_type=excluded.content_type,content_id=excluded.content_id,source_revision=excluded.source_revision,voice_id=excluded.voice_id,mime=excluded.mime,file_path=excluded.file_path,file_size=excluded.file_size,created_at=excluded.created_at,last_accessed_at=excluded.last_accessed_at');
-        $save->execute([$key, $type, $cacheId, $revision, $voice, 'audio/wav', $targetPath, $size, $now, $now]);
+        $save->execute([$key, $type, $cacheId, $revision, $voice, $storedMime, $targetPath, $size, $now, $now]);
         $summary = tts_cache_summary();
         $pdo->exec('COMMIT');
         if ($backupPath && is_file($backupPath)) @unlink($backupPath);

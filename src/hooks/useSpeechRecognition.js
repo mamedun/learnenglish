@@ -6,41 +6,72 @@ function getRecognitionConstructor() {
 }
 
 export function isBraveBrowser() {
-  if (typeof navigator === "undefined") return false;
-  return (
-    Boolean(navigator.brave) || /\bBrave\//i.test(navigator.userAgent || "")
-  );
+  return false;
 }
 
-export function speechRecognitionErrorMessage(code, brave = isBraveBrowser()) {
+export function speechRecognitionErrorMessage(code) {
   if (code === "not-allowed" || code === "service-not-allowed")
     return "Izin mikrofon/transkripsi ditolak. Izinkan penggunaan mikrofon di browser.";
   if (code === "audio-capture")
     return "Browser tidak menemukan mikrofon. Periksa perangkat input.";
   if (code === "network")
-    return brave
-      ? "Brave tidak dapat mengakses layanan transkripsi live ini. Gunakan Google Chrome untuk live transcription."
-      : "Layanan transkripsi browser tidak dapat terhubung. Periksa internet; jika memakai Brave, gunakan Google Chrome.";
+    return "Layanan transkripsi browser tidak dapat terhubung. Periksa koneksi internet.";
   return `Transkripsi berhenti${code ? ` (${code})` : ""}. Coba ulangi.`;
 }
 
-/** Live, read-only speech recognition using the Web Speech API, as used by the
- * requested speech-to-text-converter example (continuous + interim results). */
+/**
+ * Intelligent transcript merger that eliminates Android & mobile Chrome duplicate loops
+ * while allowing natural sentence progression and real-time word streaming.
+ */
+export function mergeTranscripts(existing, next) {
+  const a = (existing || "").trim();
+  const b = (next || "").trim();
+  if (!a) return b;
+  if (!b) return a;
+  const aLower = a.toLowerCase();
+  const bLower = b.toLowerCase();
+
+  // If b already contains or starts with a (Android cumulative repeat)
+  if (bLower.startsWith(aLower)) return b;
+
+  // If a already contains or ends with b
+  if (aLower.endsWith(bLower)) return a;
+
+  // Check word-level overlap at the boundary
+  const aWords = a.split(/\s+/);
+  const bWords = b.split(/\s+/);
+  const maxOverlap = Math.min(aWords.length, bWords.length, 6);
+
+  for (let len = maxOverlap; len > 0; len--) {
+    const aTail = aWords.slice(-len).join(" ").toLowerCase();
+    const bHead = bWords.slice(0, len).join(" ").toLowerCase();
+    if (aTail === bHead) {
+      return aWords.concat(bWords.slice(len)).join(" ");
+    }
+  }
+
+  return a + " " + b;
+}
+
+/** Live, read-only speech recognition using the Web Speech API (continuous + interim results).
+ * Works across modern Chromium browsers (Chrome, Brave, Edge, etc.) on desktop and mobile. */
 export function useSpeechRecognition({ language = "en-US" } = {}) {
   const [transcript, setTranscript] = useState("");
   const [listening, setListening] = useState(false);
   const [supported, setSupported] = useState(() =>
     Boolean(getRecognitionConstructor()),
   );
-  const [braveDetected, setBraveDetected] = useState(() => isBraveBrowser());
   const recognitionRef = useRef(null);
+  const listeningRef = useRef(false);
   const prefixRef = useRef("");
+  const finalTranscriptRef = useRef("");
+  const lastFinalChunkRef = useRef("");
   const ignoreLateResultsRef = useRef(false);
 
   useEffect(() => {
     setSupported(Boolean(getRecognitionConstructor()));
-    setBraveDetected(isBraveBrowser());
     return () => {
+      listeningRef.current = false;
       const recognition = recognitionRef.current;
       recognitionRef.current = null;
       if (recognition) {
@@ -57,6 +88,7 @@ export function useSpeechRecognition({ language = "en-US" } = {}) {
   }, []);
 
   const stop = useCallback((options = {}) => {
+    listeningRef.current = false;
     if (options?.discardPendingResults) ignoreLateResultsRef.current = true;
     const recognition = recognitionRef.current;
     if (recognition) {
@@ -70,6 +102,7 @@ export function useSpeechRecognition({ language = "en-US" } = {}) {
   }, []);
 
   const reset = useCallback(() => {
+    listeningRef.current = false;
     ignoreLateResultsRef.current = true;
     const recognition = recognitionRef.current;
     recognitionRef.current = null;
@@ -88,19 +121,25 @@ export function useSpeechRecognition({ language = "en-US" } = {}) {
     setTranscript("");
   }, []);
 
+  const updateTranscript = useCallback((newText) => {
+    setTranscript((prev) => {
+      const val = typeof newText === "function" ? newText(prev) : newText;
+      prefixRef.current = val || "";
+      return val || "";
+    });
+  }, []);
+
   const start = useCallback(
     ({ append = false } = {}) => {
-      if (isBraveBrowser()) {
-        setBraveDetected(true);
-        return { ok: false, reason: "unsupported-brave" };
-      }
       const Recognition = getRecognitionConstructor();
       if (!Recognition) {
         setSupported(false);
         return { ok: false, reason: "unsupported" };
       }
-      if (recognitionRef.current) return { ok: true };
+
+      if (recognitionRef.current && listeningRef.current) return { ok: true };
       ignoreLateResultsRef.current = false;
+      listeningRef.current = true;
 
       const prefix = append ? transcript.trim() : "";
       prefixRef.current = prefix;
@@ -111,43 +150,78 @@ export function useSpeechRecognition({ language = "en-US" } = {}) {
         recognition.continuous = true;
         recognition.interimResults = true;
         recognition.lang = language;
+
         recognition.onresult = (event) => {
           if (ignoreLateResultsRef.current) return;
+
           const parts = [];
           for (let i = 0; i < event.results.length; i += 1) {
-            const result = event.results[i];
-            const text = result?.[0]?.transcript?.trim();
-            if (text) parts.push(text);
+            const item = event.results[i];
+            const text = (item?.[0]?.transcript || "").trim();
+            if (!text) continue;
+
+            // Mobile repeat bug: Android Chrome resultIndex 1 sometimes repeats resultIndex 0
+            if (
+              i === 1 &&
+              text.toLowerCase() ===
+                (event.results[0]?.[0]?.transcript || "").trim().toLowerCase()
+            ) {
+              continue;
+            }
+
+            // Prevent adjacent identical duplicate chunks
+            if (
+              parts.length > 0 &&
+              parts[parts.length - 1].toLowerCase() === text.toLowerCase()
+            ) {
+              continue;
+            }
+
+            parts.push(text);
           }
+
           const recognized = parts.join(" ").replace(/\s+/g, " ").trim();
           const combined = [prefixRef.current, recognized]
             .filter(Boolean)
             .join(" ");
+
           setTranscript(combined);
         };
+
         recognition.onerror = (event) => {
-          if (!["no-speech", "aborted"].includes(event.error)) {
-            window.dispatchEvent(
-              new CustomEvent("speakup:speech-error", {
-                detail: { error: event.error, brave: isBraveBrowser() },
-              }),
-            );
+          if (event.error === "no-speech" || event.error === "aborted") {
+            // Non-fatal transient events on mobile
+            return;
           }
+
+          listeningRef.current = false;
           setListening(false);
-          if (recognitionRef.current === recognition)
+          if (recognitionRef.current === recognition) {
             recognitionRef.current = null;
+          }
+
+          window.dispatchEvent(
+            new CustomEvent("speakup:speech-error", {
+              detail: { error: event.error },
+            }),
+          );
         };
+
         recognition.onend = () => {
+          listeningRef.current = false;
           setListening(false);
-          if (recognitionRef.current === recognition)
+          if (recognitionRef.current === recognition) {
             recognitionRef.current = null;
+          }
         };
+
         recognitionRef.current = recognition;
         recognition.start();
         setListening(true);
         setSupported(true);
         return { ok: true };
       } catch (error) {
+        listeningRef.current = false;
         recognitionRef.current = null;
         setListening(false);
         return { ok: false, reason: error?.name || "recognition-error" };
@@ -158,10 +232,9 @@ export function useSpeechRecognition({ language = "en-US" } = {}) {
 
   return {
     transcript,
-    setTranscript,
+    setTranscript: updateTranscript,
     listening,
     supported,
-    braveDetected,
     start,
     stop,
     reset,

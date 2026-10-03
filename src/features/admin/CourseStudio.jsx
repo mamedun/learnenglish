@@ -21,12 +21,14 @@ import {
   Trash2,
   Users,
   X,
+  Image as ImageIcon,
 } from "lucide-react";
 import { apiJson } from "../../api";
 import { getSharedTtsAudio } from "../../lib/ttsCache";
 import { toast } from "sonner";
 import CourseContentEditor from "./CourseContentEditor";
 import SharedTtsCacheGenerator from "./SharedTtsCacheGenerator";
+import MediaLibraryModal from "../../components/MediaLibraryModal";
 import "./CourseStudio.css";
 
 const NEW_COURSE = {
@@ -44,6 +46,9 @@ const NEW_COURSE = {
   enableListening: true,
   enableAiLesson: true,
   enableLiveLesson: true,
+  progressionMode: "parallel",
+  listeningProgressionMode: "parallel",
+  aiLessonProgressionMode: "parallel",
 };
 const MODE_LABEL = {
   listening: "Listening",
@@ -352,10 +357,16 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
   const [userSort, setUserSort] = useState("name");
   const [courseUsers, setCourseUsers] = useState([]);
   const [usersLoading, setUsersLoading] = useState(false);
-  const [ads, setAds] = useState([]);
-  const [adDraft, setAdDraft] = useState(null);
-  const [adBusy, setAdBusy] = useState(false);
+  const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
+  const [mediaPickerCallback, setMediaPickerCallback] = useState(null);
+  const [mediaPickerTitle, setMediaPickerTitle] = useState("Pilih Gambar");
   const importModalityRef = useRef(null);
+
+  function openMediaPicker(callback, title = "Pilih Gambar dari Media Library") {
+    setMediaPickerCallback(() => callback);
+    setMediaPickerTitle(title);
+    setMediaPickerOpen(true);
+  }
   async function loadCourses(chooseId = undefined) {
     try {
       const response = await apiJson("admin/courses");
@@ -381,7 +392,18 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
       .then((result) => {
         if (!active) return;
         setCourseData(result);
-        setCourseDraft({ ...NEW_COURSE, ...result.course });
+        setCourseDraft({
+          ...NEW_COURSE,
+          ...result.course,
+          listeningProgressionMode:
+            result.course?.listeningProgressionMode ||
+            result.course?.progressionMode ||
+            "parallel",
+          aiLessonProgressionMode:
+            result.course?.aiLessonProgressionMode ||
+            result.course?.progressionMode ||
+            "parallel",
+        });
         setModuleDrafts(result.modules || {});
         setSelectedUnitId("");
       })
@@ -925,65 +947,6 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
       toast.error(error.message || "Status enrollment gagal diubah.");
     }
   }
-  async function loadAds() {
-    try {
-      const result = await apiJson("admin/course-ads");
-      setAds(result.ads || []);
-    } catch (error) {
-      toast.error(error.message || "Iklan gagal dimuat.");
-    }
-  }
-  useEffect(() => {
-    if (tab === "ads") void loadAds();
-  }, [tab]);
-  function editAd(ad = null) {
-    setAdDraft(
-      ad
-        ? { ...ad }
-        : {
-            id: null,
-            title: "",
-            description: "",
-            posterUrl: "",
-            link: "https://",
-            sortOrder: ads.length,
-            active: true,
-          },
-    );
-  }
-  async function saveAd() {
-    setAdBusy(true);
-    try {
-      const { id, ...body } = adDraft;
-      const url = id
-        ? `admin/course-ads/${encodeURIComponent(id)}`
-        : "admin/course-ads";
-      await apiJson(url, {
-        method: id ? "PUT" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      setAdDraft(null);
-      await loadAds();
-      toast.success("Iklan disimpan.");
-    } catch (error) {
-      toast.error(error.message || "Iklan gagal disimpan.");
-    } finally {
-      setAdBusy(false);
-    }
-  }
-  async function removeAd(ad) {
-    if (!window.confirm(`Hapus iklan “${ad.title}”?`)) return;
-    try {
-      await apiJson(`admin/course-ads/${encodeURIComponent(ad.id)}`, {
-        method: "DELETE",
-      });
-      await loadAds();
-      toast.success("Iklan dihapus.");
-    } catch (error) {
-      toast.error(error.message || "Iklan gagal dihapus.");
-    }
-  }
   const previewKind = mediaKind(selectedUnit?.mediaUrl || "");
   return (
     <div className="course-studio">
@@ -1151,8 +1114,6 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
                   { id: "ai_lesson", label: "AI Lesson" },
                   { id: "live_lesson", label: "Live Lesson" },
                   { id: "users", label: "User" },
-                  { id: "ads", label: "Iklan" },
-                  { id: "usage", label: "Penggunaan" },
                 ].map((item) => (
                   <button
                     key={item.id}
@@ -1203,25 +1164,55 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
                     </label>
                     <label>
                       Poster URL · 16:9
-                      <input
-                        className="text-field"
-                        value={courseDraft.posterUrl || ""}
-                        onChange={(event) =>
-                          editCourse("posterUrl", event.target.value)
-                        }
-                        placeholder="https://…/poster.jpg"
-                      />
+                      <div className="input-with-action-btn">
+                        <input
+                          className="text-field"
+                          value={courseDraft.posterUrl || ""}
+                          onChange={(event) =>
+                            editCourse("posterUrl", event.target.value)
+                          }
+                          placeholder="https://…/poster.jpg atau /api/uploads/media/…"
+                        />
+                        <button
+                          type="button"
+                          className="secondary-btn pick-media-btn"
+                          onClick={() =>
+                            openMediaPicker(
+                              (url) => editCourse("posterUrl", url),
+                              "Pilih Gambar Poster Kursus",
+                            )
+                          }
+                          title="Pilih gambar dari Media Library"
+                        >
+                          <ImageIcon size={15} /> Pilih Gambar
+                        </button>
+                      </div>
                     </label>
                     <label>
                       Banner URL · 16:9
-                      <input
-                        className="text-field"
-                        value={courseDraft.bannerUrl || ""}
-                        onChange={(event) =>
-                          editCourse("bannerUrl", event.target.value)
-                        }
-                        placeholder="https://…/banner.jpg"
-                      />
+                      <div className="input-with-action-btn">
+                        <input
+                          className="text-field"
+                          value={courseDraft.bannerUrl || ""}
+                          onChange={(event) =>
+                            editCourse("bannerUrl", event.target.value)
+                          }
+                          placeholder="https://…/banner.jpg atau /api/uploads/media/…"
+                        />
+                        <button
+                          type="button"
+                          className="secondary-btn pick-media-btn"
+                          onClick={() =>
+                            openMediaPicker(
+                              (url) => editCourse("bannerUrl", url),
+                              "Pilih Gambar Banner Kursus",
+                            )
+                          }
+                          title="Pilih gambar dari Media Library"
+                        >
+                          <ImageIcon size={15} /> Pilih Gambar
+                        </button>
+                      </div>
                     </label>
                     <div className="course-media-preview">
                       <div className="course-media-preview-title">
@@ -1320,37 +1311,108 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
                       />
                     </label>
                   </div>
-                  <div className="course-mode-toggles">
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked={Boolean(courseDraft.enableListening)}
-                        onChange={(event) =>
-                          editCourse("enableListening", event.target.checked)
-                        }
-                      />{" "}
-                      Listening Lab
-                    </label>
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked={Boolean(courseDraft.enableAiLesson)}
-                        onChange={(event) =>
-                          editCourse("enableAiLesson", event.target.checked)
-                        }
-                      />{" "}
-                      AI Lesson
-                    </label>
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked={Boolean(courseDraft.enableLiveLesson)}
-                        onChange={(event) =>
-                          editCourse("enableLiveLesson", event.target.checked)
-                        }
-                      />{" "}
-                      Live Lesson
-                    </label>
+                  <div className="course-mode-toggles-container" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                    <div style={{ border: "1px solid #e7e2f7", borderRadius: 10, padding: "12px 16px", background: courseDraft.enableListening ? "#ffffff" : "#fbfafd" }}>
+                      <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 700, fontSize: 14, cursor: "pointer", color: "#2d2854" }}>
+                        <input
+                          type="checkbox"
+                          checked={Boolean(courseDraft.enableListening)}
+                          onChange={(event) =>
+                            editCourse("enableListening", event.target.checked)
+                          }
+                        />{" "}
+                        Listening Lab
+                      </label>
+                      {courseDraft.enableListening && (
+                        <div style={{ marginTop: 10, paddingLeft: 26, display: "flex", flexDirection: "column", gap: 6 }}>
+                          <span style={{ fontSize: 12, fontWeight: 600, color: "#6e6796" }}>
+                            Alur Progres Listening Lab:
+                          </span>
+                          <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+                            <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer", color: "#443e62" }}>
+                              <input
+                                type="radio"
+                                name="course_listening_progression_mode"
+                                checked={courseDraft.listeningProgressionMode !== "linear"}
+                                onChange={() => editCourse("listeningProgressionMode", "parallel")}
+                              />
+                              Belajar Paralel (bebas memilih materi)
+                            </label>
+                            <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer", color: "#443e62" }}>
+                              <input
+                                type="radio"
+                                name="course_listening_progression_mode"
+                                checked={courseDraft.listeningProgressionMode === "linear"}
+                                onChange={() => editCourse("listeningProgressionMode", "linear")}
+                              />
+                              Belajar Linear (wajib bertahap / berurutan)
+                            </label>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={{ border: "1px solid #e7e2f7", borderRadius: 10, padding: "12px 16px", background: courseDraft.enableAiLesson ? "#ffffff" : "#fbfafd" }}>
+                      <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 700, fontSize: 14, cursor: "pointer", color: "#2d2854" }}>
+                        <input
+                          type="checkbox"
+                          checked={Boolean(courseDraft.enableAiLesson)}
+                          onChange={(event) =>
+                            editCourse("enableAiLesson", event.target.checked)
+                          }
+                        />{" "}
+                        AI Lesson
+                      </label>
+                      {courseDraft.enableAiLesson && (
+                        <div style={{ marginTop: 10, paddingLeft: 26, display: "flex", flexDirection: "column", gap: 6 }}>
+                          <span style={{ fontSize: 12, fontWeight: 600, color: "#6e6796" }}>
+                            Alur Progres AI Lesson:
+                          </span>
+                          <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+                            <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer", color: "#443e62" }}>
+                              <input
+                                type="radio"
+                                name="course_ai_lesson_progression_mode"
+                                checked={courseDraft.aiLessonProgressionMode !== "linear"}
+                                onChange={() => {
+                                  editCourse("aiLessonProgressionMode", "parallel");
+                                  editCourse("progressionMode", "parallel");
+                                }}
+                              />
+                              Belajar Paralel (bebas memilih materi)
+                            </label>
+                            <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer", color: "#443e62" }}>
+                              <input
+                                type="radio"
+                                name="course_ai_lesson_progression_mode"
+                                checked={courseDraft.aiLessonProgressionMode === "linear"}
+                                onChange={() => {
+                                  editCourse("aiLessonProgressionMode", "linear");
+                                  editCourse("progressionMode", "linear");
+                                }}
+                              />
+                              Belajar Linear (wajib bertahap / berurutan)
+                            </label>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={{ border: "1px solid #e7e2f7", borderRadius: 10, padding: "12px 16px", background: courseDraft.enableLiveLesson ? "#ffffff" : "#fbfafd" }}>
+                      <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 700, fontSize: 14, cursor: "pointer", color: "#2d2854" }}>
+                        <input
+                          type="checkbox"
+                          checked={Boolean(courseDraft.enableLiveLesson)}
+                          onChange={(event) =>
+                            editCourse("enableLiveLesson", event.target.checked)
+                          }
+                        />{" "}
+                        Live Lesson
+                      </label>
+                      <div style={{ marginTop: 6, paddingLeft: 26, fontSize: 12, color: "#777196" }}>
+                        Sesi tatap muka langsung sesuai jadwal kelas.
+                      </div>
+                    </div>
                   </div>
                   <div className="course-studio-tip">
                     Mode dapat disembunyikan per course. Status <b>closed</b>{" "}
@@ -1758,14 +1820,29 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
                               <>
                                 <label className="span-2">
                                   Ilustrasi / video / YouTube / URL eksternal
-                                  <input
-                                    className="text-field"
-                                    value={selectedUnit.mediaUrl || ""}
-                                    onChange={(event) =>
-                                      patchUnit("mediaUrl", event.target.value)
-                                    }
-                                    placeholder="https://… (YouTube, MP4, gambar)"
-                                  />
+                                  <div className="input-with-action-btn">
+                                    <input
+                                      className="text-field"
+                                      value={selectedUnit.mediaUrl || ""}
+                                      onChange={(event) =>
+                                        patchUnit("mediaUrl", event.target.value)
+                                      }
+                                      placeholder="https://… (YouTube, MP4, gambar) atau /api/uploads/media/…"
+                                    />
+                                    <button
+                                      type="button"
+                                      className="secondary-btn pick-media-btn"
+                                      onClick={() =>
+                                        openMediaPicker(
+                                          (url) => patchUnit("mediaUrl", url),
+                                          "Pilih Gambar Ilustrasi Materi",
+                                        )
+                                      }
+                                      title="Pilih gambar dari Media Library"
+                                    >
+                                      <ImageIcon size={15} /> Pilih Gambar
+                                    </button>
+                                  </div>
                                 </label>
                                 <div className="course-media-preview span-2">
                                   <div className="course-media-preview-title">
@@ -2133,421 +2210,18 @@ export default function CourseStudio({ onCatalogChange = () => {} }) {
                   </div>
                 </div>
               )}
-              {tab === "ads" && (
-                <div className="course-editor-panel">
-                  <div className="course-module-toolbar">
-                    <div>
-                      <h4>Iklan Course</h4>
-                      <p>
-                        Poster rasio 16:9, link eksternal, urutan, dan status
-                        active/inactive. Iklan aktif tampil berurutan di halaman
-                        Course.
-                      </p>
-                    </div>
-                    <button className="btn-primary" onClick={() => editAd()}>
-                      <Plus size={15} /> Buat iklan
-                    </button>
-                  </div>
-                  {adDraft && (
-                    <div className="course-ad-editor">
-                      <div className="course-ad-editor-head">
-                        <b>{adDraft.id ? "Edit iklan" : "Iklan baru"}</b>
-                        <button
-                          className="course-icon-action"
-                          onClick={() => setAdDraft(null)}
-                        >
-                          <X size={16} />
-                        </button>
-                      </div>
-                      <div className="course-field-grid">
-                        <label>
-                          Judul
-                          <input
-                            className="text-field"
-                            value={adDraft.title}
-                            onChange={(event) =>
-                              setAdDraft((current) => ({
-                                ...current,
-                                title: event.target.value,
-                              }))
-                            }
-                          />
-                        </label>
-                        <label>
-                          Urutan
-                          <input
-                            className="text-field"
-                            type="number"
-                            min="0"
-                            value={adDraft.sortOrder}
-                            onChange={(event) =>
-                              setAdDraft((current) => ({
-                                ...current,
-                                sortOrder: Number(event.target.value),
-                              }))
-                            }
-                          />
-                        </label>
-                        <label className="span-2">
-                          Deskripsi
-                          <textarea
-                            className="text-field"
-                            rows={3}
-                            value={adDraft.description}
-                            onChange={(event) =>
-                              setAdDraft((current) => ({
-                                ...current,
-                                description: event.target.value,
-                              }))
-                            }
-                          />
-                        </label>
-                        <label className="span-2">
-                          Poster URL · 16:9
-                          <input
-                            className="text-field"
-                            value={adDraft.posterUrl}
-                            onChange={(event) =>
-                              setAdDraft((current) => ({
-                                ...current,
-                                posterUrl: event.target.value,
-                              }))
-                            }
-                            placeholder="https://…/poster.jpg"
-                          />
-                        </label>
-                        <label className="span-2">
-                          Tautan HTTPS eksternal
-                          <input
-                            className="text-field"
-                            value={adDraft.link}
-                            onChange={(event) =>
-                              setAdDraft((current) => ({
-                                ...current,
-                                link: event.target.value,
-                              }))
-                            }
-                          />
-                        </label>
-                        <label className="course-published-toggle">
-                          <input
-                            type="checkbox"
-                            checked={Boolean(adDraft.active)}
-                            onChange={(event) =>
-                              setAdDraft((current) => ({
-                                ...current,
-                                active: event.target.checked,
-                              }))
-                            }
-                          />{" "}
-                          Aktif
-                        </label>
-                      </div>
-                      {adDraft.posterUrl && (
-                        <div className="course-ad-preview">
-                          <img src={adDraft.posterUrl} alt="Preview iklan" />
-                        </div>
-                      )}
-                      <div className="course-editor-actions">
-                        <button
-                          className="btn-primary"
-                          onClick={saveAd}
-                          disabled={adBusy}
-                        >
-                          <Check size={15} /> Simpan iklan
-                        </button>
-                        <button
-                          className="outline-btn"
-                          onClick={() => setAdDraft(null)}
-                        >
-                          Batal
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                  <div className="course-ad-admin-list">
-                    {ads.map((ad) => (
-                      <article key={ad.id} className="course-ad-admin-card">
-                        <img src={ad.posterUrl} alt="" />
-                        <div>
-                          <b>{ad.title}</b>
-                          <p>{ad.description}</p>
-                          <small>
-                            Urutan {ad.sortOrder} ·{" "}
-                            {ad.active ? "Active" : "Inactive"} · {ad.link}
-                          </small>
-                        </div>
-                        <span
-                          className={`course-status-pill ${ad.active ? "published" : "draft"}`}
-                        >
-                          {ad.active ? "active" : "inactive"}
-                        </span>
-                        <div className="course-editor-actions">
-                          <button
-                            className="outline-btn"
-                            onClick={() => editAd(ad)}
-                          >
-                            Edit
-                          </button>
-                          <button
-                            className="course-icon-action delete"
-                            onClick={() => removeAd(ad)}
-                          >
-                            <Trash2 size={15} />
-                          </button>
-                        </div>
-                      </article>
-                    ))}
-                    {!ads.length && (
-                      <div className="course-studio-empty compact">
-                        Belum ada iklan. Backend dapat membuat satu contoh iklan
-                        saat migrasi pertama.
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-              {tab === "usage" && (
-                <div className="course-editor-panel">
-                  <CourseUsageInline courses={courses} />
-                </div>
-              )}
             </>
           )}
         </main>
       </div>
-      {adDraft && null}
+      <MediaLibraryModal
+        isOpen={mediaPickerOpen}
+        onClose={() => setMediaPickerOpen(false)}
+        onSelect={(url) => {
+          if (mediaPickerCallback) mediaPickerCallback(url);
+        }}
+        title={mediaPickerTitle}
+      />
     </div>
-  );
-}
-
-function CourseUsageInline({ courses }) {
-  const [query, setQuery] = useState("");
-  return (
-    <div className="course-usage-inline">
-      <div className="course-module-toolbar">
-        <div>
-          <h4>Statistik penggunaan diamond</h4>
-          <p>
-            Filter user, course, mode, bagian/soal, tanggal, dan urutkan hasil.
-          </p>
-        </div>
-      </div>
-      <UsageTable courses={courses} query={query} setQuery={setQuery} />
-    </div>
-  );
-}
-function UsageTable({ courses, query, setQuery }) {
-  const [filters, setFilters] = useState({
-    course_id: "",
-    modality: "",
-    from: "",
-    to: "",
-    sort: "created_at",
-    direction: "desc",
-  });
-  const [result, setResult] = useState({
-    items: [],
-    page: 1,
-    pages: 1,
-    total: 0,
-    summary: {},
-  });
-  const [busy, setBusy] = useState(false);
-  async function load(page = 1) {
-    setBusy(true);
-    try {
-      const params = new URLSearchParams({
-        ...filters,
-        search: query,
-        page: String(page),
-        page_size: "25",
-      });
-      setResult(await apiJson(`admin/course-usage?${params}`));
-    } catch (error) {
-      toast.error(error.message || "Statistik gagal dimuat.");
-    } finally {
-      setBusy(false);
-    }
-  }
-  useEffect(() => {
-    void load(1);
-  }, []);
-  return (
-    <>
-      <div className="course-usage-summary">
-        <div>
-          <span>Catatan</span>
-          <b>{result.summary?.events ?? result.total}</b>
-        </div>
-        <div>
-          <span>Diamond</span>
-          <b>{result.summary?.diamonds ?? 0}</b>
-        </div>
-        <div>
-          <span>Durasi audio (detik)</span>
-          <b>{result.summary?.duration_seconds ?? 0}</b>
-        </div>
-      </div>
-      <div className="course-admin-filters">
-        <label className="course-admin-search">
-          <Search size={16} />
-          <input
-            value={query}
-            placeholder="User / course / materi / operasi"
-            onChange={(event) => setQuery(event.target.value)}
-          />
-        </label>
-        <select
-          className="text-field"
-          value={filters.course_id}
-          onChange={(event) =>
-            setFilters((current) => ({
-              ...current,
-              course_id: event.target.value,
-            }))
-          }
-        >
-          <option value="">Semua course</option>
-          {courses.map((course) => (
-            <option key={course.id} value={course.id}>
-              {course.name}
-            </option>
-          ))}
-        </select>
-        <select
-          className="text-field"
-          value={filters.modality}
-          onChange={(event) =>
-            setFilters((current) => ({
-              ...current,
-              modality: event.target.value,
-            }))
-          }
-        >
-          <option value="">Semua mode</option>
-          <option value="listening">Listening</option>
-          <option value="ai_lesson">AI Lesson</option>
-          <option value="live_lesson">Live Lesson</option>
-        </select>
-        <input
-          type="date"
-          className="text-field"
-          value={filters.from}
-          onChange={(event) =>
-            setFilters((current) => ({ ...current, from: event.target.value }))
-          }
-        />
-        <input
-          type="date"
-          className="text-field"
-          value={filters.to}
-          onChange={(event) =>
-            setFilters((current) => ({ ...current, to: event.target.value }))
-          }
-        />
-        <select
-          className="text-field"
-          value={filters.sort}
-          onChange={(event) =>
-            setFilters((current) => ({ ...current, sort: event.target.value }))
-          }
-        >
-          <option value="created_at">Waktu</option>
-          <option value="diamond_cost">Diamond</option>
-          <option value="modality">Mode</option>
-          <option value="course_name">Course</option>
-          <option value="user_name">User</option>
-        </select>
-        <select
-          className="text-field"
-          value={filters.direction}
-          onChange={(event) =>
-            setFilters((current) => ({
-              ...current,
-              direction: event.target.value,
-            }))
-          }
-        >
-          <option value="desc">Desc</option>
-          <option value="asc">Asc</option>
-        </select>
-        <button className="outline-btn" onClick={() => load(1)}>
-          <Search size={14} /> Cari
-        </button>
-      </div>
-      <button
-        className="outline-btn"
-        onClick={() => load(result.page)}
-        disabled={busy}
-      >
-        <RefreshCw size={14} /> Muat ulang
-      </button>
-      <div className="course-admin-table-wrap">
-        <table className="course-admin-table">
-          <thead>
-            <tr>
-              <th>Waktu</th>
-              <th>User</th>
-              <th>Course / mode</th>
-              <th>Bagian / soal</th>
-              <th>Input / durasi</th>
-              <th>Diamond</th>
-            </tr>
-          </thead>
-          <tbody>
-            {result.items?.map((item) => (
-              <tr key={item.id}>
-                <td>{new Date(item.created_at).toLocaleString("id-ID")}</td>
-                <td>
-                  {item.user_name}
-                  <small>{item.email}</small>
-                </td>
-                <td>
-                  {item.course_name || "—"}
-                  <small>
-                    {MODE_LABEL[item.modality] || item.modality} ·{" "}
-                    {item.provider}
-                  </small>
-                </td>
-                <td>
-                  {item.unit_title || item.unit_id || "—"}
-                  <small>{item.operation}</small>
-                </td>
-                <td>
-                  {item.transcript_chars || 0} chars ·{" "}
-                  {item.audio_bytes
-                    ? `${Math.round(item.audio_bytes / 1024)} KB · `
-                    : ""}
-                  {item.duration_seconds || 0}s
-                </td>
-                <td>{item.diamond_cost}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <div className="course-admin-pagination">
-        <span>
-          {result.total || 0} catatan · {result.page}/{result.pages}
-        </span>
-        <div>
-          <button
-            className="outline-btn"
-            disabled={result.page <= 1 || busy}
-            onClick={() => load(result.page - 1)}
-          >
-            <ArrowUpWideNarrow size={13} /> Sebelumnya
-          </button>
-          <button
-            className="outline-btn"
-            disabled={result.page >= result.pages || busy}
-            onClick={() => load(result.page + 1)}
-          >
-            Berikutnya <ArrowDownWideNarrow size={13} />
-          </button>
-        </div>
-      </div>
-    </>
   );
 }

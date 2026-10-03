@@ -1,6 +1,8 @@
 <FilesMatch "^(\.env.*|.*\.(?:db|sqlite|sqlite3|log)(?:-wal|-shm)?)$">
   Require all denied
 </FilesMatch>
+AddType application/manifest+json .webmanifest
+AddType application/manifest+json .json
 Options -MultiViews
 RewriteEngine On
 # Relative fallback keeps this SPA portable at the domain root or any subfolder.

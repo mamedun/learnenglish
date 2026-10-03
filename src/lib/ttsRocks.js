@@ -1,3 +1,5 @@
+import { encodeMonoSamplesToMp3 } from "./audio.js";
+
 const TTS_ROCKS_ORIGIN = "https://tts.rocks";
 const MODEL_ID = "kokoro-82M-v1.0";
 const MODEL_URL =
@@ -25,6 +27,62 @@ const BUSY_TTS_PHASES = new Set([
 
 export function isTtsBusy(status) {
   return BUSY_TTS_PHASES.has(status?.phase);
+}
+
+export function selectBestVoice(voices = [], preferredName = "") {
+  if (!Array.isArray(voices) || voices.length === 0) return null;
+
+  if (preferredName) {
+    const matched = voices.find((v) => v.name === preferredName);
+    if (matched) return matched;
+  }
+
+  const scoreVoice = (v) => {
+    const name = (v.name || "").toLowerCase();
+    const lang = (v.lang || "").toLowerCase().replace("_", "-");
+    let score = 0;
+
+    const isEnGb = lang.startsWith("en-gb") || lang.startsWith("en-uk");
+    const isEn = lang.startsWith("en");
+
+    // UK Female voices top priority
+    if (name.includes("google uk english female")) score += 1000;
+    else if (name.includes("libby")) score += 950;
+    else if (name.includes("sonia")) score += 940;
+    else if (name.includes("mia") && isEnGb) score += 930;
+    else if (name.includes("hazel")) score += 920;
+    else if (name.includes("serena")) score += 910;
+    else if (name.includes("stephanie")) score += 900;
+    else if (name.includes("fiona")) score += 890;
+    else if (name.includes("martha")) score += 880;
+
+    // Any other UK female voice
+    if (isEnGb) {
+      score += 500;
+      if (name.includes("female") || name.includes("woman")) score += 200;
+      if (name.includes("natural") || name.includes("online")) score += 50;
+    }
+
+    // Other English female voices (US/AU/etc.)
+    if (name.includes("zira")) score += 400;
+    else if (name.includes("jenny")) score += 390;
+    else if (name.includes("samantha")) score += 380;
+    else if (name.includes("victoria")) score += 370;
+    else if (name.includes("karen")) score += 360;
+    else if (isEn && (name.includes("female") || name.includes("woman"))) score += 300;
+
+    // Any English voice
+    if (isEn) {
+      score += 100;
+      if (name.includes("natural") || name.includes("online")) score += 30;
+      if (v.default) score += 10;
+    }
+
+    return score;
+  };
+
+  const sorted = [...voices].sort((a, b) => scoreVoice(b) - scoreVoice(a));
+  return sorted[0] || voices[0] || null;
 }
 
 // Learners can choose from this curated set; Admin can author content with
@@ -351,6 +409,41 @@ export async function speakKokoro(
   // Follow the TTS.Rocks API flow; their player consumes Kokoro's stream and
   // plays generated chunks locally without uploading the learner's text.
   await TTS.kokoroTTS(String(text));
+
+  // TTS.kokoroTTS starts playback via TTS.audio (HTMLAudioElement), but its Promise
+  // resolves as soon as generation/queueing finishes. We must wait until the audio
+  // element has actually finished playing so the speaking toast stays visible!
+  const audio = TTS.audio;
+  if (audio && typeof audio.addEventListener === "function") {
+    if (!audio.ended && !audio.paused) {
+      await new Promise((resolve) => {
+        let settled = false;
+        const done = () => {
+          if (settled) return;
+          settled = true;
+          audio.removeEventListener("ended", done);
+          audio.removeEventListener("pause", done);
+          audio.removeEventListener("error", done);
+          resolve();
+        };
+        audio.addEventListener("ended", done);
+        audio.addEventListener("pause", done);
+        audio.addEventListener("error", done);
+
+        const textWords = String(text || "").trim().split(/\s+/).length;
+        const estimatedMs = Math.max(
+          3000,
+          Math.ceil((textWords / 2.2) * 1000) + 2000,
+        );
+        const maxDurationMs =
+          Number.isFinite(audio.duration) && audio.duration > 0
+            ? Math.ceil(audio.duration * 1000) + 1500
+            : estimatedMs;
+        setTimeout(done, maxDurationMs);
+      });
+    }
+  }
+
   emitStatus(onStatus, {
     phase: "ready",
     progress: 100,
@@ -597,7 +690,11 @@ export async function generateKokoroAudio(
   ) {
     throw new Error("Kokoro tidak menghasilkan waveform audio yang valid.");
   }
-  return wavFromFloat32(generated.samples, generated.sampleRate);
+  try {
+    return encodeMonoSamplesToMp3(generated.samples, generated.sampleRate, 128);
+  } catch {
+    return wavFromFloat32(generated.samples, generated.sampleRate);
+  }
 }
 
 export async function generateKokoroCompositeAudio(
@@ -674,7 +771,11 @@ export async function generateKokoroCompositeAudio(
       device,
       message: "Menggabungkan giliran dialog…",
     });
-    return wavFromFloat32(combined, sampleRate);
+    try {
+      return encodeMonoSamplesToMp3(combined, sampleRate, 128);
+    } catch {
+      return wavFromFloat32(combined, sampleRate);
+    }
   });
 }
 

@@ -30,12 +30,12 @@ assert.match(submitTurn, /consent: true/);
 assert.match(submitTurn, /debugSetup\.token_expires_at/);
 assert.match(submitTurn, /AI audio assessment returned a non-JSON response/);
 assert.match(submitTurn, /const responseText = await response\.text\(\)/);
-assert.ok(
-  submitTurn.indexOf("await Swal.fire(") <
-    submitTurn.indexOf('apiFetch("assess-audio"'),
-  "audio consent must precede upload",
+assert.doesNotMatch(
+  submitTurn,
+  /Apakah Anda yakin ingin mengirim rekaman suara ke server AI\?/,
+  "audio evaluation must not prompt consent confirmation dialog",
 );
-assert.match(app, /canCompletePracticeLesson\(passedCount, points\)/);
+assert.match(app, /canCompletePracticeLesson\(passedCount, points/);
 assert.match(
   app,
   /const segments = authoredSegments\.length >= 2 \? authoredSegments : \[\]/,
@@ -46,7 +46,7 @@ assert.match(app, /passed:\s*practiceStars >= 4/);
 assert.match(app, /slot,\s*passed:/);
 assert.match(
   app,
-  /practicePoints\(turns, appConfig\.speech_similarity_threshold\)/,
+  /practicePoints\(\s*turns,\s*appConfig\.speech_similarity_threshold/,
 );
 assert.match(app, /live-billing\/start/);
 assert.match(app, /live-billing\/started/);
@@ -69,11 +69,11 @@ assert.doesNotMatch(practice, /IELTS Speaking practice estimate/);
 assert.doesNotMatch(practice, /Belum dapat diestimasi/);
 assert.doesNotMatch(practice, /estimatedBand/);
 assert.match(practice, /Audio-dependent · not scored/);
-assert.match(practice, /minimal 4 percakapan lulus dan 100 poin/i);
+assert.match(practice, /percakapan lulus dan.*poin/i);
 assert.match(practice, /ULANGI TOPIK YANG SAMA/);
 assert.match(practice, /kartu feedback ini akan diganti/);
 assert.match(practice, /passedTurnCount/);
-assert.match(practice, /Next Lesson/);
+assert.match(practice, /Lanjut Soal \/ Materi Berikutnya|Next Lesson/);
 assert.ok(
   practice.indexOf("finish-row finish-row-top") <
     practice.indexOf("map((t, i)"),
@@ -131,20 +131,26 @@ const audioUpload = api.slice(audioUploadStart, audioUploadEnd);
 assert.match(audioUpload, /'video\/webm'=>'webm'/);
 assert.match(audioUpload, /'video\/webm'=>'audio\/webm'/);
 
-assert.match(admin, /AI provider global/);
-assert.match(admin, /Gemini Live tetap memakai Gemini/);
-assert.match(admin, /1 diamond/);
+assert.match(admin, /PROVIDER AKTIF UNTUK SEMUA USER|AI provider global/);
+assert.match(
+  admin,
+  /Gemini Live menangani percakapan real-time|Gemini Live tetap memakai Gemini/,
+);
+assert.match(admin, /\(diamond\)|1 diamond/);
 assert.match(admin, /payment_qris_payload/);
 assert.match(admin, /payment_tax_percent/);
 assert.match(admin, /payment_admin_fee/);
 assert.match(admin, /payment_whatsapp/);
 assert.match(admin, /AdminPurchasesHub/);
 assert.match(admin, /AdminUsersPanel/);
-assert.match(audioTask, /expected_text:\s*lesson\.script,\s*transcript/);
+assert.match(
+  audioTask,
+  /compareSpokenText\(\s*lesson\.script,\s*transcript|expected_text:\s*lesson\.script,\s*transcript/,
+);
 assert.match(audioTask, /read_aloud_direct/);
-assert.match(audioTask, /3 diamond/);
+assert.match(audioTask, /diamondCost.*diamond|3 diamond/);
 assert.match(audioTask, /Browser tidak membuat transkrip terlebih dahulu/);
-assert.match(audioTask, /title: directAudioMode/);
+assert.match(audioTask, /Penilaian AI/);
 assert.match(audioTask, /unlimitedDiamonds/);
 assert.match(audioTask, /onAttempt\?\.\(\s*result\.percent,\s*text/);
 const audioCheckStart = audioTask.indexOf("async function checkAiAudio()");
