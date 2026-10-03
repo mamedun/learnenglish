@@ -3640,7 +3640,8 @@ Because this is live audio, comment on pronunciation or word stress only when a 
                 title="Install SpeakUp ke layar utama perangkat"
               >
                 <Download size={14} />
-                <span className="install-app-text">Install App</span>
+                <span className="install-app-text-full">Install App</span>
+                <span className="install-app-text-short">Install</span>
               </button>
             )}
             <button
@@ -3717,6 +3718,19 @@ Because this is live audio, comment on pronunciation or word stress only when a 
                     setData={setData}
                     speak={speak}
                     ttsStatus={ttsStatus}
+                    devices={devices}
+                    deviceId={deviceId}
+                    changeDevice={(id) => {
+                      streamRef.current
+                        ?.getTracks()
+                        .forEach((track) => track.stop());
+                      streamRef.current = null;
+                      setDeviceId(id);
+                      setPermission("idle");
+                      setAudioBlob(null);
+                      setTranscript("");
+                      setElapsed(0);
+                    }}
                     aiAudioCost={
                       appConfig.courseware_policy?.cost_listening_direct_audio ?? 3
                     }

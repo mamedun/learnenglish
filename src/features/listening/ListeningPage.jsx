@@ -4,13 +4,16 @@ import {
   Check,
   CheckCircle2,
   Headphones,
+  List,
   Lock,
   Play,
   RotateCcw,
   Sparkles,
   Volume2,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
+import Swal from "sweetalert2";
 import { apiJson } from "../../api";
 import { awardXP } from "../../gamification";
 import { normalizeSpeechThreshold } from "../../lib/speechSimilarity";
@@ -35,6 +38,9 @@ export default function ListeningPage({
   maxAiAudioBytes = 12 * 1024 * 1024,
   unlimitedDiamonds = false,
   learningProgressionMode = "parallel",
+  devices = [],
+  deviceId = "",
+  changeDevice = null,
   onDiamondsChanged = () => {},
   onCourseProgress = () => {},
 }) {
@@ -44,6 +50,8 @@ export default function ListeningPage({
     courseId === "ielts" ? data : (data.courseProgress || {})[courseId] || {};
   const [level, setLevel] = useState("All");
   const [activeId, setActiveId] = useState(null);
+  const [mobileCatalogOpen, setMobileCatalogOpen] = useState(false);
+  const [checkingAll, setCheckingAll] = useState(false);
   useEffect(() => {
     setLevel("All");
     setActiveId(initialLessonId || null);
@@ -169,6 +177,107 @@ export default function ListeningPage({
       setChecking(null);
     }
   }
+
+  async function submitAllAnswers() {
+    if (!active?.questions?.length) return;
+    const unanswered = active.questions.filter((q) => answers[keyFor(q)] === undefined);
+    if (unanswered.length > 0) {
+      toast.info(`Ada ${unanswered.length} soal yang belum dijawab. Pilih jawaban untuk semua soal dulu ya!`);
+      return;
+    }
+    const toCheck = active.questions.filter((q) => !results[keyFor(q)]?.correct);
+    if (toCheck.length === 0) {
+      toast.success("Semua soal sudah benar! Silakan lanjutkan ke latihan speaking.");
+      return;
+    }
+    setCheckingAll(true);
+    try {
+      const updatedResults = { ...results };
+      await Promise.all(
+        toCheck.map(async (q) => {
+          const key = keyFor(q);
+          try {
+            const result = await apiJson("listening/check", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                course_id: courseId,
+                unit_id: active.id,
+                question_id: q.id,
+                answer: answers[key],
+              }),
+            });
+            updatedResults[key] = result;
+          } catch (err) {
+            console.error(err);
+          }
+        }),
+      );
+      setResults(updatedResults);
+      setData((previous) =>
+        patchProgress(previous, {
+          listeningAnswers: answers,
+          listeningResults: updatedResults,
+        }),
+      );
+      const totalCorrect = active.questions.filter((q) => updatedResults[keyFor(q)]?.correct).length;
+      if (totalCorrect === active.questions.length) {
+        toast.success("Hebat! Semua jawaban benar. Sekarang selesaikan Latihan Speaking!");
+      } else {
+        toast.info(`${totalCorrect} dari ${active.questions.length} benar. Periksa penjelasan di bawah dan perbaiki jawaban yang salah.`);
+      }
+    } catch (e) {
+      toast.error(e.message || "Gagal memeriksa jawaban.");
+    } finally {
+      setCheckingAll(false);
+    }
+  }
+
+  async function restartLesson() {
+    if (!active) return;
+    const res = await Swal.fire({
+      title: "Ulangi Latihan dari Awal?",
+      text: "Jawaban soal dan rekaman speaking pada misi ini akan direset agar kamu bisa berlatih kembali.",
+      icon: "question",
+      showCancelButton: true,
+      confirmButtonText: "Ya, Ulangi",
+      cancelButtonText: "Batal",
+      confirmButtonColor: "#1b7a48",
+      cancelButtonColor: "#6c757d",
+    });
+    if (!res.isConfirmed) return;
+
+    const newAnswers = { ...answers };
+    const newResults = { ...results };
+    active.questions.forEach((q) => {
+      const k = keyFor(q);
+      delete newAnswers[k];
+      delete newResults[k];
+    });
+    setAnswers(newAnswers);
+    setResults(newResults);
+
+    setData((previous) => {
+      const scope =
+        courseId === "ielts"
+          ? previous
+          : (previous.courseProgress || {})[courseId] || {};
+      const updatedTranscripts = { ...(scope.speakingTranscripts || {}) };
+      delete updatedTranscripts[active.id];
+      const updatedScores = { ...(scope.speakingScores || {}) };
+      delete updatedScores[active.id];
+
+      return patchProgress(previous, {
+        listeningAnswers: newAnswers,
+        listeningResults: newResults,
+        speakingTranscripts: updatedTranscripts,
+        speakingScores: updatedScores,
+      });
+    });
+
+    toast.info("Latihan direset. Silakan coba kerjakan kembali!");
+  }
+
   function complete() {
     if (score !== active.questions.length || !active.questions.length) {
       toast.info(
@@ -216,10 +325,6 @@ export default function ListeningPage({
             Listen, learn, <span>level up!</span>{" "}
             <Headphones className="title-icon" size={30} />
           </h1>
-          <p className="page-intro">
-            Dengarkan cerita asli, pilih jawabanmu, dan kumpulkan XP. Salah?
-            Tenang, kamu bisa mencoba lagi.
-          </p>
         </div>
         <div className="page-sticker">
           <span>✦</span>
@@ -229,20 +334,41 @@ export default function ListeningPage({
           <small>lesson done</small>
         </div>
       </div>
-      <div className="listening-notice">
-        <Volume2 size={21} />
-        <div>
-          <b>Audio lesson & privasi mic</b>
-          <span>
-            Latihan Speaking dengan auto transcribe mendukung browser berbasis Chromium (Google Chrome, Brave, Microsoft Edge) di PC/Laptop maupun Smartphone. Untuk browser lain, audio dapat dikirim ke server AI untuk dievaluasi.
-          </span>
-        </div>
-      </div>
+
+      {/* Floating button on mobile to toggle missions drawer */}
+      <button
+        type="button"
+        className="listening-catalog-fab"
+        onClick={() => setMobileCatalogOpen(true)}
+        title="Daftar Misi Listening"
+      >
+        <List size={18} />
+        <span>Pilih Misi</span>
+      </button>
+
+      {mobileCatalogOpen && (
+        <div
+          className="listening-catalog-backdrop"
+          onClick={() => setMobileCatalogOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
       <div className="listening-layout">
-        <aside className="listening-catalog">
+        <aside className={`listening-catalog ${mobileCatalogOpen ? "mobile-drawer-open" : ""}`}>
           <div className="catalog-head">
-            <div className="eyebrow">PILIH MISI</div>
-            <h2>Daftar listening</h2>
+            <div>
+              <div className="eyebrow">PILIH MISI</div>
+              <h2>Daftar listening</h2>
+            </div>
+            <button
+              type="button"
+              className="catalog-drawer-close-btn"
+              onClick={() => setMobileCatalogOpen(false)}
+              aria-label="Tutup daftar listening"
+            >
+              <X size={18} />
+            </button>
           </div>
           <div className="level-filters">
             <button
@@ -417,23 +543,7 @@ export default function ListeningPage({
                       </button>
                     ))}
                   </div>
-                  {!result ? (
-                    <button
-                      className="outline-btn check-answer"
-                      disabled={checking === key}
-                      onClick={() => check(q)}
-                    >
-                      {checking === key ? (
-                        <>
-                          <span className="spinner" /> Memeriksa...
-                        </>
-                      ) : (
-                        <>
-                          Periksa jawaban <ArrowRight size={15} />
-                        </>
-                      )}
-                    </button>
-                  ) : (
+                  {result && (
                     <div
                       className={`answer-feedback ${result.correct ? "correct" : "incorrect"}`}
                     >
@@ -456,6 +566,32 @@ export default function ListeningPage({
                 </section>
               );
             })}
+
+            {/* Tombol Kirim Jawaban (pemeriksaan serentak di bagian bawah) */}
+            <div className="listening-submit-all-wrap">
+              <button
+                type="button"
+                className="btn-primary listening-submit-all-btn"
+                disabled={checkingAll || !active.questions.length}
+                onClick={submitAllAnswers}
+              >
+                {checkingAll ? (
+                  <>
+                    <span className="spinner" /> Memeriksa Semua Jawaban…
+                  </>
+                ) : (
+                  <>
+                    <Check size={18} /> Kirim Jawaban (
+                    {
+                      active.questions.filter(
+                        (q) => answers[keyFor(q)] !== undefined,
+                      ).length
+                    }
+                    /{active.questions.length})
+                  </>
+                )}
+              </button>
+            </div>
           </div>
           <ListeningSpeakingTask
             lesson={active}
@@ -478,6 +614,9 @@ export default function ListeningPage({
             maxRecordSeconds={maxRecordSeconds}
             maxAiAudioBytes={maxAiAudioBytes}
             unlimitedDiamonds={unlimitedDiamonds}
+            devices={devices}
+            deviceId={deviceId}
+            changeDevice={changeDevice}
             passed={speechPassed}
             passedScore={speechScore}
             savedTranscript={scopedData.speakingTranscripts?.[active.id] || ""}
@@ -550,27 +689,37 @@ export default function ListeningPage({
                     : `Jawab soal dengan benar dan selesaikan latihan speaking minimal ${speechThreshold}%.`}
               </small>
             </div>
-            {finished ? (
+            <div className="lesson-end-actions">
               <button
-                className="btn-primary"
-                onClick={() => {
-                  setLevel("All");
-                  setActiveId(next.id);
-                  onSelectLesson?.(next.id);
-                  window.scrollTo({ top: 0, behavior: "smooth" });
-                }}
+                type="button"
+                className="outline-btn listening-restart-btn"
+                onClick={restartLesson}
+                title="Ulangi latihan soal dan speaking dari awal"
               >
-                Misi berikutnya <ArrowRight size={17} />
+                <RotateCcw size={15} /> Ulang Dari Awal
               </button>
-            ) : (
-              <button
-                className="btn-primary"
-                onClick={complete}
-                disabled={score !== active.questions.length || !speechPassed}
-              >
-                Selesaikan misi <Check size={16} />
-              </button>
-            )}
+              {finished ? (
+                <button
+                  className="btn-primary"
+                  onClick={() => {
+                    setLevel("All");
+                    setActiveId(next.id);
+                    onSelectLesson?.(next.id);
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                  }}
+                >
+                  Misi berikutnya <ArrowRight size={17} />
+                </button>
+              ) : (
+                <button
+                  className="btn-primary"
+                  onClick={complete}
+                  disabled={score !== active.questions.length || !speechPassed}
+                >
+                  Selesaikan misi <Check size={16} />
+                </button>
+              )}
+            </div>
           </div>
         </article>
       </div>

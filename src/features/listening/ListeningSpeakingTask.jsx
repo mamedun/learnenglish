@@ -3,12 +3,14 @@ import {
   AudioLines,
   Check,
   CheckCircle2,
+  Keyboard,
   Mic,
   Pause,
   Play,
   RotateCcw,
   Sparkles,
   Volume2,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { apiFetch } from "../../api";
@@ -26,6 +28,7 @@ import {
 import ProcessingStatus from "../../components/ProcessingStatus";
 import AudioRadarWaveform from "../../components/AudioRadarWaveform";
 import MascotLoadingToast from "../../components/MascotLoadingToast";
+import CustomMicPicker from "../../components/CustomMicPicker";
 import useSmallViewport from "../../hooks/useSmallViewport";
 import "./ListeningSpeakingTask.css";
 
@@ -37,6 +40,9 @@ export default function ListeningSpeakingTask({
   courseId = "ielts",
   maxRecordSeconds = 180,
   maxAiAudioBytes = 12 * 1024 * 1024,
+  devices = [],
+  deviceId = "",
+  changeDevice = null,
   speak,
   ttsStatus,
   passed,
@@ -48,7 +54,8 @@ export default function ListeningSpeakingTask({
   onDiamondsChanged,
 }) {
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState("system"); // "system" | "ai"
+  const [mode, setMode] = useState("system"); // "system" | "ai" | "keyboard"
+  const [activeModal, setActiveModal] = useState(null);
   const recognition = useSpeechRecognition({ language: "en-US" });
 
   const [recording, setRecording] = useState(false);
@@ -67,7 +74,8 @@ export default function ListeningSpeakingTask({
 
   const similarityThreshold = normalizeSpeechThreshold(speechSimilarityThreshold);
   const isSmallViewport = useSmallViewport();
-  const mobileTranscriptEditable = mode === "system" && isSmallViewport;
+  const isKeyboardMode = mode === "keyboard";
+  const mobileTranscriptEditable = isKeyboardMode || (mode === "system" && isSmallViewport);
 
   const diamondCost = aiAudioCost ?? 3;
   const costLabel = unlimitedDiamonds
@@ -384,30 +392,36 @@ export default function ListeningSpeakingTask({
     <section className="listening-speaking-card">
       <div className="listening-speaking-heading">
         <div>
-          <span className="eyebrow">
-            <Volume2 size={14} /> SHADOWING & SPEAKING · MISI BINTANG
-          </span>
           <h3>Latihan Melafalkan Paragraf</h3>
-          <p>
+          <p className="listening-speaking-desc">
             Tirukan dan lafalkan naskah cerita untuk melatih kelancaran,
             artikulasi, dan intonasi bahasa Inggrismu.
           </p>
         </div>
         {passed ? (
-          <span className="speech-pass-badge">
+          <span className="speech-pass-badge speaking-sticker-badge">
             <CheckCircle2 size={15} /> Selesai ({passedScore || 100}%)
           </span>
         ) : (
-          <span className="level-pill">Target {similarityThreshold}%</span>
+          <span className="level-pill speaking-sticker-badge">Target {similarityThreshold}%</span>
         )}
       </div>
 
       <button
-        className="outline-btn listening-speaking-toggle"
+        type="button"
+        className={`listening-speaking-toggle-btn ${open ? "is-open" : ""}`}
         onClick={() => setOpen(!open)}
       >
-        <Mic size={15} />
-        {open ? "Tutup latihan speaking" : "Buka latihan speaking"}
+        <div className="toggle-btn-inner">
+          <div className="toggle-btn-icon">
+            <Mic size={18} />
+          </div>
+          <div className="toggle-btn-text">
+            <b>{open ? "Tutup Latihan Speaking" : "Buka Latihan Speaking"}</b>
+            <small>{open ? "Klik untuk melipat naskah" : "Tirukan audio & lafalkan naskah cerita"}</small>
+          </div>
+        </div>
+        <span className="toggle-btn-badge">{open ? "Aktif" : "Mulai"}</span>
       </button>
 
       {open && (
@@ -432,20 +446,23 @@ export default function ListeningSpeakingTask({
             )}
           </button>
 
-          {/* Mode Selector Tab Buttons */}
+          {/* Mode Selector Tab Buttons (1 row on mobile, 3 tabs) */}
           <div className="speaking-mode-tabs" role="tablist" aria-label="Mode Penilaian Speaking">
             <button
               type="button"
               role="tab"
               aria-selected={mode === "system"}
               className={`speaking-mode-tab ${mode === "system" ? "active" : ""}`}
-              onClick={() => switchMode("system")}
+              onClick={() => {
+                switchMode("system");
+                setActiveModal("system");
+              }}
               disabled={recording || processing || recognition.listening}
             >
-              <Sparkles size={17} />
+              <Sparkles size={16} />
               <div>
-                <b>Penilaian Sistem</b>
-                <small>Browser Speech-to-Text · Gratis</small>
+                <b>TTS (Sistem)</b>
+                <small className="mode-tab-desc">Browser · Gratis</small>
               </div>
             </button>
             <button
@@ -453,13 +470,33 @@ export default function ListeningSpeakingTask({
               role="tab"
               aria-selected={mode === "ai"}
               className={`speaking-mode-tab ${mode === "ai" ? "active" : ""}`}
-              onClick={() => switchMode("ai")}
+              onClick={() => {
+                switchMode("ai");
+                setActiveModal("ai");
+              }}
               disabled={recording || processing || recognition.listening}
             >
-              <AudioLines size={17} />
+              <AudioLines size={16} />
               <div>
-                <b>Penilaian AI</b>
-                <small>Analisis Suara & Artikulasi · {costLabel}</small>
+                <b>AI</b>
+                <small className="mode-tab-desc">Server · {costLabel}</small>
+              </div>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === "keyboard"}
+              className={`speaking-mode-tab ${mode === "keyboard" ? "active" : ""}`}
+              onClick={() => {
+                switchMode("keyboard");
+                setActiveModal("keyboard");
+              }}
+              disabled={recording || processing || recognition.listening}
+            >
+              <Keyboard size={16} />
+              <div>
+                <b>Keyboard</b>
+                <small className="mode-tab-desc">Dikte HP · Gratis</small>
               </div>
             </button>
           </div>
@@ -473,19 +510,74 @@ export default function ListeningSpeakingTask({
                   Suara kamu dikonversi menjadi teks langsung oleh browser, lalu naskah dinilai secara instan oleh sistem pencocokan lokal tanpa mengirim audio (Gratis).
                 </p>
               </>
-            ) : (
+            ) : mode === "ai" ? (
               <>
                 <span className="speaking-mode-pill ai">Penilaian AI (Akurasi Tinggi)</span>
                 <p>
                   Penilaian AI lebih akurat karena suara kamu diproses dan dianalisis langsung oleh AI untuk akurasi pengucapan, kejelasan artikulasi, dan kelancaran (stutter). Browser tidak membuat transkrip terlebih dahulu; rekaman audio dikirim langsung ke AI.
                 </p>
               </>
+            ) : (
+              <>
+                <span className="speaking-mode-pill keyboard">Mode Keyboard (Manual / Dikte)</span>
+                <p>
+                  Gunakan keyboard atau fitur mikrofon bawaan smartphone untuk mengetikkan naskah cerita secara manual, lalu klik tombol Periksa Jawaban di bawah (Gratis).
+                </p>
+              </>
             )}
           </div>
 
           {/* Controls & Inputs based on Mode */}
-          {mode === "system" ? (
+          {mode === "keyboard" ? (
             <>
+              {/* Transcript Textarea for Keyboard Mode (Hero mic is hidden) */}
+              <div className="transcript-area shadowing-transcript keyboard-mode-area">
+                <div className="transcript-label">
+                  <span>TRANSKRIP / INPUT TEKS (KEYBOARD)</span>
+                  <span>{recognition.transcript.length} karakter</span>
+                </div>
+                <textarea
+                  value={recognition.transcript}
+                  readOnly={false}
+                  onChange={(event) => {
+                    setChecked(null);
+                    recognition.setTranscript(event.target.value);
+                  }}
+                  aria-label="Ketik naskah cerita"
+                  placeholder="Ketik transkrip naskah di sini atau gunakan mikrofon bawaan keyboard HP untuk mendiktekan teks…"
+                  rows={4}
+                />
+                <div className="transcript-foot">
+                  Ketik atau dikte naskah cerita bahasa Inggris di atas, lalu klik Periksa Jawaban.
+                </div>
+              </div>
+
+              <div className="speaking-action-row">
+                <button
+                  className="btn-primary"
+                  onClick={checkLiveTranscript}
+                  disabled={!recognition.transcript.trim() || processing}
+                >
+                  <Check size={16} /> Periksa Jawaban (Gratis)
+                </button>
+                <button
+                  className="outline-btn"
+                  onClick={resetAttempt}
+                  disabled={processing}
+                >
+                  <RotateCcw size={14} /> Reset / Ulangi
+                </button>
+              </div>
+            </>
+          ) : mode === "system" ? (
+            <>
+              {/* Custom Mic Selector for System Mode */}
+              <CustomMicPicker
+                devices={devices}
+                deviceId={deviceId}
+                onChangeDevice={changeDevice}
+              />
+
               {/* Catchy Hero Action Button for System Mode */}
               <div className="listening-mic-hero-wrap">
                 <button
@@ -591,6 +683,13 @@ export default function ListeningSpeakingTask({
             </>
           ) : (
             <>
+              {/* Custom Mic Selector for AI Audio Mode */}
+              <CustomMicPicker
+                devices={devices}
+                deviceId={deviceId}
+                onChangeDevice={changeDevice}
+              />
+
               {/* Catchy Hero Action Button for AI Mode */}
               <div className="listening-mic-hero-wrap">
                 <button
@@ -755,6 +854,62 @@ export default function ListeningSpeakingTask({
               <CheckCircle2 size={16} /> Misi speaking materi ini sudah selesai. Kamu tetap bisa mengulang untuk terus melatih artikulasi.
             </p>
           )}
+        </div>
+      )}
+
+      {/* Explanation Modal for Mode Selection */}
+      {activeModal && (
+        <div
+          className="speaking-mode-modal-backdrop"
+          onClick={() => setActiveModal(null)}
+          aria-hidden="true"
+        >
+          <div
+            className="speaking-mode-modal"
+            role="dialog"
+            aria-modal="true"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="speaking-mode-modal-head">
+              <h4>
+                {activeModal === "system" && "Mode Penilaian TTS (Sistem)"}
+                {activeModal === "ai" && "Mode Penilaian AI (Akurasi Server)"}
+                {activeModal === "keyboard" && "Mode Keyboard (Manual / Dikte)"}
+              </h4>
+              <button
+                type="button"
+                className="speaking-mode-modal-close"
+                onClick={() => setActiveModal(null)}
+                aria-label="Tutup penjelasan mode"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="speaking-mode-modal-body">
+              {activeModal === "system" && (
+                <p>
+                  Suaramu diubah menjadi teks langsung oleh Web Speech API browser secara instan dan dinilai dengan pencocokan kata lokal. 100% gratis tanpa kuota diamond.
+                </p>
+              )}
+              {activeModal === "ai" && (
+                <p>
+                  Rekaman suara kamu diunggah dan dianalisis langsung oleh AI cerdas untuk menilai akurasi pengucapan, artikulasi, dan kelancaran berbicara. Membutuhkan diamond ({costLabel}).
+                </p>
+              )}
+              {activeModal === "keyboard" && (
+                <p>
+                  Ketikkan teks naskah secara manual atau gunakan mikrofon bawaan keyboard HP-mu untuk mendiktekan teks tanpa Web Speech API. 100% gratis dan praktis!
+                </p>
+              )}
+            </div>
+            <button
+              type="button"
+              className="btn-primary w-full"
+              onClick={() => setActiveModal(null)}
+            >
+              Mengerti
+            </button>
+          </div>
         </div>
       )}
     </section>

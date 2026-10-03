@@ -28,7 +28,9 @@ import {
   RotateCcw,
   Trash2,
   Gem,
+  X,
 } from "lucide-react";
+import CustomMicPicker from "../../components/CustomMicPicker";
 import { toast } from "sonner";
 import Swal from "sweetalert2";
 import { formatTime } from "../../lib/formatTime";
@@ -135,6 +137,7 @@ export default function PracticePage(p) {
   } = p;
   const isLinear = learningProgressionMode === "linear";
   const [responseMode, setResponseMode] = useState("transcript");
+  const [mobileModeModal, setMobileModeModal] = useState(null);
   const currentUnitIdRef = useRef(unit.id);
   currentUnitIdRef.current = unit.id;
   const liveTranscription = responseMode === "transcript";
@@ -352,14 +355,33 @@ export default function PracticePage(p) {
               <p>{unit.subtitle}</p>
             </div>
             <button
-              className="outline-btn"
+              className="outline-btn practice-lesson-list-btn"
               onClick={() => setShowLessonList(!showLessonList)}
+              title="Daftar pelajaran"
             >
-              <BookOpen size={16} /> Daftar pelajaran <ChevronDown size={15} />
+              <BookOpen size={16} /> <span>Daftar pelajaran</span> <ChevronDown size={15} />
             </button>
           </div>
           {showLessonList && (
+            <div
+              className="lesson-dropdown-backdrop"
+              onClick={() => setShowLessonList(false)}
+              aria-hidden="true"
+            />
+          )}
+          {showLessonList && (
             <div className="lesson-dropdown">
+              <div className="lesson-dropdown-head">
+                <b>Daftar Pelajaran ({unit.level})</b>
+                <button
+                  type="button"
+                  className="lesson-dropdown-close"
+                  onClick={() => setShowLessonList(false)}
+                  aria-label="Tutup"
+                >
+                  <X size={16} />
+                </button>
+              </div>
               {(() => {
                 const firstIncompleteIdx = isLinear
                   ? allUnits.findIndex((item) => !completed.has(item.id))
@@ -385,6 +407,7 @@ export default function PracticePage(p) {
                             );
                             return;
                           }
+                          setShowLessonList(false);
                           startUnit(u);
                         }}
                       >
@@ -453,7 +476,6 @@ export default function PracticePage(p) {
               src={visual}
               alt={unit.title || "Ilustrasi speaking practice"}
               className="visual-prompt"
-              caption={unit.image ? "Visual conversation enrichment · bukan format resmi IELTS Speaking" : "Supplementary speaking illustration · bukan format resmi IELTS Speaking"}
             />
           )}
 
@@ -532,7 +554,7 @@ export default function PracticePage(p) {
             </button>
           </div>
 
-          {/* Accordion toggle naskah soal */}
+          {/* Accordion toggle naskah soal (Yellow Theme) */}
           <div className="practice-prompt-accordion">
             <button
               type="button"
@@ -543,7 +565,6 @@ export default function PracticePage(p) {
                 if (nextVisible) setScenarioComplete(true);
               }}
               aria-expanded={showPrompt}
-              style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "#5444b0", fontWeight: 600, fontSize: 13 }}
             >
               {showPrompt ? (
                 <>
@@ -554,11 +575,17 @@ export default function PracticePage(p) {
                   <Eye size={15} /> Buka naskah teks pertanyaan sebagai alternatif
                 </>
               )}
-              <ChevronRight size={14} style={{ transform: showPrompt ? "rotate(90deg)" : "none", transition: "transform 0.2s ease" }} />
+              <ChevronRight
+                size={14}
+                style={{
+                  transform: showPrompt ? "rotate(90deg)" : "none",
+                  transition: "transform 0.2s ease",
+                }}
+              />
             </button>
             {showPrompt && (
               <div className="practice-prompt-text-box">
-                <small style={{ display: "block", color: "#6e678e", marginBottom: 5, fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                <small>
                   Naskah Pertanyaan Coach Maya:
                 </small>
                 “{unit.prompt}”
@@ -579,13 +606,6 @@ export default function PracticePage(p) {
               <small>TARGET LULUS</small>
               <b>{targetTurns} Giliran ({minScore} Poin)</b>
             </div>
-          </div>
-          <div className="roleplay-hint">
-            <Sparkles size={15} />
-            <span>
-              Balas dalam Bahasa Inggris. Tidak harus sempurna—yang penting
-              mulai bicara!
-            </span>
           </div>
         </div>
         <div className="answer-card">
@@ -612,6 +632,7 @@ export default function PracticePage(p) {
               baru hanya dihitung setelah lulus.
             </div>
           )}
+          {/* Desktop Response Modes */}
           <div
             className="practice-response-modes"
             role="group"
@@ -636,7 +657,7 @@ export default function PracticePage(p) {
                   </>
                 ) : (
                   <>
-                    <Gem size={14} /> 2 diamond
+                    <Gem size={14} /> 2<span className="sr-only">2 diamond</span>
                   </>
                 )}
               </strong>
@@ -660,16 +681,111 @@ export default function PracticePage(p) {
                   </>
                 ) : (
                   <>
-                    <Gem size={14} /> 5 diamond
+                    <Gem size={14} /> 5<span className="sr-only">5 diamond</span>
                   </>
                 )}
               </strong>
             </button>
           </div>
+
+          {/* Mobile Response Modes: Compact Buttons */}
+          <div className="practice-response-modes-mobile" role="group" aria-label="Pilih mode jawaban">
+            <button
+              type="button"
+              className={`practice-mode-mobile-btn ${responseMode === "transcript" ? "selected" : ""}`}
+              onClick={() => {
+                chooseResponseMode("transcript");
+                setMobileModeModal("transcript");
+              }}
+              disabled={processing || recording || transcribing}
+            >
+              <span className="mode-mobile-badge">Live Transkrip</span>
+              <span className="mode-mobile-cost">
+                {unlimitedDiamonds ? "Gratis" : <><Gem size={12} /> 2</>}
+              </span>
+            </button>
+            <button
+              type="button"
+              className={`practice-mode-mobile-btn ${responseMode === "audio" ? "selected" : ""}`}
+              onClick={() => {
+                chooseResponseMode("audio");
+                setMobileModeModal("audio");
+              }}
+              disabled={processing || recording || transcribing}
+            >
+              <span className="mode-mobile-badge">Rekam Audio</span>
+              <span className="mode-mobile-cost">
+                {unlimitedDiamonds ? "Gratis" : <><Gem size={12} /> 5</>}
+              </span>
+            </button>
+          </div>
+
+          {/* Mobile Explanation Modal for Response Mode */}
+          {mobileModeModal && (
+            <div
+              className="practice-mode-modal-backdrop"
+              onClick={() => setMobileModeModal(null)}
+              aria-hidden="true"
+            >
+              <div
+                className="practice-mode-modal"
+                role="dialog"
+                aria-modal="true"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="practice-mode-modal-head">
+                  <h4>
+                    {mobileModeModal === "transcript"
+                      ? "Mode Live Transkrip"
+                      : "Mode Rekam Audio AI"}
+                  </h4>
+                  <button
+                    type="button"
+                    className="modal-close-btn"
+                    onClick={() => setMobileModeModal(null)}
+                    aria-label="Tutup"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+                <div className="practice-mode-modal-body">
+                  {mobileModeModal === "transcript" ? (
+                    <p>
+                      Suara kamu diubah menjadi teks langsung oleh browser secara instan. Tutor AI mengevaluasi pilihan kata (lexical) dan tata bahasa (grammar).
+                    </p>
+                  ) : (
+                    <p>
+                      Rekaman audio kamu dikirim ke server AI untuk analisis lengkap keempat kriteria speaking: pengucapan (pronunciation), kelancaran (fluency), grammar, dan lexical resource.
+                    </p>
+                  )}
+                  <div className="practice-mode-modal-cost">
+                    <span>Biaya:</span>
+                    <b>
+                      {unlimitedDiamonds ? (
+                        "Gratis (Akses Admin)"
+                      ) : mobileModeModal === "transcript" ? (
+                        <><Gem size={14} /> 2 Diamond</>
+                      ) : (
+                        <><Gem size={14} /> 5 Diamond</>
+                      )}
+                    </b>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="btn-primary w-full"
+                  onClick={() => setMobileModeModal(null)}
+                >
+                  Pilih & Lanjutkan
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="practice-wallet-hint">
             {unlimitedDiamonds
               ? "Akses Admin unlimited · saldo diamond tidak digunakan."
-              : `Saldo ${Number(diamonds).toLocaleString("id-ID")} diamond · tidak ada mode AI Lesson gratis.`}
+              : <>Saldo {Number(diamonds).toLocaleString("id-ID")} <Gem size={12} style={{ display: "inline", verticalAlign: "middle" }} /> · tidak ada mode AI Lesson gratis.</>}
           </div>
           <div className="mic-stage">
             <div
@@ -794,6 +910,11 @@ export default function PracticePage(p) {
                     ? "Live transcription siap"
                     : "Browser tidak didukung"}
                 </span>
+                <CustomMicPicker
+                  devices={devices}
+                  deviceId={deviceId}
+                  onChangeDevice={p.changeDevice}
+                />
               </div>
             ) : (
               <div className="mic-controls">
@@ -824,19 +945,11 @@ export default function PracticePage(p) {
                         ? "Meminta izin…"
                         : "Pilih mikrofon"}
                 </button>
-                {devices.length > 0 && (
-                  <select
-                    aria-label="Pilih mikrofon"
-                    value={deviceId}
-                    onChange={(e) => p.changeDevice(e.target.value)}
-                  >
-                    {devices.map((device, i) => (
-                      <option key={device.deviceId} value={device.deviceId}>
-                        {device.label || `Mikrofon ${i + 1}`}
-                      </option>
-                    ))}
-                  </select>
-                )}
+                <CustomMicPicker
+                  devices={devices}
+                  deviceId={deviceId}
+                  onChangeDevice={p.changeDevice}
+                />
               </div>
             )}
           </div>
@@ -853,7 +966,7 @@ export default function PracticePage(p) {
                   disabled={processing || recording || transcribing}
                 >
                   Pilih evaluasi audio AI ·{" "}
-                  {unlimitedDiamonds ? "gratis Admin" : "5 diamond"}
+                  {unlimitedDiamonds ? "gratis Admin" : <><Gem size={12} style={{ display: "inline", verticalAlign: "middle" }} /> 5</>}
                 </button>
                 <small>
                   Audio hanya dikirim setelah kamu menekan Kirim jawaban dan
@@ -932,10 +1045,10 @@ export default function PracticePage(p) {
                   ? "Akses Admin unlimited · hanya transkrip yang dikirim ke AI"
                   : "Akses Admin unlimited · rekaman dikirim setelah persetujuan"
                 : liveTranscription
-                  ? "Transkrip saja dikirim ke AI · 2 diamond"
+                  ? <>Transkrip saja dikirim ke AI · <Gem size={12} style={{ display: "inline", verticalAlign: "middle" }} /> 2</>
                   : p.sessionSaveAudio
-                    ? "arsip audio disimpan di akun server · 5 diamond"
-                    : "audio tidak diarsipkan · 5 diamond"}
+                    ? <>arsip audio disimpan di akun server · <Gem size={12} style={{ display: "inline", verticalAlign: "middle" }} /> 5</>
+                    : <>audio tidak diarsipkan · <Gem size={12} style={{ display: "inline", verticalAlign: "middle" }} /> 5</>}
             </span>
             <button
               className="btn-primary"

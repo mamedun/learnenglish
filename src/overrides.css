@@ -139,15 +139,6 @@
   font-weight: 400;
   overflow-wrap: anywhere;
 }
-.feedback-top:after {
-  content: "★ = rating latihan, bukan band IELTS";
-  font-size: 12px;
-  color: #a09a8b;
-  letter-spacing: 0;
-  font-weight: 500;
-  margin-left: auto;
-  margin-right: 9px;
-}
 .auth-screen {
   min-height: 100vh;
   background: #f5f7f3;
@@ -568,10 +559,10 @@
   .auth-layout {
     grid-template-columns: 1fr;
     gap: 5px;
-    margin: 28px auto;
+    margin: 20px auto;
   }
   .auth-story {
-    padding: 5px 0 12px;
+    display: none !important;
   }
   .auth-story h1 {
     font-size: 33px;
@@ -644,23 +635,6 @@
 .listening-page {
   max-width: 1180px;
   margin: 0 auto;
-}
-.listening-notice {
-  display: flex;
-  gap: 14px;
-  align-items: flex-start;
-  background: #f0f5ef;
-  border: 1px solid #d8e5d7;
-  border-radius: 14px;
-  padding: 15px 18px;
-  margin: 22px 0;
-  color: #42564a;
-  font-size: 17px;
-  line-height: 1.6;
-}
-.listening-notice b {
-  white-space: nowrap;
-  color: #294734;
 }
 .listening-layout {
   display: grid;
@@ -1017,13 +991,6 @@
   .audio-player-card .btn-primary {
     width: 100%;
     justify-content: center;
-  }
-  .listening-notice {
-    display: block;
-  }
-  .listening-notice b {
-    display: block;
-    margin-bottom: 5px;
   }
   .lesson-end {
     align-items: flex-start;
@@ -2844,6 +2811,19 @@
   white-space: nowrap;
 }
 
+.install-app-text-short {
+  display: none;
+}
+
+@media (max-width: 600px) {
+  .install-app-text-full {
+    display: none !important;
+  }
+  .install-app-text-short {
+    display: inline !important;
+  }
+}
+
 .install-app-pill:hover {
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(27, 122, 72, 0.35);
@@ -3606,4 +3586,427 @@
   font-weight: 600;
   cursor: pointer;
 }
+
+/* ==========================================================================
+   LISTENING LAB & PRACTICE PAGE MOBILE OVERHAUL
+   ========================================================================== */
+
+/* Listening Lab: Floating Action Button & Drawer */
+.listening-catalog-fab {
+  display: none;
+}
+.listening-catalog-backdrop {
+  display: none;
+}
+.catalog-drawer-close-btn {
+  display: none;
+}
+
+/* Listening Batch Submit & Restart */
+.listening-submit-all-wrap {
+  margin-top: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.listening-submit-all-btn {
+  width: 100%;
+  padding: 14px 20px;
+  font-size: 15px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #1b633f, #2e7d52);
+  box-shadow: 0 4px 14px rgba(31, 95, 62, 0.22);
+  cursor: pointer;
+  color: #fff;
+  border: none;
+  transition: all 0.2s ease;
+}
+.listening-submit-all-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #22794c, #358f5c);
+  transform: translateY(-1px);
+}
+.listening-submit-all-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.lesson-end-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.listening-restart-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  border-radius: 12px;
+  border: 1.5px solid #d1d5db;
+  background: #ffffff;
+  color: #4b5563;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.listening-restart-btn:hover {
+  background: #f9fafb;
+  border-color: #9ca3af;
+  color: #1f2937;
+}
+
+/* Yellow Theme for Practice Prompt Accordion */
+.practice-prompt-accordion {
+  margin: 14px 0 16px;
+  border-radius: 14px;
+  background: #fefce8;
+  border: 1.5px solid #fef08a;
+  padding: 10px 14px;
+  transition: all 0.2s ease;
+}
+.practice-prompt-accordion:hover {
+  border-color: #fde047;
+  box-shadow: 0 3px 12px rgba(234, 179, 8, 0.12);
+}
+.practice-prompt-accordion .script-toggle {
+  color: #854d0e !important;
+  font-weight: 700;
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+.practice-prompt-accordion .script-toggle:hover {
+  color: #713f12 !important;
+}
+.practice-prompt-text-box {
+  margin-top: 10px;
+  padding: 12px 14px;
+  background: #ffffff;
+  border: 1px dashed #fde047;
+  border-radius: 10px;
+  color: #713f12;
+  font-size: 14px;
+  line-height: 1.6;
+  font-weight: 500;
+}
+.practice-prompt-text-box small {
+  display: block;
+  color: #a16207;
+  margin-bottom: 6px;
+  font-weight: 800;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Response Modes Desktop vs Mobile */
+.practice-response-modes-mobile {
+  display: none;
+}
+.lesson-dropdown-backdrop {
+  display: none;
+}
+.lesson-dropdown-head {
+  display: none;
+}
+
+@media (max-width: 600px) {
+  /* Listening Catalog Floating Action Button & Slide Drawer */
+  .listening-catalog-fab {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    position: fixed;
+    right: 18px;
+    bottom: 24px;
+    z-index: 95;
+    background: #ffffff;
+    border: 2px solid #2e7d52;
+    color: #1b633f;
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.18);
+    padding: 11px 18px;
+    border-radius: 999px;
+    font-weight: 700;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+  .listening-catalog-fab:hover {
+    background: #f4fbf6;
+    transform: translateY(-2px);
+  }
+
+  .listening-catalog-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.5);
+    backdrop-filter: blur(2px);
+    z-index: 1000;
+  }
+
+  .listening-catalog {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    bottom: 0 !important;
+    width: 86% !important;
+    max-width: 320px !important;
+    height: 100vh !important;
+    max-height: 100vh !important;
+    background: #ffffff !important;
+    z-index: 1001 !important;
+    transform: translateX(-105%) !important;
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    box-shadow: 10px 0 30px rgba(0, 0, 0, 0.22) !important;
+    display: flex !important;
+    flex-direction: column !important;
+    border-radius: 0 20px 20px 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+  }
+
+  .listening-catalog.mobile-drawer-open {
+    transform: translateX(0) !important;
+  }
+
+  .catalog-head {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    padding: 18px 18px 12px !important;
+    border-bottom: 1px solid #f1f5f9;
+  }
+
+  .catalog-drawer-close-btn {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
+    background: #f8fafc;
+    color: #475569;
+    cursor: pointer;
+  }
+
+  .listening-list {
+    flex: 1 !important;
+    max-height: none !important;
+    overflow-y: auto !important;
+    padding: 0 14px 20px !important;
+  }
+
+  .lesson-end-actions {
+    width: 100%;
+    flex-direction: column;
+  }
+  .lesson-end-actions > * {
+    width: 100%;
+    justify-content: center;
+  }
+
+  /* Practice Page Floating Lesson List Button */
+  .practice-title-row {
+    position: relative;
+  }
+  .practice-lesson-list-btn {
+    position: fixed;
+    right: 18px;
+    bottom: 24px;
+    z-index: 95;
+    background: #ffffff;
+    border: 2px solid #2e7d52;
+    color: #1b633f;
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.18);
+    padding: 11px 18px;
+    border-radius: 999px;
+    font-weight: 700;
+    font-size: 13px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .practice-lesson-list-btn:hover {
+    background: #f4fbf6;
+    transform: translateY(-2px);
+  }
+
+  .lesson-dropdown-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.5);
+    backdrop-filter: blur(2px);
+    z-index: 1000;
+  }
+  .lesson-dropdown {
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    top: auto !important;
+    width: 100% !important;
+    max-height: 72vh !important;
+    border-radius: 24px 24px 0 0 !important;
+    z-index: 1001 !important;
+    box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.22) !important;
+    overflow-y: auto !important;
+    padding: 18px 16px 32px !important;
+    animation: slideUpLesson 0.25s ease-out;
+  }
+  @keyframes slideUpLesson {
+    from { transform: translateY(100%); }
+    to { transform: translateY(0); }
+  }
+  .lesson-dropdown-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 12px;
+    margin-bottom: 10px;
+    border-bottom: 1px solid #eef2f0;
+  }
+  .lesson-dropdown-head b {
+    font-size: 15px;
+    color: #1e3d2b;
+  }
+  .lesson-dropdown-close {
+    background: #f1f5f9;
+    border: none;
+    border-radius: 8px;
+    padding: 6px;
+    color: #475569;
+    cursor: pointer;
+  }
+
+  /* Response Modes Mobile */
+  .practice-response-modes {
+    display: none !important;
+  }
+  .practice-response-modes-mobile {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin: 14px 0 10px;
+  }
+  .practice-mode-mobile-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 11px 12px;
+    border-radius: 14px;
+    border: 1.5px solid #dceae1;
+    background: #ffffff;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+  .practice-mode-mobile-btn.selected {
+    border-color: #2e7d52;
+    background: #f2faf5;
+    box-shadow: 0 2px 8px rgba(46, 125, 82, 0.15);
+  }
+  .mode-mobile-badge {
+    font-size: 13px;
+    font-weight: 700;
+    color: #1f3d2b;
+  }
+  .mode-mobile-cost {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #059669;
+  }
+
+  /* Modal for Response Mode on mobile */
+  .practice-mode-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.55);
+    backdrop-filter: blur(4px);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+  }
+  .practice-mode-modal {
+    background: #ffffff;
+    border-radius: 20px;
+    max-width: 380px;
+    width: 100%;
+    padding: 22px;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.22);
+    animation: popInModal 0.2s ease-out;
+  }
+  .practice-mode-modal-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+    border-bottom: 1px solid #eef2f0;
+    padding-bottom: 10px;
+  }
+  .practice-mode-modal-head h4 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 800;
+    color: #1e3d2b;
+  }
+  .practice-mode-modal-body p {
+    margin: 0 0 14px;
+    color: #475569;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  .practice-mode-modal-cost {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    border-radius: 10px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    margin-bottom: 18px;
+    font-size: 13px;
+    color: #334155;
+  }
+  .practice-mode-modal-cost b {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: #059669;
+    font-size: 14px;
+  }
+
+  /* Specific Elements to Hide on Mobile */
+  .ielts-task-meta {
+    display: none !important;
+  }
+  .transcript-foot > span {
+    display: none !important;
+  }
+  .answer-actions > span {
+    display: none !important;
+  }
+  .practice-aside {
+    display: none !important;
+  }
+}
+
 

@@ -78,7 +78,6 @@ export default function CourseMedia({
   return (
     <figure className={`course-media-frame ${className}`}>
       {content}
-      {caption && <figcaption>{caption}</figcaption>}
     </figure>
   );
 }

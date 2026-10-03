@@ -1128,6 +1128,7 @@ img {
   align-items: center;
   justify-content: space-between;
   gap: 24px;
+  margin-bottom: 24px;
 }
 .listening-page h1 {
   margin: 8px 0 7px;
@@ -1147,6 +1148,7 @@ img {
   display: grid;
   align-content: center;
   justify-items: center;
+  margin-bottom: 20px;
 }
 .page-sticker > span {
   color: #f5a756;
@@ -1163,31 +1165,6 @@ img {
   color: #8d6e60;
   font-size: 12px;
   font-weight: 900;
-}
-.listening-notice {
-  background: #eeeaff;
-  border-color: #e1dbff;
-  color: #5d568d;
-  border-radius: 16px;
-  margin: 20px 0 24px;
-  font-size: 13px;
-  line-height: 1.5;
-  padding: 15px 18px;
-  gap: 14px;
-}
-.listening-notice > svg {
-  color: #6856d2;
-  flex: none;
-  margin-top: 2px;
-}
-.listening-notice b {
-  color: #453995;
-  display: block;
-  font-size: 14px;
-  margin-bottom: 2px;
-}
-.listening-notice span {
-  color: #716994;
 }
 .listening-layout {
   grid-template-columns: minmax(255px, 290px) minmax(0, 1fr);
@@ -2308,9 +2285,7 @@ img {
     gap: 18px;
   }
   .auth-story {
-    min-height: 395px;
-    padding: 28px;
-    background-position: 70% center;
+    display: none !important;
   }
   .auth-story h1 {
     font-size: clamp(37px, 9vw, 49px);
@@ -2406,6 +2381,10 @@ img {
   }
   .section-head h2 {
     font-size: 22px;
+  }
+  .journey-map-scroll {
+    max-height: 220px !important;
+    overscroll-behavior: auto !important;
   }
   .page-sticker {
     display: none;

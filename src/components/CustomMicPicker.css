@@ -1,0 +1,74 @@
+/* ==========================================================================
+   Custom Microphone Picker Component Styles
+   ========================================================================== */
+
+.custom-mic-picker-container {
+  display: inline-flex;
+  align-items: center;
+}
+
+.custom-mic-picker-box {
+  display: inline-flex;
+  align-items: center;
+  position: relative;
+  background: #ffffff;
+  border: 1.5px solid #dbe5de;
+  border-radius: 12px;
+  padding: 0 10px 0 32px;
+  height: 38px;
+  box-shadow: 0 2px 6px rgba(24, 48, 32, 0.04);
+  transition: all 0.2s ease;
+}
+
+.custom-mic-picker-box:hover {
+  border-color: #2b7a4b;
+  box-shadow: 0 3px 8px rgba(24, 48, 32, 0.08);
+}
+
+.mic-picker-lead-icon {
+  position: absolute;
+  left: 10px;
+  color: #2b7a4b;
+  pointer-events: none;
+}
+
+.custom-mic-select {
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #213c2c;
+  cursor: pointer;
+  padding-right: 20px;
+  max-width: 220px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mic-picker-chevron {
+  position: absolute;
+  right: 10px;
+  color: #6c8274;
+  pointer-events: none;
+}
+
+@media (max-width: 600px) {
+  .custom-mic-picker-container {
+    width: 100% !important;
+    margin-top: 8px;
+    display: flex;
+  }
+  .custom-mic-picker-box {
+    width: 100% !important;
+    height: 42px;
+  }
+  .custom-mic-select {
+    width: 100% !important;
+    max-width: none !important;
+    font-size: 13px;
+  }
+}
