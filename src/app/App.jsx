@@ -2877,6 +2877,9 @@ Because this is live audio, comment on pronunciation or word stress only when a 
             }, 5000);
             proc.onaudioprocess = (e) => {
               if (ws.readyState !== WebSocket.OPEN) return;
+              if (inputContext.state === "suspended") {
+                void inputContext.resume().catch(() => {});
+              }
               const samples = e.inputBuffer.getChannelData(0);
               const data2 = encodePcm16Base64(samples, inputContext.sampleRate);
               try {
@@ -2920,7 +2923,9 @@ Because this is live audio, comment on pronunciation or word stress only when a 
         const c = msg.serverContent;
         if (c) {
           const inputText =
-            c.inputTranscription?.text || c.interimInputTranscription?.text;
+            c.inputTranscription?.text ||
+            c.interimInputTranscription?.text ||
+            c.inputAudioTranscription?.text;
           if (inputText) {
             appendLiveTranscriptChunk("learner", inputText);
             setLiveStatus("Live · learner speech received");

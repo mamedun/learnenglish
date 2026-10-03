@@ -37,7 +37,7 @@ export function mergeTranscripts(existing, next) {
   // If a already contains or ends with b
   if (aLower.endsWith(bLower)) return a;
 
-  // Check word-level overlap at the boundary (e.g. [..., "w1", "w2"] and ["w1", "w2", ...])
+  // Check word-level overlap at the boundary
   const aWords = a.split(/\s+/);
   const bWords = b.split(/\s+/);
   const maxOverlap = Math.min(aWords.length, bWords.length, 6);
@@ -62,18 +62,16 @@ export function useSpeechRecognition({ language = "en-US" } = {}) {
     Boolean(getRecognitionConstructor()),
   );
   const recognitionRef = useRef(null);
-  const shouldListenRef = useRef(false);
-  const restartTimerRef = useRef(null);
+  const listeningRef = useRef(false);
   const prefixRef = useRef("");
-  const sessionFinalRef = useRef("");
-  const latestTranscriptRef = useRef("");
+  const finalTranscriptRef = useRef("");
+  const lastFinalChunkRef = useRef("");
   const ignoreLateResultsRef = useRef(false);
 
   useEffect(() => {
     setSupported(Boolean(getRecognitionConstructor()));
     return () => {
-      shouldListenRef.current = false;
-      clearTimeout(restartTimerRef.current);
+      listeningRef.current = false;
       const recognition = recognitionRef.current;
       recognitionRef.current = null;
       if (recognition) {
@@ -90,11 +88,9 @@ export function useSpeechRecognition({ language = "en-US" } = {}) {
   }, []);
 
   const stop = useCallback((options = {}) => {
-    shouldListenRef.current = false;
-    clearTimeout(restartTimerRef.current);
+    listeningRef.current = false;
     if (options?.discardPendingResults) ignoreLateResultsRef.current = true;
     const recognition = recognitionRef.current;
-    recognitionRef.current = null;
     if (recognition) {
       try {
         recognition.stop();
@@ -106,8 +102,7 @@ export function useSpeechRecognition({ language = "en-US" } = {}) {
   }, []);
 
   const reset = useCallback(() => {
-    shouldListenRef.current = false;
-    clearTimeout(restartTimerRef.current);
+    listeningRef.current = false;
     ignoreLateResultsRef.current = true;
     const recognition = recognitionRef.current;
     recognitionRef.current = null;
@@ -122,8 +117,8 @@ export function useSpeechRecognition({ language = "en-US" } = {}) {
       }
     }
     prefixRef.current = "";
-    sessionFinalRef.current = "";
-    latestTranscriptRef.current = "";
+    finalTranscriptRef.current = "";
+    lastFinalChunkRef.current = "";
     setListening(false);
     setTranscript("");
   }, []);
@@ -131,112 +126,13 @@ export function useSpeechRecognition({ language = "en-US" } = {}) {
   const updateTranscript = useCallback((newText) => {
     const val =
       typeof newText === "function"
-        ? newText(latestTranscriptRef.current)
+        ? newText(finalTranscriptRef.current)
         : newText;
     prefixRef.current = val || "";
-    sessionFinalRef.current = val || "";
-    latestTranscriptRef.current = val || "";
+    finalTranscriptRef.current = val || "";
+    lastFinalChunkRef.current = "";
     setTranscript(val || "");
   }, []);
-
-  const startSession = useCallback(() => {
-    const Recognition = getRecognitionConstructor();
-    if (!Recognition) {
-      setSupported(false);
-      return { ok: false, reason: "unsupported" };
-    }
-
-    try {
-      const recognition = new Recognition();
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.lang = language;
-
-      recognition.onresult = (event) => {
-        if (ignoreLateResultsRef.current) return;
-
-        let currentSessionFinal = "";
-        let currentInterim = "";
-
-        for (let i = 0; i < event.results.length; i += 1) {
-          const res = event.results[i];
-          const phrase = (res[0]?.transcript || "").trim();
-          if (!phrase) continue;
-
-          if (res.isFinal) {
-            currentSessionFinal = mergeTranscripts(currentSessionFinal, phrase);
-          } else {
-            currentInterim = mergeTranscripts(currentInterim, phrase);
-          }
-        }
-
-        const fullFinal = mergeTranscripts(
-          prefixRef.current,
-          currentSessionFinal,
-        );
-        sessionFinalRef.current = fullFinal;
-
-        const liveCombined = mergeTranscripts(fullFinal, currentInterim);
-        latestTranscriptRef.current = liveCombined;
-        setTranscript(liveCombined);
-      };
-
-      recognition.onerror = (event) => {
-        if (event.error === "no-speech" || event.error === "aborted") {
-          // Transient on mobile; let onend auto-restart if shouldListen is true
-          return;
-        }
-
-        if (
-          ["not-allowed", "service-not-allowed", "audio-capture"].includes(
-            event.error,
-          )
-        ) {
-          shouldListenRef.current = false;
-          clearTimeout(restartTimerRef.current);
-          setListening(false);
-          window.dispatchEvent(
-            new CustomEvent("speakup:speech-error", {
-              detail: { error: event.error },
-            }),
-          );
-        }
-      };
-
-      recognition.onend = () => {
-        if (recognitionRef.current === recognition) {
-          recognitionRef.current = null;
-        }
-
-        if (shouldListenRef.current && !ignoreLateResultsRef.current) {
-          if (sessionFinalRef.current) {
-            prefixRef.current = sessionFinalRef.current;
-          }
-          clearTimeout(restartTimerRef.current);
-          restartTimerRef.current = setTimeout(() => {
-            if (shouldListenRef.current && !ignoreLateResultsRef.current) {
-              startSession();
-            }
-          }, 150);
-          return;
-        }
-
-        setListening(false);
-      };
-
-      recognitionRef.current = recognition;
-      recognition.start();
-      setListening(true);
-      setSupported(true);
-      return { ok: true };
-    } catch (error) {
-      recognitionRef.current = null;
-      if (!shouldListenRef.current) {
-        setListening(false);
-      }
-      return { ok: false, reason: error?.name || "recognition-error" };
-    }
-  }, [language]);
 
   const start = useCallback(
     ({ append = false } = {}) => {
@@ -246,27 +142,115 @@ export function useSpeechRecognition({ language = "en-US" } = {}) {
         return { ok: false, reason: "unsupported" };
       }
 
-      shouldListenRef.current = true;
+      if (recognitionRef.current && listeningRef.current) return { ok: true };
       ignoreLateResultsRef.current = false;
+      listeningRef.current = true;
 
-      const prefix = append ? latestTranscriptRef.current.trim() : "";
+      const prefix = append ? transcript.trim() : "";
       prefixRef.current = prefix;
-      sessionFinalRef.current = prefix;
-      latestTranscriptRef.current = prefix;
+      finalTranscriptRef.current = prefix;
+      lastFinalChunkRef.current = "";
       if (!append) setTranscript("");
 
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.abort();
-        } catch {
-          // Cleanup prior instance
-        }
-        recognitionRef.current = null;
-      }
+      try {
+        const recognition = new Recognition();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = language;
 
-      return startSession();
+        recognition.onresult = (event) => {
+          if (ignoreLateResultsRef.current) return;
+
+          let interimText = "";
+          for (let i = event.resultIndex; i < event.results.length; i += 1) {
+            const item = event.results[i];
+            const text = (item?.[0]?.transcript || "").trim();
+            if (!text) continue;
+
+            if (item.isFinal) {
+              // Mobile repeat bug: resultIndex 1 repeats resultIndex 0 on Android Chrome
+              if (
+                i === 1 &&
+                text.toLowerCase() ===
+                  (event.results[0]?.[0]?.transcript || "").trim().toLowerCase()
+              ) {
+                continue;
+              }
+
+              // Prevent exact consecutive duplicate chunks
+              if (
+                lastFinalChunkRef.current &&
+                lastFinalChunkRef.current.toLowerCase() === text.toLowerCase()
+              ) {
+                continue;
+              }
+              lastFinalChunkRef.current = text;
+
+              finalTranscriptRef.current = mergeTranscripts(
+                finalTranscriptRef.current,
+                text,
+              );
+            } else {
+              interimText = mergeTranscripts(interimText, text);
+            }
+          }
+
+          const combined = mergeTranscripts(
+            finalTranscriptRef.current,
+            interimText,
+          );
+          setTranscript(combined);
+        };
+
+        recognition.onerror = (event) => {
+          if (event.error === "no-speech" || event.error === "aborted") {
+            // Non-fatal transient events, do not stop or surface error to user
+            return;
+          }
+
+          listeningRef.current = false;
+          setListening(false);
+          if (recognitionRef.current === recognition) {
+            recognitionRef.current = null;
+          }
+
+          window.dispatchEvent(
+            new CustomEvent("speakup:speech-error", {
+              detail: { error: event.error },
+            }),
+          );
+        };
+
+        recognition.onend = () => {
+          if (listeningRef.current && !ignoreLateResultsRef.current) {
+            try {
+              recognition.start();
+              return;
+            } catch {
+              // Browser may require a new touch gesture on some mobile platforms
+            }
+          }
+
+          listeningRef.current = false;
+          setListening(false);
+          if (recognitionRef.current === recognition) {
+            recognitionRef.current = null;
+          }
+        };
+
+        recognitionRef.current = recognition;
+        recognition.start();
+        setListening(true);
+        setSupported(true);
+        return { ok: true };
+      } catch (error) {
+        listeningRef.current = false;
+        recognitionRef.current = null;
+        setListening(false);
+        return { ok: false, reason: error?.name || "recognition-error" };
+      }
     },
-    [startSession],
+    [language, transcript],
   );
 
   return {
