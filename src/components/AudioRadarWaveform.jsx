@@ -55,39 +55,35 @@ export default function AudioRadarWaveform({
     let isMounted = true;
 
     async function initAudio() {
-      try {
-        let activeStream = stream;
-        if (!activeStream || activeStream.getAudioTracks().length === 0 || activeStream.getAudioTracks()[0].readyState === "ended") {
-          // Acquire own microphone stream
-          if (!navigator.mediaDevices?.getUserMedia) return;
-          const userStream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-              echoCancellation: true,
-              noiseSuppression: true,
-              autoGainControl: false,
-            },
-          });
-          if (!isMounted) {
-            userStream.getTracks().forEach((t) => t.stop());
-            return;
-          }
-          internalStreamRef.current = userStream;
-          activeStream = userStream;
-        }
+      // If no external media stream is passed, run visualizer simulation.
+      // Do NOT request getUserMedia on mobile when Web Speech API is running,
+      // because acquiring hardware microphone track starves Web Speech API of audio.
+      if (
+        !stream ||
+        stream.getAudioTracks().length === 0 ||
+        stream.getAudioTracks()[0].readyState === "ended"
+      ) {
+        startSimulatedDrawing();
+        return;
+      }
 
+      try {
         const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-        if (!AudioContextClass) return;
+        if (!AudioContextClass) {
+          startSimulatedDrawing();
+          return;
+        }
 
         const audioCtx = new AudioContextClass();
         if (audioCtx.state === "suspended") {
-          await audioCtx.resume();
+          await audioCtx.resume().catch(() => {});
         }
 
         const analyser = audioCtx.createAnalyser();
         analyser.fftSize = 64; // 32 frequency bins
         analyser.smoothingTimeConstant = 0.65;
 
-        const source = audioCtx.createMediaStreamSource(activeStream);
+        const source = audioCtx.createMediaStreamSource(stream);
         source.connect(analyser);
 
         audioCtxRef.current = audioCtx;
@@ -96,7 +92,8 @@ export default function AudioRadarWaveform({
 
         startDrawing();
       } catch (err) {
-        console.warn("AudioRadarWaveform: microphone analysis unavailable", err);
+        console.warn("AudioRadarWaveform: microphone analysis fallback to simulation", err);
+        startSimulatedDrawing();
       }
     }
 
@@ -268,6 +265,106 @@ export default function AudioRadarWaveform({
     }
 
     render(performance.now());
+  }
+
+  function startSimulatedDrawing() {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    let lastStateUpdate = 0;
+    const currentHeights = currentHeightsRef.current;
+
+    function renderSimulated(now) {
+      animFrameRef.current = requestAnimationFrame(renderSimulated);
+
+      const t = now * 0.003;
+      const primaryPulse = Math.sin(t * 1.6);
+      const secondaryPulse = Math.sin(t * 3.4 + 1.2);
+      const isSpeaking = primaryPulse > -0.4;
+      const volumeLevel = isSpeaking
+        ? Math.min(100, Math.round(38 + 28 * Math.abs(primaryPulse) + 14 * secondaryPulse))
+        : 6;
+
+      if (now - lastStateUpdate > 80) {
+        lastStateUpdate = now;
+        setVoiceDetected(isSpeaking);
+        setVoiceVolume(volumeLevel);
+      }
+
+      const rect = canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      const displayWidth = Math.floor(rect.width);
+      const displayHeight = Math.floor(rect.height);
+
+      if (canvas.width !== displayWidth * dpr || canvas.height !== displayHeight * dpr) {
+        canvas.width = displayWidth * dpr;
+        canvas.height = displayHeight * dpr;
+      }
+
+      ctx.save();
+      ctx.scale(dpr, dpr);
+      ctx.clearRect(0, 0, displayWidth, displayHeight);
+
+      const totalBars = BAR_COUNT;
+      const gap = Math.max(2, Math.floor(displayWidth / 90));
+      const barWidth = Math.max(3, (displayWidth - gap * (totalBars - 1)) / totalBars);
+      const maxHeight = displayHeight - 4;
+      const minHeight = 4;
+
+      let gradient;
+      if (theme === "coral") {
+        gradient = ctx.createLinearGradient(0, displayHeight, 0, 0);
+        gradient.addColorStop(0, "#ca4e41");
+        gradient.addColorStop(0.6, "#f27c70");
+        gradient.addColorStop(1, "#ffa298");
+      } else if (theme === "purple") {
+        gradient = ctx.createLinearGradient(0, displayHeight, 0, 0);
+        gradient.addColorStop(0, "#5240c4");
+        gradient.addColorStop(0.6, "#7867ea");
+        gradient.addColorStop(1, "#a69afc");
+      } else {
+        gradient = ctx.createLinearGradient(0, displayHeight, 0, 0);
+        gradient.addColorStop(0, "#29573d");
+        gradient.addColorStop(0.6, "#449e6b");
+        gradient.addColorStop(1, "#66c78f");
+      }
+
+      ctx.fillStyle = gradient;
+
+      const half = Math.floor(BAR_COUNT / 2);
+      for (let i = 0; i < totalBars; i++) {
+        const distFromCenter = Math.abs(i - half) / half;
+        const wave =
+          Math.sin(t * 3.1 + i * 0.38) * 0.5 +
+          Math.cos(t * 1.9 - i * 0.22) * 0.3 +
+          Math.sin(t * 5.4 + i * 0.8) * 0.2;
+        const normalized = Math.max(0, Math.min(1, (wave + 1) / 2));
+        const envelope = 1 - distFromCenter * 0.5;
+
+        let targetHeight = minHeight;
+        if (isSpeaking) {
+          const boosted = Math.pow(normalized * envelope, 1.25);
+          targetHeight = minHeight + boosted * (maxHeight - minHeight);
+        }
+
+        if (targetHeight > currentHeights[i]) {
+          currentHeights[i] += (targetHeight - currentHeights[i]) * 0.45;
+        } else {
+          currentHeights[i] += (targetHeight - currentHeights[i]) * 0.22;
+        }
+
+        const barH = Math.max(minHeight, Math.min(maxHeight, currentHeights[i]));
+        const x = i * (barWidth + gap);
+        const y = (displayHeight - barH) / 2;
+        drawRoundedBar(ctx, x, y, barWidth, barH, barWidth / 2);
+      }
+
+      ctx.restore();
+    }
+
+    renderSimulated(performance.now());
   }
 
   if (!active) return null;

@@ -117,21 +117,16 @@ export function useSpeechRecognition({ language = "en-US" } = {}) {
       }
     }
     prefixRef.current = "";
-    finalTranscriptRef.current = "";
-    lastFinalChunkRef.current = "";
     setListening(false);
     setTranscript("");
   }, []);
 
   const updateTranscript = useCallback((newText) => {
-    const val =
-      typeof newText === "function"
-        ? newText(finalTranscriptRef.current)
-        : newText;
-    prefixRef.current = val || "";
-    finalTranscriptRef.current = val || "";
-    lastFinalChunkRef.current = "";
-    setTranscript(val || "");
+    setTranscript((prev) => {
+      const val = typeof newText === "function" ? newText(prev) : newText;
+      prefixRef.current = val || "";
+      return val || "";
+    });
   }, []);
 
   const start = useCallback(
@@ -148,8 +143,6 @@ export function useSpeechRecognition({ language = "en-US" } = {}) {
 
       const prefix = append ? transcript.trim() : "";
       prefixRef.current = prefix;
-      finalTranscriptRef.current = prefix;
-      lastFinalChunkRef.current = "";
       if (!append) setTranscript("");
 
       try {
@@ -161,50 +154,43 @@ export function useSpeechRecognition({ language = "en-US" } = {}) {
         recognition.onresult = (event) => {
           if (ignoreLateResultsRef.current) return;
 
-          let interimText = "";
-          for (let i = event.resultIndex; i < event.results.length; i += 1) {
+          const parts = [];
+          for (let i = 0; i < event.results.length; i += 1) {
             const item = event.results[i];
             const text = (item?.[0]?.transcript || "").trim();
             if (!text) continue;
 
-            if (item.isFinal) {
-              // Mobile repeat bug: resultIndex 1 repeats resultIndex 0 on Android Chrome
-              if (
-                i === 1 &&
-                text.toLowerCase() ===
-                  (event.results[0]?.[0]?.transcript || "").trim().toLowerCase()
-              ) {
-                continue;
-              }
-
-              // Prevent exact consecutive duplicate chunks
-              if (
-                lastFinalChunkRef.current &&
-                lastFinalChunkRef.current.toLowerCase() === text.toLowerCase()
-              ) {
-                continue;
-              }
-              lastFinalChunkRef.current = text;
-
-              finalTranscriptRef.current = mergeTranscripts(
-                finalTranscriptRef.current,
-                text,
-              );
-            } else {
-              interimText = mergeTranscripts(interimText, text);
+            // Mobile repeat bug: Android Chrome resultIndex 1 sometimes repeats resultIndex 0
+            if (
+              i === 1 &&
+              text.toLowerCase() ===
+                (event.results[0]?.[0]?.transcript || "").trim().toLowerCase()
+            ) {
+              continue;
             }
+
+            // Prevent adjacent identical duplicate chunks
+            if (
+              parts.length > 0 &&
+              parts[parts.length - 1].toLowerCase() === text.toLowerCase()
+            ) {
+              continue;
+            }
+
+            parts.push(text);
           }
 
-          const combined = mergeTranscripts(
-            finalTranscriptRef.current,
-            interimText,
-          );
+          const recognized = parts.join(" ").replace(/\s+/g, " ").trim();
+          const combined = [prefixRef.current, recognized]
+            .filter(Boolean)
+            .join(" ");
+
           setTranscript(combined);
         };
 
         recognition.onerror = (event) => {
           if (event.error === "no-speech" || event.error === "aborted") {
-            // Non-fatal transient events, do not stop or surface error to user
+            // Non-fatal transient events on mobile
             return;
           }
 
@@ -222,15 +208,6 @@ export function useSpeechRecognition({ language = "en-US" } = {}) {
         };
 
         recognition.onend = () => {
-          if (listeningRef.current && !ignoreLateResultsRef.current) {
-            try {
-              recognition.start();
-              return;
-            } catch {
-              // Browser may require a new touch gesture on some mobile platforms
-            }
-          }
-
           listeningRef.current = false;
           setListening(false);
           if (recognitionRef.current === recognition) {
