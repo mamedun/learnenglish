@@ -46,11 +46,16 @@ assert.match(
   app,
   /Ganti ke Browser Native di Settings jika Proses Audio Terlalu lama/,
 );
+assert.match(
+  app,
+  /Ganti ke Natural Voice di Settings, jika suara tutor terdengar tidak natural/,
+);
+assert.match(app, /<KokoroDownloadModal/);
 
 // Assertions for MascotLoadingToast responsive width
 assert.match(toastCss, /max-width:\s*720px/);
 assert.match(toastCss, /width:\s*calc\(100% - 16px\)/);
 
 console.log(
-  "PASS: Settings gear stays visible on mobile, Natural Voice / Browser Native configured, lesson voice prioritized, and toast widened.",
+  "PASS: Settings gear stays visible on mobile, Natural Voice / Browser Native configured, lesson voice prioritized, download modal wired, and toast widened.",
 );

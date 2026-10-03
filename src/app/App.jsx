@@ -59,6 +59,7 @@ import ModuleLoading from "../components/ModuleLoading";
 import ModuleErrorBoundary from "../components/ModuleErrorBoundary";
 import ProcessingStatus from "../components/ProcessingStatus";
 import MascotLoadingToast from "../components/MascotLoadingToast";
+import KokoroDownloadModal from "../components/KokoroDownloadModal";
 import { convertRecordingToMp3, convertRecordingToWav } from "../lib/audio";
 import {
   isTtsBusy,
@@ -183,6 +184,8 @@ function App() {
   const ttsAudioRef = useRef(null);
   const currentUtteranceRef = useRef(null);
   const slowRenderTimerRef = useRef(null);
+  const pendingSpeechRef = useRef(null);
+  const [showKokoroDownloadModal, setShowKokoroDownloadModal] = useState(false);
   const liveInputContextRef = useRef(null);
   const liveOutputContextRef = useRef(null);
   const liveStreamRef = useRef(null);
@@ -2220,9 +2223,56 @@ function App() {
     }
   }
 
+  useEffect(() => {
+    if (
+      ttsBusy &&
+      ttsStatus?.engine === "kokoro" &&
+      (ttsStatus?.phase === "download" || ttsStatus?.phase === "cache")
+    ) {
+      setShowKokoroDownloadModal(true);
+    } else if (
+      !ttsBusy ||
+      ttsStatus?.phase === "speaking" ||
+      ttsStatus?.phase === "error"
+    ) {
+      setShowKokoroDownloadModal(false);
+    }
+  }, [ttsBusy, ttsStatus?.phase, ttsStatus?.engine]);
+
+  function handleSwitchToNativeFromModal() {
+    stopCurrentSpeech();
+    setShowKokoroDownloadModal(false);
+    const synth = typeof window !== "undefined" ? window.speechSynthesis : null;
+    const availableVoices = synth ? synth.getVoices() : [];
+    const bestVoice = selectBestVoice(availableVoices);
+    const voiceName = bestVoice?.name || "";
+    setData((d) => ({
+      ...d,
+      settings: {
+        ...d.settings,
+        tts: "native",
+        ...(voiceName ? { nativeVoice: voiceName } : {}),
+      },
+    }));
+    toast.info(
+      `Pengaturan suara diganti ke Browser Native (${voiceName || "Default"}).`,
+    );
+    if (pendingSpeechRef.current) {
+      const speechToPlay = pendingSpeechRef.current;
+      const reqId = ++ttsRequestIdRef.current;
+      speakWithBrowser(
+        speechToPlay,
+        reqId,
+        "Beralih ke suara cepat Browser Voice…",
+        () => {},
+      );
+    }
+  }
+
   async function speak(text, options = {}) {
     const sourceText = toPlainText(text, { forSpeech: true });
     if (!sourceText) return;
+    pendingSpeechRef.current = sourceText;
     const requestId = ++ttsRequestIdRef.current;
     stopCurrentSpeech();
     const notifyPlaybackComplete = () => {
@@ -2233,6 +2283,8 @@ function App() {
         options.onPlaybackComplete();
     };
     const engine = isSmallViewport ? "native" : data.settings.tts || "kokoro";
+    const effectiveEngine =
+      data.settings.tts || (isSmallViewport ? "native" : "kokoro");
     const isNaturalVoiceChosen =
       data.settings.tts === "kokoro" ||
       (!data.settings.tts && !isSmallViewport);
@@ -2240,7 +2292,7 @@ function App() {
       !options?.forceNative &&
       (options?.forceKokoro === true ||
         data.settings.tts === "kokoro" ||
-        (isNaturalVoiceChosen && (options?.type === "ai_reply" || engine === "kokoro")));
+        (isNaturalVoiceChosen && (options?.type === "ai_reply" || effectiveEngine === "kokoro")));
     const context =
       options?.type && options?.item && options.type !== "ai_reply"
         ? options
@@ -3362,7 +3414,7 @@ Because this is live audio, comment on pronunciation or word stress only when a 
     if (isSpeakingPhase) {
       mascotToastTitle = "Tutor sedang berbicara…";
       mascotToastMessage = isNativeEngine
-        ? "Audio menggunakan native browser dan dapat terdengar kurang natural."
+        ? "Ganti ke Natural Voice di Settings, jika suara tutor terdengar tidak natural"
         : "Dengarkan pelafalan dan intonasi tutor secara seksama.";
       mascotToastProgress = null;
     } else if (ttsStatus.phase === "download") {
@@ -3371,9 +3423,12 @@ Because this is live audio, comment on pronunciation or word stress only when a 
         "Ganti ke Browser Native di Settings jika Proses Audio Terlalu lama";
       mascotToastProgress = ttsStatus.progress ?? null;
     } else {
-      mascotToastTitle = "Audio sedang dipersiapkan dengan WASM / GPU…";
-      mascotToastMessage =
-        "Ganti ke Browser Native di Settings jika Proses Audio Terlalu lama";
+      mascotToastTitle = isNativeEngine
+        ? "Audio sedang dipersiapkan dengan Browser Native…"
+        : "Audio sedang dipersiapkan dengan WASM / GPU…";
+      mascotToastMessage = isNativeEngine
+        ? "Ganti ke Natural Voice di Settings, jika suara tutor terdengar tidak natural"
+        : "Ganti ke Browser Native di Settings jika Proses Audio Terlalu lama";
       mascotToastProgress = ttsStatus.progress ?? null;
     }
   } else if (liveLoading) {
@@ -3893,9 +3948,15 @@ Because this is live audio, comment on pronunciation or word stress only when a 
           refreshing={coursePurchaseRefreshing}
         />
       )}
+      {/* Dedicated Kokoro Initial Model Download Modal */}
+      <KokoroDownloadModal
+        isOpen={showKokoroDownloadModal}
+        status={ttsStatus}
+        onSwitchToNative={handleSwitchToNativeFromModal}
+      />
       {/* Gamified Mascot Bottom Loading Toast */}
       <MascotLoadingToast
-        active={isGlobalLoading}
+        active={isGlobalLoading && !showKokoroDownloadModal}
         type={mascotToastType}
         title={mascotToastTitle}
         message={mascotToastMessage}
