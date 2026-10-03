@@ -42,9 +42,32 @@ export default function AudioRadarWaveform({
   const sourceRef = useRef(null);
   const animFrameRef = useRef(null);
   const currentHeightsRef = useRef(new Float32Array(BAR_COUNT).fill(4));
+  const canvasSizeRef = useRef({ width: 300, height: 40, dpr: 1 });
 
   const [voiceDetected, setVoiceDetected] = useState(false);
   const [voiceVolume, setVoiceVolume] = useState(0); // 0 - 100 scale
+
+  useEffect(() => {
+    function updateCanvasSize() {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      const displayWidth = Math.floor(rect.width) || 300;
+      const displayHeight = Math.floor(rect.height) || 40;
+      canvasSizeRef.current = { width: displayWidth, height: displayHeight, dpr };
+      if (canvas.width !== displayWidth * dpr || canvas.height !== displayHeight * dpr) {
+        canvas.width = displayWidth * dpr;
+        canvas.height = displayHeight * dpr;
+      }
+    }
+
+    updateCanvasSize();
+    window.addEventListener("resize", updateCanvasSize, { passive: true });
+    return () => {
+      window.removeEventListener("resize", updateCanvasSize);
+    };
+  }, []);
 
   useEffect(() => {
     if (!active) {
@@ -186,16 +209,7 @@ export default function AudioRadarWaveform({
         setVoiceVolume(volumeLevel);
       }
 
-      // Prepare Canvas dimensions
-      const rect = canvas.getBoundingClientRect();
-      const dpr = window.devicePixelRatio || 1;
-      const displayWidth = Math.floor(rect.width);
-      const displayHeight = Math.floor(rect.height);
-
-      if (canvas.width !== displayWidth * dpr || canvas.height !== displayHeight * dpr) {
-        canvas.width = displayWidth * dpr;
-        canvas.height = displayHeight * dpr;
-      }
+      const { width: displayWidth, height: displayHeight, dpr } = canvasSizeRef.current;
 
       ctx.save();
       ctx.scale(dpr, dpr);
@@ -293,15 +307,7 @@ export default function AudioRadarWaveform({
         setVoiceVolume(volumeLevel);
       }
 
-      const rect = canvas.getBoundingClientRect();
-      const dpr = window.devicePixelRatio || 1;
-      const displayWidth = Math.floor(rect.width);
-      const displayHeight = Math.floor(rect.height);
-
-      if (canvas.width !== displayWidth * dpr || canvas.height !== displayHeight * dpr) {
-        canvas.width = displayWidth * dpr;
-        canvas.height = displayHeight * dpr;
-      }
+      const { width: displayWidth, height: displayHeight, dpr } = canvasSizeRef.current;
 
       ctx.save();
       ctx.scale(dpr, dpr);
@@ -393,13 +399,11 @@ export default function AudioRadarWaveform({
         <div className="arw-header">
           <div className="arw-status">
             <span className={`arw-live-dot ${voiceDetected ? "active-voice" : "silent-wait"}`} />
-            <span className="arw-label">
-              {voiceDetected ? "● Suara terdeteksi — mic merespons" : label}
-            </span>
+            <span className="arw-label">{label}</span>
           </div>
           <span className="arw-sublabel">
             {voiceDetected
-              ? `Intensitas volume: ${voiceVolume}%`
+              ? `Mic merespons · ${voiceVolume}%`
               : subLabel || "Hening (Menunggu suaramu…)"}
           </span>
         </div>
