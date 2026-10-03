@@ -133,7 +133,15 @@ export default function ListeningPage({
       setShowScript(true);
       return;
     }
-    speak(active.script, { type: "listening", item: active });
+    speak(active.script, {
+      type: "listening",
+      item: active,
+      voice:
+        active?.voice ||
+        active?.defaultVoice ||
+        active?.content?.defaultVoice ||
+        "af_heart",
+    });
   }
   async function check(question) {
     const key = keyFor(question);
@@ -451,7 +459,17 @@ export default function ListeningPage({
           </div>
           <ListeningSpeakingTask
             lesson={active}
-            speak={(text) => speak(text, { type: "listening", item: active })}
+            speak={(text) =>
+              speak(text, {
+                type: "listening",
+                item: active,
+                voice:
+                  active?.voice ||
+                  active?.defaultVoice ||
+                  active?.content?.defaultVoice ||
+                  "af_heart",
+              })
+            }
             ttsStatus={ttsStatus}
             speechSimilarityThreshold={speechThreshold}
             aiAudioCost={aiAudioCost}

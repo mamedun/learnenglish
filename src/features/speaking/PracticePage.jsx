@@ -489,6 +489,11 @@ export default function PracticePage(p) {
                 speak(unit.prompt, {
                   type: "speaking",
                   item: unit,
+                  voice:
+                    unit?.voice ||
+                    unit?.defaultVoice ||
+                    unit?.content?.defaultVoice ||
+                    "af_heart",
                   onPlaybackComplete: () => {
                     setPromptPlaying(false);
                     if (currentUnitIdRef.current === unit.id)
@@ -1091,7 +1096,17 @@ export default function PracticePage(p) {
                     <small>
                       MAYA{" "}
                       <button
-                        onClick={() => speak(t.reply)}
+                        onClick={() =>
+                          speak(t.reply, {
+                            type: "ai_reply",
+                            item: unit,
+                            voice:
+                              unit?.voice ||
+                              unit?.defaultVoice ||
+                              unit?.content?.defaultVoice ||
+                              "af_heart",
+                          })
+                        }
                         disabled={ttsBusy}
                         aria-label={
                           ttsBusy ? "Menyiapkan audio" : "Bacakan balasan"

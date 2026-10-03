@@ -1906,7 +1906,17 @@ function App() {
       }
       setAudioBlob(null);
       setTranscript("");
-      if (assistantSpeech) void speak(assistantSpeech);
+      if (assistantSpeech) {
+        void speak(assistantSpeech, {
+          type: "ai_reply",
+          item: activeUnit,
+          voice:
+            activeUnit?.voice ||
+            activeUnit?.defaultVoice ||
+            activeUnit?.content?.defaultVoice ||
+            "af_heart",
+        });
+      }
     } catch (error) {
       toast.error(error.message || "Jawaban belum dapat diproses.");
     } finally {
@@ -2223,8 +2233,18 @@ function App() {
         options.onPlaybackComplete();
     };
     const engine = isSmallViewport ? "native" : data.settings.tts || "kokoro";
-    const forceKokoro = !isSmallViewport && options?.forceKokoro === true;
-    const context = options?.type && options?.item ? options : null;
+    const isNaturalVoiceChosen =
+      data.settings.tts === "kokoro" ||
+      (!data.settings.tts && !isSmallViewport);
+    const forceKokoro =
+      !options?.forceNative &&
+      (options?.forceKokoro === true ||
+        data.settings.tts === "kokoro" ||
+        (isNaturalVoiceChosen && (options?.type === "ai_reply" || engine === "kokoro")));
+    const context =
+      options?.type && options?.item && options.type !== "ai_reply"
+        ? options
+        : null;
     const authoredSegments = Array.isArray(context?.item?.ttsSegments)
       ? context.item.ttsSegments.filter((turn) =>
           String(turn?.text || "").trim(),
@@ -2239,11 +2259,24 @@ function App() {
         : sourceText,
       { forSpeech: true },
     );
-    const userVoice = KOKORO_VOICES.some(
-      (voice) => voice.id === data.settings.voice,
-    )
-      ? data.settings.voice
-      : "af_heart";
+    const candidateVoice =
+      options?.voice ||
+      options?.item?.voice ||
+      options?.item?.defaultVoice ||
+      options?.item?.content?.defaultVoice ||
+      options?.item?.content?.voice ||
+      activeUnit?.voice ||
+      activeUnit?.defaultVoice ||
+      activeUnit?.content?.defaultVoice ||
+      activeUnit?.content?.voice;
+    const resolvedVoice =
+      (candidateVoice &&
+        KOKORO_VOICES.some((voice) => voice.id === candidateVoice) &&
+        candidateVoice) ||
+      (data.settings.voice &&
+        KOKORO_VOICES.some((voice) => voice.id === data.settings.voice) &&
+        data.settings.voice) ||
+      "af_heart";
 
     // Authored lesson audio is shared across learners and always takes
     // priority over personal engine/voice settings. The API chooses a multi-
@@ -2350,7 +2383,7 @@ function App() {
 
     try {
       await speakKokoro(sourceText, {
-        voice: userVoice,
+        voice: resolvedVoice,
         compute: data.settings.ttsCompute || "auto",
         speed: 0.88,
         onStatus: (status) => {
@@ -3334,16 +3367,13 @@ Because this is live audio, comment on pronunciation or word stress only when a 
       mascotToastProgress = null;
     } else if (ttsStatus.phase === "download") {
       mascotToastTitle = "Mengunduh Model Suara Kokoro…";
-      mascotToastMessage = "Unduhan awal model ~82 MB ke memori perangkat.";
+      mascotToastMessage =
+        "Ganti ke Browser Native di Settings jika Proses Audio Terlalu lama";
       mascotToastProgress = ttsStatus.progress ?? null;
     } else {
       mascotToastTitle = "Audio sedang dipersiapkan dengan WASM / GPU…";
       mascotToastMessage =
-        ttsStatus.message &&
-        ttsStatus.message !== "Tutor sedang berbicara…" &&
-        !ttsStatus.message.toLowerCase().includes("tutor sedang berbicara")
-          ? ttsStatus.message
-          : "Engine Kokoro sedang merender gelombang suara.";
+        "Ganti ke Browser Native di Settings jika Proses Audio Terlalu lama";
       mascotToastProgress = ttsStatus.progress ?? null;
     }
   } else if (liveLoading) {

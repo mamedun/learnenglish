@@ -25,7 +25,6 @@ import { usePwaInstall } from "../../hooks/usePwaInstall";
 import {
   getKokoroCacheInfo,
   isTtsBusy,
-  KOKORO_VOICES,
 } from "../../lib/ttsRocks";
 
 export default function SettingsPage({
@@ -50,10 +49,8 @@ export default function SettingsPage({
   const isSmallViewport = useSmallViewport();
   const { canInstall, isInstalled, isIos, installApp } = usePwaInstall();
   const activeTtsEngine = isSmallViewport
-    ? "native"
-    : data.settings.tts === "native"
-      ? "native"
-      : "kokoro";
+    ? (data.settings.tts || "native")
+    : (data.settings.tts || "kokoro");
   const ttsBusy = isTtsBusy(ttsStatus);
   useEffect(() => {
     getKokoroCacheInfo().then(setCacheInfo);
@@ -123,26 +120,28 @@ export default function SettingsPage({
               role="group"
               aria-label="Mesin text to speech"
             >
-              {!isSmallViewport && (
-                <button
-                  type="button"
-                  className={`tts-option ${activeTtsEngine === "kokoro" ? "selected" : ""}`}
-                  aria-pressed={activeTtsEngine === "kokoro"}
-                  onClick={() => update("tts", "kokoro")}
-                >
-                  <span className="radio-dot" />
-                  <span>
-                    <b>Kokoro · TTS.Rocks</b>
-                    <small>Suara neural lokal · WebGPU atau WASM</small>
-                  </span>
-                  <span className="ready-tag">DEFAULT</span>
-                </button>
-              )}
+              <button
+                type="button"
+                className={`tts-option ${activeTtsEngine === "kokoro" ? "selected" : ""}`}
+                aria-pressed={activeTtsEngine === "kokoro"}
+                onClick={() => update("tts", "kokoro")}
+              >
+                <span className="radio-dot" />
+                <span>
+                  <b>Natural Voice</b>
+                  <small>Kokoro TTS · Suara neural alami (WebGPU / WASM)</small>
+                </span>
+                <span className="ready-tag">
+                  {!isSmallViewport && (
+                    <span>DEFAULT · </span>
+                  )}
+                  NEURAL
+                </span>
+              </button>
               <button
                 type="button"
                 className={`tts-option ${activeTtsEngine === "native" ? "selected" : ""}`}
                 aria-pressed={activeTtsEngine === "native"}
-                disabled={isSmallViewport}
                 onClick={() => update("tts", "native")}
               >
                 <span className="radio-dot" />
@@ -161,46 +160,10 @@ export default function SettingsPage({
                   <CircleHelp size={15} />
                   <span>
                     Materi Listening dan AI Lesson selalu memeriksa shared audio
-                    terlebih dahulu; jika cache tidak ada atau gagal diputar,
-                    Browser Native digunakan. Pilihan Kokoro ini berlaku untuk
-                    balasan tutor dinamis.
+                    terlebih dahulu. Jika memilih Natural Voice, suara balasan tutor
+                    pada AI Lesson akan otomatis menggunakan voice Kokoro pilihan materi
+                    (yang diatur per materi oleh admin).
                   </span>
-                </div>
-                <label className="field-label">
-                  KOKORO VOICE · BALASAN TUTOR DINAMIS
-                </label>
-                <div className="voice-row">
-                  <select
-                    className="text-field"
-                    value={data.settings.voice || "af_heart"}
-                    onChange={(e) => update("voice", e.target.value)}
-                  >
-                    {KOKORO_VOICES.map((voice) => (
-                      <option key={voice.id} value={voice.id}>
-                        {voice.name} · {voice.accent} ({voice.id})
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    className="sample-btn"
-                    onClick={() =>
-                      speak(
-                        "Hello! It is lovely to practice English with you today.",
-                        { forceKokoro: true },
-                      )
-                    }
-                    disabled={ttsBusy}
-                  >
-                    {ttsBusy ? (
-                      <>
-                        <span className="spinner" /> Menyiapkan…
-                      </>
-                    ) : (
-                      <>
-                        <Play size={14} fill="currentColor" /> Listen sample
-                      </>
-                    )}
-                  </button>
                 </div>
                 <label className="field-label">COMPUTE MODE</label>
                 <div className="select-wrap">
